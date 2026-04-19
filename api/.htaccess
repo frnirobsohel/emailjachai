@@ -1,0 +1,9 @@
+RewriteEngine On
+
+# Ensure we rewrite everything to index.php if not an actual static file
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php [QSA,L]
+
+# Prevent accessing specific old scripts directly to force controller routing
+RewriteRule ^(admin_settings|admin_users|download|manage_keys|settings|single_verify|submit)\.php$ index.php [L]
