@@ -1,13 +1,13 @@
 "use client"
 
 import { useState, useMemo, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { Button } from "@/components/common/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
+import { Input } from "@/components/common/input"
 import { Settings, Save, Beaker, FileText, CheckCircle, XCircle, Loader2 } from "lucide-react"
-import { Textarea } from "@/components/ui/textarea"
-import { SimpleSelect } from "@/components/ui/simple-select"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Textarea } from "@/components/common/textarea"
+import { SimpleSelect } from "@/components/common/simple-select"
+import { Alert, AlertDescription } from "@/components/common/alert"
 import { ApiClient } from "@/lib/api-client"
 
 type TemplatesKey = 'register' | 'forgot' | 'buy_credits' | 'job_completed' | 'transaction' | 'credit_assigned' | 'account_banned'

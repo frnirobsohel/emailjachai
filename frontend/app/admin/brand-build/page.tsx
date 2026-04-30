@@ -1,12 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { Button } from "@/components/common/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
+import { Input } from "@/components/common/input"
 import { Palette, Globe, Mail, Share2, Save, CheckCircle, XCircle, Loader2 } from "lucide-react"
-import { Label } from "@/components/ui/label"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Label } from "@/components/common/label"
+import { Alert, AlertDescription } from "@/components/common/alert"
 import { ApiClient } from "@/lib/api-client"
 
 export default function BrandBuildPage() {

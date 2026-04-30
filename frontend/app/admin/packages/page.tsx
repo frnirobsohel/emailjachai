@@ -1,13 +1,13 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
+import { Button } from "@/components/common/button"
+import { Input } from "@/components/common/input"
+import { Badge } from "@/components/common/badge"
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow
-} from "@/components/ui/table"
+} from "@/components/common/table"
 import {
     Package as PackageIcon, Plus, Edit, Trash2, ToggleLeft, ToggleRight, Check, X, Zap
 } from "lucide-react"

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { authorizeUser } from '@/lib/auth';
-const PHP_API_URL = process.env.API_BASE_URL || 'http://localhost/fontendapi/api';
+const PHP_API_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
 
 export async function POST(request: Request) {
     try {

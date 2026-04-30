@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyUser } from '@/lib/auth';
 import { cookies } from 'next/headers';
 
-const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost/fontendapi/api';
+const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
 const PUBLIC_PROXY_ROUTES = new Set(['settings/public']);
 
 /**
@@ -12,7 +12,7 @@ async function proxyRequest(request: NextRequest, { params }: { params: Promise<
     const resolvedParams = await params;
     const slug = resolvedParams.slug.join('/');
     const isPublicRoute = PUBLIC_PROXY_ROUTES.has(slug);
-    const user = await verifyUser();
+    const user = isPublicRoute ? { userId: 0, role: 'public' } : await verifyUser();
 
     if (!isPublicRoute && !user) {
         console.error('Proxy Auth Failed: No valid user session found. Ensure you are logged in and cookies are preserved.');
@@ -26,7 +26,7 @@ async function proxyRequest(request: NextRequest, { params }: { params: Promise<
     const headers = new Headers();
 
     // Only forward whitelisted headers
-    request.headers.forEach((value, key) => {
+    request.headers.forEach((value: string, key: string) => {
         if (whitelist.includes(key.toLowerCase())) {
             headers.set(key, value);
         }
@@ -66,7 +66,7 @@ async function proxyRequest(request: NextRequest, { params }: { params: Promise<
             cache: isPublicRoute ? 'force-cache' : 'no-store',
             next: { revalidate: isPublicRoute ? 300 : 0 },
             ...(isMultipart ? { duplex: 'half' as const } : {}),
-        });
+        } as any);
 
         const contentType = (response.headers.get('content-type') || '').toLowerCase();
         const contentDisposition = response.headers.get('content-disposition') || '';
@@ -101,7 +101,12 @@ async function proxyRequest(request: NextRequest, { params }: { params: Promise<
         }
 
         // Forward the response carefully for non-download content
-        const responseData = await response.text();
+        const rawResponseData = await response.text();
+        const responseData = rawResponseData.trim();
+
+        if (!responseData) {
+             return NextResponse.json({ status: 'success', data: null }, { status: response.status });
+        }
 
         // Try to parse as JSON, otherwise return as text
         try {

@@ -4,8 +4,7 @@ import { useState, useEffect, HTMLAttributes } from "react"
 import Link from "next/link"
 import { useRouter, usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
-import { ApiClient } from "@/lib/api-client"
+import { Button } from "@/components/common/button"
 import { useSiteTitle } from "@/lib/useSiteTitle"
 import {
     LayoutDashboard,
@@ -37,12 +36,15 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+} from "@/components/common/dropdown-menu"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/common/avatar"
 
+import { useUIStore } from "@/lib/store/ui-state"
+// ...
 export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
     const pathname = usePathname()
     const router = useRouter()
+    const { isSidebarOpen } = useUIStore()
     const [openSection, setOpenSection] = useState<"user" | "admin" | "system" | null>(null)
     const [user, setUser] = useState<{ name: string, email: string, role?: string } | null>(null)
     const [userRole, setUserRole] = useState<string>('user')
@@ -56,39 +58,37 @@ export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
         // Load cached state immediately if available
         const cachedUser = localStorage.getItem('sidebar_user')
         const cachedRole = localStorage.getItem('sidebar_role')
+        const cachedUserSyncedAt = localStorage.getItem('sidebar_user_synced_at')
+        const userCacheAge = cachedUserSyncedAt ? Date.now() - Number(cachedUserSyncedAt) : Number.POSITIVE_INFINITY
+        const hasFreshSidebarCache = !!cachedUser && userCacheAge < 5 * 60 * 1000
 
         if (cachedUser) setUser(JSON.parse(cachedUser))
         if (cachedRole) setUserRole(cachedRole)
 
         const fetchSettings = async () => {
             try {
-                // Sync session from server (Source of Truth)
-                const meResponse = await fetch('/next-api/auth/me');
-                if (meResponse.ok) {
-                    const meData = await meResponse.json();
-                    const sessionUser = meData?.data?.user;
-                    if (meData.status === 'success' && sessionUser) {
-                        setUser(sessionUser);
-                        setUserRole(sessionUser.role || 'user');
-                        
-                        // Persist to localStorage
-                        localStorage.setItem('sidebar_user', JSON.stringify(sessionUser))
-                        localStorage.setItem('sidebar_role', sessionUser.role || 'user')
+                // Avoid re-fetching /auth/me on every navigation when we already have a fresh sidebar cache.
+                if (!hasFreshSidebarCache) {
+                    const meResponse = await fetch('/next-api/auth/me');
+                    if (meResponse.ok) {
+                        const meData = await meResponse.json();
+                        const sessionUser = meData?.data?.user;
+                        if (meData.status === 'success' && sessionUser) {
+                            setUser(sessionUser);
+                            setUserRole(sessionUser.role || 'user');
 
-                        if (meData.data.isImpersonating) {
-                            setIsImpersonating(true)
+                            // Persist to localStorage
+                            localStorage.setItem('sidebar_user', JSON.stringify(sessionUser))
+                            localStorage.setItem('sidebar_role', sessionUser.role || 'user')
+                            localStorage.setItem('sidebar_user_synced_at', Date.now().toString())
+
+                            if (meData.data.isImpersonating) {
+                                setIsImpersonating(true)
+                            }
                         }
                     }
                 }
 
-                // Fetch public settings using ApiClient
-                const result = await ApiClient.get('/settings/public');
-                if (result.status === 'success' && result.data) {
-                    const data = result.data as Record<string, string>;
-                    if (data.site_title) {
-                        document.title = `${data.site_title} - Dashboard`;
-                    }
-                }
             } catch (error) {
                 console.error("Failed to fetch site settings or sync session:", error);
             }
@@ -104,6 +104,7 @@ export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
             // Clear local cache on logout
             localStorage.removeItem('sidebar_user')
             localStorage.removeItem('sidebar_role')
+            localStorage.removeItem('sidebar_user_synced_at')
             
             const response = await fetch("/next-api/auth/logout", { method: "POST" });
             const result = await response.json();
@@ -320,7 +321,7 @@ export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
                 </div>
 
                 {/* Reseller Area Group — শুধু reseller role হলে দেখাবে */}
-                {userRole === 'reseller' && (
+                {(userRole === 'reseller' || userRole === 'admin') && (
                     <div className="mb-2">
                         <button
                             onClick={() => toggleSection("reseller" as any)}

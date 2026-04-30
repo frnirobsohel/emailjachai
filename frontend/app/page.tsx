@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/common/button"
 import { CheckCircle2, Zap, Shield, Globe } from "lucide-react"
 import { useSiteTitle } from "@/lib/useSiteTitle"
 

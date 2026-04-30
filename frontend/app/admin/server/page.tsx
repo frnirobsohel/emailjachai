@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
 import {
     Server,
     RefreshCcw,
@@ -24,12 +24,12 @@ import {
     EyeOff,
     Lock
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Label } from "@/components/ui/label"
-import { Progress } from "@/components/ui/progress"
-import { Separator } from "@/components/ui/separator"
+import { Button } from "@/components/common/button"
+import { Input } from "@/components/common/input"
+import { Badge } from "@/components/common/badge"
+import { Label } from "@/components/common/label"
+import { Progress } from "@/components/common/progress"
+import { Separator } from "@/components/common/separator"
 import {
     Table,
     TableBody,
@@ -37,7 +37,7 @@ import {
     TableHead,
     TableHeader,
     TableRow,
-} from "@/components/ui/table"
+} from "@/components/common/table"
 
 import { ApiClient } from "@/lib/api-client"
 

@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useRef } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useState, useRef, useEffect } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
 import { ShieldCheck, ArrowUpCircle, Key, RefreshCcw, CheckCircle, Download, UploadCloud, FileArchive, Database, History, HardDriveDownload, FileText, Trash2, RotateCcw } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
+import { Button } from "@/components/common/button"
+import { Progress } from "@/components/common/progress"
 import { cn } from "@/lib/utils"
+import { ApiClient } from "@/lib/api-client"
 
 type UpdateStatus = "idle" | "dragging" | "uploading" | "installing" | "latest" | "error"
 
@@ -14,41 +15,55 @@ export default function LicensePage() {
     const [uploadProgress, setUploadProgress] = useState(0)
     const [uploadedFile, setUploadedFile] = useState<File | null>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
-
-    // Backup & Restore State
     const [isBackingUp, setIsBackingUp] = useState(false)
     const [isRestoring, setIsRestoring] = useState(false)
     const [restoreProgress, setRestoreProgress] = useState(0)
     const [showRestoreConfirm, setShowRestoreConfirm] = useState<{id: number, name: string} | null>(null)
-    const [backups, setBackups] = useState([
-        { id: 1, name: "full_system_2024_04_19.zip", type: "Full System", size: "154.2 MB", date: "Today" },
-        { id: 2, name: "db_backup_2024_04_18.sql", type: "Database", size: "12.4 MB", date: "Yesterday" },
-        { id: 3, name: "chats_export_2024_04_15.json", type: "Conversation", size: "1.2 MB", date: "Apr 15, 2024" },
-    ])
 
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault()
-        if (updateStatus === "idle") setUpdateStatus("dragging")
-    }
+    const [backups, setBackups] = useState<any[]>([])
+    const [licenseInfo, setLicenseInfo] = useState<any>(null)
+    const [isLoading, setIsLoading] = useState(false)
 
-    const handleDragLeave = () => {
-        if (updateStatus === "dragging") setUpdateStatus("idle")
-    }
-
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault()
-        const files = e.dataTransfer.files
-        if (files && files.length > 0) {
-            handleFileSelect(files[0])
+    const fetchSystemStatus = async () => {
+        try {
+            const result = await ApiClient.get('/admin/system/status')
+            if (result.status === 'success') {
+                setLicenseInfo(result.data)
+            }
+        } catch (error) {
+            console.error("Failed to fetch system status:", error)
         }
     }
+
+    const fetchBackups = async () => {
+        setIsLoading(true)
+        try {
+            const result = await ApiClient.get('/admin/system/backups')
+            if (result.status === 'success') {
+                setBackups(Array.isArray(result.data) ? result.data : [])
+            }
+        } catch (error) {
+            setBackups([])
+            console.error("Failed to fetch backups:", error)
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    useEffect(() => {
+        fetchSystemStatus()
+        fetchBackups()
+    }, [])
+
+    const backupList = Array.isArray(backups) ? backups : []
 
     const handleFileSelect = (file: File) => {
         setUploadedFile(file)
         setUpdateStatus("uploading")
         setUploadProgress(0)
 
-        // Simulate upload
+        // Real upload logic would go here
+        // For now, still simulating the progress but connecting to real intent
         let progress = 0
         const interval = setInterval(() => {
             progress += 10
@@ -63,27 +78,29 @@ export default function LicensePage() {
         }, 300)
     }
 
-    const resetUpdate = () => {
-        setUpdateStatus("idle")
-        setUploadProgress(0)
-        setUploadedFile(null)
+    const generateBackup = async (type: string) => {
+        setIsBackingUp(true)
+        try {
+            const result = await ApiClient.post('/admin/system/backups', { type })
+            if (result.status === 'success') {
+                fetchBackups()
+            }
+        } catch (error) {
+            console.error("Backup failed:", error)
+        } finally {
+            setIsBackingUp(false)
+        }
     }
 
-    const generateBackup = (type: "Full System" | "Database" | "Conversation") => {
-        setIsBackingUp(true)
-        setTimeout(() => {
-            const ext = type === "Full System" ? "zip" : type === "Database" ? "sql" : "json"
-            const prefix = type === "Full System" ? "full_sys" : type === "Database" ? "db" : "chats"
-            const newBackup = {
-                id: Date.now(),
-                name: `${prefix}_${new Date().toISOString().split('T')[0].replace(/-/g, '_')}.${ext}`,
-                type: type,
-                size: type === "Full System" ? "158.4 MB" : type === "Database" ? "12.9 MB" : "1.5 MB",
-                date: "Today"
+    const deleteBackup = async (name: string) => {
+        try {
+            const result = await ApiClient.delete(`/admin/system/backups?name=${name}`)
+            if (result.status === 'success') {
+                fetchBackups()
             }
-            setBackups([newBackup, ...backups])
-            setIsBackingUp(false)
-        }, 3000)
+        } catch (error) {
+            console.error("Delete failed:", error)
+        }
     }
 
     const startRestore = () => {
@@ -103,6 +120,29 @@ export default function LicensePage() {
                 }, 1000)
             }
         }, 150)
+    }
+
+    const resetUpdate = () => {
+        setUpdateStatus("idle")
+        setUploadProgress(0)
+        setUploadedFile(null)
+    }
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault()
+        if (updateStatus === "idle") setUpdateStatus("dragging")
+    }
+
+    const handleDragLeave = () => {
+        if (updateStatus === "dragging") setUpdateStatus("idle")
+    }
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault()
+        const files = e.dataTransfer.files
+        if (files && files.length > 0) {
+            handleFileSelect(files[0])
+        }
     }
 
     return (
@@ -173,10 +213,10 @@ export default function LicensePage() {
                             <div>
                                 <p className="text-xs text-slate-500 uppercase font-bold tracking-wider mb-1">Subscription Status</p>
                                 <p className="text-base font-bold text-green-600 flex items-center gap-1.5">
-                                    <CheckCircle className="h-4 w-4" /> Active / Lifetime
+                                    <CheckCircle className="h-4 w-4" /> {licenseInfo?.license_status || "Checking..."}
                                 </p>
                             </div>
-                            <Button size="sm" variant="outline" className="bg-white hover:bg-slate-50">
+                            <Button size="sm" variant="outline" className="bg-white hover:bg-slate-50" onClick={fetchSystemStatus}>
                                 <RefreshCcw className="h-3.5 w-3.5 mr-1.5 text-slate-500" /> Refresh
                             </Button>
                         </div>
@@ -184,7 +224,7 @@ export default function LicensePage() {
                             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Licence Key</label>
                             <div className="flex gap-2">
                                 <div className="flex-1 px-4 py-2.5 rounded-lg border bg-slate-50 font-mono text-sm text-slate-700 flex items-center shadow-inner">
-                                    XXXX-XXXX-XXXX-XXXX
+                                    {licenseInfo?.license_key ? licenseInfo.license_key.replace(/./g, '*') : "XXXX-XXXX-XXXX-XXXX"}
                                 </div>
                                 <Button size="icon" variant="outline" className="h-10 w-10 shrink-0 bg-white">
                                     <Key className="h-4 w-4 text-indigo-500" />
@@ -330,7 +370,7 @@ export default function LicensePage() {
                             <History className="h-3.5 w-3.5" /> Backup History
                         </div>
                         <div className="grid gap-3">
-                            {backups.map((backup) => (
+                            {backupList.map((backup) => (
                                 <div key={backup.id} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-white hover:bg-slate-50 transition-colors group">
                                     <div className="flex items-center gap-3">
                                         <div className="h-9 w-9 rounded-lg bg-slate-50 flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
@@ -361,7 +401,7 @@ export default function LicensePage() {
                                         <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-indigo-600">
                                             <Download className="h-4 w-4" />
                                         </Button>
-                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-red-500">
+                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-red-500" onClick={() => deleteBackup(backup.name)}>
                                             <Trash2 className="h-4 w-4" />
                                         </Button>
                                     </div>
@@ -385,9 +425,9 @@ export default function LicensePage() {
                         <div className="relative pl-6">
                             <span className="absolute -left-[9px] top-1 h-4 w-4 rounded-full bg-indigo-600 border-2 border-white shadow-sm flex items-center justify-center ring-2 ring-indigo-100" />
                             <div className="flex flex-wrap items-center gap-2 mb-1">
-                                <span className="font-bold text-slate-900 text-sm">v2.4.0</span>
+                                <span className="font-bold text-slate-900 text-sm">{licenseInfo?.version || "v2.4.0"}</span>
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-600 text-white tracking-wide">Latest</span>
-                                <span className="text-xs text-slate-400">Feb 20, 2024</span>
+                                <span className="text-xs text-slate-400">{licenseInfo?.release_date || "Feb 20, 2024"}</span>
                             </div>
                             <p className="text-sm text-slate-600">New bulk verification engine, 40% faster throughput.</p>
                         </div>

@@ -20,6 +20,9 @@ export const metadata: Metadata = {
   description: "Professional Email Verification Platform",
 };
 
+import Providers from "./providers";
+import { AppShell } from "@/components/layout/app-shell";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -31,7 +34,11 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning
       >
-        {children}
+        <Providers>
+          <AppShell>
+            {children}
+          </AppShell>
+        </Providers>
       </body>
     </html>
   );

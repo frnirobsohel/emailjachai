@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { authorizeUser, verifyUser } from '@/lib/auth';
 import { cookies } from 'next/headers';
 
-const PHP_API_URL = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost/fontendapi/api';
+const PHP_API_URL = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
 export async function POST(request: Request) {
     try {

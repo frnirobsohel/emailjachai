@@ -1,9 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/common/button"
+import { Input } from "@/components/common/input"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { ApiClient } from "@/lib/api-client"

@@ -1,110 +1,65 @@
-# ─────────────────────────────────────────────
-# EmailJachai Pro — Global Ignore List
-# ─────────────────────────────────────────────
-# ThemeForest & Security Best Practices
+# ============================================================
+# EmailJachai-Pro — Root .gitignore
+# ============================================================
 
-# OS & IDE
-# ─────────────────────────────────────────────
+# ─── Secrets & Environment Files ────────────────────────────
+# NEVER commit real .env files with passwords/API keys
+.env
+.env.local
+.env.*.local
+!.env.example   # allow example templates
+
+# ─── Backend (Go) ───────────────────────────────────────────
+backend/.env
+backend/main
+backend/api
+backend/ejp-backend
+backend/ejp-backend.exe
+backend/tmp/
+backend/storage/
+backend/.gocache/
+# Go build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# ─── Worker (Go) ────────────────────────────────────────────
+worker/.env
+worker/*.exe
+worker/*.out
+worker/vendor/
+
+# ─── Frontend (Next.js) ─────────────────────────────────────
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+frontend/.turbo/
+frontend/build/
+# Test cache
+frontend/coverage/
+
+# ─── IDE & OS ────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
 .DS_Store
 Thumbs.db
 desktop.ini
-.vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
-*.swp
-*.swo
-.antigravity/
 
-# Environment & Secrets (CRITICAL)
-# ─────────────────────────────────────────────
-.env
-.env.local
-.env.*
-!.env.example
-!.env.sample
-!.env.template
-
-# Module Specific Secrets
-api/.env
-api/.env.local
-worker/.env
-worker/.env.local
-frontend/.env.local
-
-# SSL & Security Keys
-*.pem
-*.key
-*.pfx
-*.crt
-
-# Dependencies
-# ─────────────────────────────────────────────
-node_modules/
-vendor/
-.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-.npm/
-
-# Build Output & Caches
-# ─────────────────────────────────────────────
-.next/
-out/
-build/
-dist/
-coverage/
-.nyc_output/
-.cache/
-.eslintcache
-*.tsbuildinfo
-.turbo/
-.vercel/
-
-# Logs
-# ─────────────────────────────────────────────
+# ─── Logs ────────────────────────────────────────────────────
 *.log
 logs/
-api/logs/
-worker/storage/logs/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
 
-# Project Specific Data & Storage
-# ─────────────────────────────────────────────
-api/storage/**
-!api/storage/**/.gitkeep
-worker/storage/**
-!worker/storage/**/.gitkeep
-tmp/
-temp/
-
-# Database
-# ─────────────────────────────────────────────
-*.sql
-!docs/schema.sql
-*.sqlite
-*.db
-
-# Archives & Backups
-# ─────────────────────────────────────────────
-*.zip
-*.rar
-*.7z
-*.tar
-*.tar.gz
-*.tgz
-*.bak
-Backeup/
-fontendapi2.rar
-
-# Development Tools
-# ─────────────────────────────────────────────
-test_proxy.js
-debug_output*.txt
+# ─── Legacy PHP (api/ and worker/ PHP code) ─────────────────
+# These are deleted from tracking but kept here in case they return
+api/vendor/
+api/storage/
+api/.env

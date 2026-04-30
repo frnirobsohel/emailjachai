@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { Button } from "@/components/common/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
+import { Input } from "@/components/common/input"
 import {
     Table,
     TableBody,
@@ -11,8 +11,8 @@ import {
     TableHead,
     TableHeader,
     TableRow
-} from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
+} from "@/components/common/table"
+import { Badge } from "@/components/common/badge"
 import {
     Search,
     UserPlus,
@@ -46,9 +46,9 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuSubContent,
     DropdownMenuPortal,
-} from "@/components/ui/dropdown-menu"
+} from "@/components/common/dropdown-menu"
 import { ApiClient } from "@/lib/api-client"
-import { SimpleSelect } from "@/components/ui/simple-select"
+import { SimpleSelect } from "@/components/common/simple-select"
 import { cn } from "@/lib/utils"
 
 type Role = "admin" | "manager" | "reseller" | "user" | "demo"
