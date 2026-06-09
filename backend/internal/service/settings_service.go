@@ -4,6 +4,7 @@ import (
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"strconv"
+	"strings"
 )
 
 type SettingsService interface {
@@ -34,7 +35,23 @@ func (s *settingsService) UpdateSettings(updates map[string]string, adminID uint
 		"max_active_jobs_per_user": {0, 10000, 0},
 	}
 
+	sensitiveKeys := map[string]bool{
+		"stripe_secret_key":        true,
+		"stripe_webhook_secret":    true,
+		"paypal_secret_key":        true,
+		"paypal_webhook_id":        true,
+		"cryptomus_payment_key":    true,
+		"cryptomus_secret_key":     true,
+		"cryptomus_webhook_secret": true,
+	}
+
 	for k, v := range updates {
+		if sensitiveKeys[k] {
+			if v == "********" || strings.TrimSpace(v) == "" {
+				continue
+			}
+		}
+
 		if rule, ok := numericRules[k]; ok {
 			val, err := strconv.Atoi(v)
 			if err != nil {

@@ -11,7 +11,7 @@ type DomainRepo interface {
 	Create(domain *model.Domain) error
 	List(search, domainType string, limit, offset int) ([]model.Domain, int64, error)
 	Delete(id uint) error
-	ToggleStatus(id uint) error
+	ToggleStatus(id uint) (bool, error)
 	GetStats() (map[string]interface{}, error)
 }
 
@@ -51,13 +51,15 @@ func (r *domainRepo) Delete(id uint) error {
 	return r.db.Delete(&model.Domain{}, id).Error
 }
 
-func (r *domainRepo) ToggleStatus(id uint) error {
+func (r *domainRepo) ToggleStatus(id uint) (bool, error) {
 	var domain model.Domain
 	if err := r.db.First(&domain, id).Error; err != nil {
-		return err
+		return false, err
 	}
 
-	return r.db.Model(&domain).Update("excluded", !domain.Excluded).Error
+	newStatus := !domain.Excluded
+	err := r.db.Model(&domain).Update("excluded", newStatus).Error
+	return newStatus, err
 }
 
 func (r *domainRepo) GetStats() (map[string]interface{}, error) {

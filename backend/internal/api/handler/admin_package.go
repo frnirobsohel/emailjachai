@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"ejp-backend/pkg/config"
-	"ejp-backend/internal/model"
 	"ejp-backend/internal/helper"
+	"ejp-backend/internal/model"
 
 	"github.com/gin-gonic/gin"
 )
@@ -44,9 +43,9 @@ func normalizePackage(p model.Package) PackageResponse {
 }
 
 // GetActivePackages is for users to see available packages
-func GetActivePackages(c *gin.Context) {
-	var packages []model.Package
-	if err := config.DB.Where("status = ?", "active").Order("price ASC").Find(&packages).Error; err != nil {
+func (h *AdminHandler) GetActivePackages(c *gin.Context) {
+	packages, err := h.packageService.GetAllPackages(true)
+	if err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch packages", "")
 		return
 	}
@@ -62,8 +61,8 @@ func GetActivePackages(c *gin.Context) {
 // Admin Routes below
 
 func (h *AdminHandler) ListPackages(c *gin.Context) {
-	var packages []model.Package
-	if err := config.DB.Order("price ASC").Find(&packages).Error; err != nil {
+	packages, err := h.packageService.GetAllPackages(false)
+	if err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch packages", "")
 		return
 	}
@@ -99,16 +98,7 @@ func (h *AdminHandler) CreatePackage(c *gin.Context) {
 		status = "inactive"
 	}
 
-	if input.Price == 0 {
-		var count int64
-		config.DB.Model(&model.Package{}).Where("price = 0").Count(&count)
-		if count > 0 {
-			helper.SendError(c, http.StatusBadRequest, "Only one Free Plan (price = 0) can exist.", "ERR_DUPLICATE_FREE_PLAN")
-			return
-		}
-	}
-
-	pkg := model.Package{
+	pkg := &model.Package{
 		Name:          input.Name,
 		Tagline:       input.Tagline,
 		CreditsAmount: input.CreditsAmount,
@@ -118,14 +108,18 @@ func (h *AdminHandler) CreatePackage(c *gin.Context) {
 		Popular:       input.Popular,
 	}
 
-	if err := config.DB.Create(&pkg).Error; err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to create package", err.Error())
+	if err := h.packageService.CreatePackage(pkg); err != nil {
+		if err.Error() == "Only one Free Plan (price = 0) can exist." {
+			helper.SendError(c, http.StatusBadRequest, err.Error(), "ERR_DUPLICATE_FREE_PLAN")
+		} else {
+			helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		}
 		return
 	}
 
 	logAction(adminID.(uint), "INFO", "Admin", fmt.Sprintf("New package '%s' created ($%.2f, %d credits)", pkg.Name, pkg.Price, pkg.CreditsAmount))
 
-	helper.SendSuccess(c, "Package added successfully", normalizePackage(pkg))
+	helper.SendSuccess(c, "Package added successfully", normalizePackage(*pkg))
 }
 
 func (h *AdminHandler) UpdatePackage(c *gin.Context) {
@@ -146,19 +140,10 @@ func (h *AdminHandler) UpdatePackage(c *gin.Context) {
 		return
 	}
 
-	var pkg model.Package
-	if err := config.DB.First(&pkg, input.ID).Error; err != nil {
+	pkg, err := h.packageService.GetPackageByID(input.ID)
+	if err != nil {
 		helper.SendError(c, http.StatusNotFound, "Package not found", "")
 		return
-	}
-
-	if input.Price == 0 {
-		var count int64
-		config.DB.Model(&model.Package{}).Where("price = 0 AND id != ?", input.ID).Count(&count)
-		if count > 0 {
-			helper.SendError(c, http.StatusBadRequest, "Only one Free Plan (price = 0) can exist.", "ERR_DUPLICATE_FREE_PLAN")
-			return
-		}
 	}
 
 	if input.Name != "" {
@@ -180,14 +165,18 @@ func (h *AdminHandler) UpdatePackage(c *gin.Context) {
 	}
 	pkg.Popular = input.Popular
 
-	if err := config.DB.Save(&pkg).Error; err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to update package", err.Error())
+	if err := h.packageService.UpdatePackage(pkg); err != nil {
+		if err.Error() == "Only one Free Plan (price = 0) can exist." {
+			helper.SendError(c, http.StatusBadRequest, err.Error(), "ERR_DUPLICATE_FREE_PLAN")
+		} else {
+			helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		}
 		return
 	}
 
 	logAction(adminID.(uint), "INFO", "Admin", fmt.Sprintf("Package '%s' (ID:%d) updated", pkg.Name, pkg.ID))
 
-	helper.SendSuccess(c, "Package updated successfully", normalizePackage(pkg))
+	helper.SendSuccess(c, "Package updated successfully", normalizePackage(*pkg))
 }
 
 func (h *AdminHandler) DeletePackage(c *gin.Context) {
@@ -201,14 +190,14 @@ func (h *AdminHandler) DeletePackage(c *gin.Context) {
 		return
 	}
 
-	var pkg model.Package
-	if err := config.DB.First(&pkg, input.ID).Error; err != nil {
+	pkg, err := h.packageService.GetPackageByID(input.ID)
+	if err != nil {
 		helper.SendError(c, http.StatusNotFound, "Package not found", "")
 		return
 	}
 
 	pkgName := pkg.Name
-	if err := config.DB.Delete(&pkg).Error; err != nil {
+	if err := h.packageService.DeletePackage(input.ID); err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to delete package", err.Error())
 		return
 	}
@@ -217,6 +206,3 @@ func (h *AdminHandler) DeletePackage(c *gin.Context) {
 
 	helper.SendSuccess(c, "Package deleted", nil)
 }
-
-
-

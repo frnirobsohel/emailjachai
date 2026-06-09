@@ -7,8 +7,15 @@ import (
 
 type ServerService interface {
 	ListServers() ([]model.WorkerServer, error)
-	AddServer(name, ip string) error
-	ToggleServer(id uint) error
+	GetActiveTasksCountByWorker() ([]repo.WorkerTaskSummary, error)
+	GetOrProvisionWorkerKey() (plainKey, maskedKey string, err error)
+	RotateWorkerKey() (newKey, maskedKey string, err error)
+	CheckAdminPassword(adminID uint, password string) (bool, error)
+	GetByName(name string) (*model.WorkerServer, error)
+	CreateServer(server *model.WorkerServer) error
+	GetByID(id uint) (*model.WorkerServer, error)
+	UpdateFields(id uint, updates map[string]interface{}) error
+	ToggleServer(id uint, enabled bool) error
 	DeleteServer(id uint) error
 }
 
@@ -24,25 +31,40 @@ func (s *serverService) ListServers() ([]model.WorkerServer, error) {
 	return s.repo.List()
 }
 
-func (s *serverService) AddServer(name, ip string) error {
-	server := &model.WorkerServer{
-		ServerName: name,
-		IPAddress:  ip,
-		Status:     "offline",
-		Enabled:    true,
-	}
+func (s *serverService) GetActiveTasksCountByWorker() ([]repo.WorkerTaskSummary, error) {
+	return s.repo.GetActiveTasksCountByWorker()
+}
+
+func (s *serverService) GetOrProvisionWorkerKey() (plainKey, maskedKey string, err error) {
+	return s.repo.GetOrProvisionWorkerKey()
+}
+
+func (s *serverService) RotateWorkerKey() (newKey, maskedKey string, err error) {
+	return s.repo.RotateWorkerKey()
+}
+
+func (s *serverService) CheckAdminPassword(adminID uint, password string) (bool, error) {
+	return s.repo.CheckAdminPassword(adminID, password)
+}
+
+func (s *serverService) GetByName(name string) (*model.WorkerServer, error) {
+	return s.repo.GetByName(name)
+}
+
+func (s *serverService) CreateServer(server *model.WorkerServer) error {
 	return s.repo.Create(server)
 }
 
-func (s *serverService) ToggleServer(id uint) error {
-	server, err := s.repo.GetByID(id)
-	if err != nil {
-		return err
-	}
-	
-	server.Enabled = !server.Enabled
-	
-	return s.repo.Update(server)
+func (s *serverService) GetByID(id uint) (*model.WorkerServer, error) {
+	return s.repo.GetByID(id)
+}
+
+func (s *serverService) UpdateFields(id uint, updates map[string]interface{}) error {
+	return s.repo.UpdateFields(id, updates)
+}
+
+func (s *serverService) ToggleServer(id uint, enabled bool) error {
+	return s.repo.UpdateFields(id, map[string]interface{}{"enabled": enabled})
 }
 
 func (s *serverService) DeleteServer(id uint) error {

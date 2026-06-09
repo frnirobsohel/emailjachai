@@ -9,6 +9,7 @@ import (
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/service"
+	"ejp-backend/pkg/config"
 
 	"github.com/gin-gonic/gin"
 )
@@ -33,6 +34,11 @@ func (h *UserHandler) DashboardStats(c *gin.Context) {
 	userIDVal, _ := c.Get("userID")
 	userID := userIDVal.(uint)
 
+	if cached, ok := config.GetCachedStats(userID); ok {
+		helper.SendSuccess(c, "Dashboard stats retrieved (cached)", cached)
+		return
+	}
+
 	// Fetch user for credits
 	user, _ := h.userService.GetByID(userID)
 	credits := "0"
@@ -41,7 +47,7 @@ func (h *UserHandler) DashboardStats(c *gin.Context) {
 	}
 
 	// Fetch jobs for stats
-	jobs, _ := h.jobService.GetJobs(userID, "", 10000, 0)
+	jobs, _, _ := h.jobService.GetJobs(userID, "", 10000, 0)
 	totalJobs := len(jobs)
 	activeJobs := 0
 	lifetimeVerifications := 0
@@ -105,19 +111,12 @@ func (h *UserHandler) DashboardStats(c *gin.Context) {
 		{"name": "Disposable", "value": disposable, "color": "#3b82f6"},
 	}
 
-	// Fallback visual data if user has absolutely zero jobs and data, so chart doesn't crash
-	if lifetimeVerifications == 0 {
-		usageBreakdown = []map[string]interface{}{
-			{"name": "Valid", "value": 70, "color": "#22c55e"},
-			{"name": "Invalid", "value": 15, "color": "#ef4444"},
-			{"name": "Unknown", "value": 15, "color": "#f59e0b"},
-		}
-	}
+
 
 	// Fetch transaction summary
 	totalPurchased, totalRefunds, _ := h.paymentService.GetTransactionSummary(userID)
 
-	helper.SendSuccess(c, "Dashboard stats retrieved", gin.H{
+	statsData := gin.H{
 		"credits_remaining":      credits,
 		"total_purchased":        helper.FormatNumber(totalPurchased),
 		"total_refunds":          helper.FormatNumber(totalRefunds),
@@ -127,7 +126,10 @@ func (h *UserHandler) DashboardStats(c *gin.Context) {
 		"active_jobs":            activeJobs,
 		"weekly_activity":        weeklyActivity,
 		"usage_breakdown":        usageBreakdown,
-	})
+	}
+
+	config.SetCachedStats(userID, statsData, 1*time.Minute)
+	helper.SendSuccess(c, "Dashboard stats retrieved", statsData)
 }
 
 func (h *UserHandler) DashboardHistory(c *gin.Context) {
@@ -185,14 +187,40 @@ func (h *UserHandler) DashboardHistory(c *gin.Context) {
 }
 
 func (h *UserHandler) GetWebhookSettings(c *gin.Context) {
-	userID, _ := c.Get("userID")
-	_ = userID
-	helper.SendSuccess(c, "Webhook settings retrieved", nil)
+	userIDVal, _ := c.Get("userID")
+	userID := userIDVal.(uint)
+
+	user, err := h.userService.GetByID(userID)
+	if err != nil {
+		helper.SendError(c, http.StatusNotFound, "User not found", err.Error())
+		return
+	}
+
+	helper.SendSuccess(c, "Webhook settings retrieved", gin.H{
+		"webhook_url":    user.WebhookURL,
+		"webhook_secret": user.WebhookSecret,
+	})
 }
 
 func (h *UserHandler) UpdateWebhookSettings(c *gin.Context) {
-	userID, _ := c.Get("userID")
-	_ = userID
+	userIDVal, _ := c.Get("userID")
+	userID := userIDVal.(uint)
+
+	var input struct {
+		WebhookURL    string `json:"webhook_url"`
+		WebhookSecret string `json:"webhook_secret"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+
+	if err := h.userService.UpdateWebhookSettings(userID, input.WebhookURL, input.WebhookSecret); err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Failed to update webhook settings", err.Error())
+		return
+	}
+
 	helper.SendSuccess(c, "Webhook settings updated", nil)
 }
 

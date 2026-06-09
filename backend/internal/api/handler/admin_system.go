@@ -15,8 +15,11 @@ import (
 	"ejp-backend/pkg/config"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/helper"
+	"ejp-backend/internal/license"
+	"encoding/json"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const (
@@ -32,21 +35,174 @@ type BackupFile struct {
 	Date string `json:"date"`
 }
 
+func getOrSetSettingUnscoped(key, defaultValue string) string {
+	var setting model.Setting
+	err := config.DB.Unscoped().Where("setting_key = ?", key).First(&setting).Error
+	if err != nil {
+		setting = model.Setting{SettingKey: key, SettingValue: defaultValue}
+		config.DB.Create(&setting)
+		return defaultValue
+	}
+	if setting.DeletedAt.Valid {
+		setting.DeletedAt = gorm.DeletedAt{}
+		setting.SettingValue = defaultValue
+		config.DB.Save(&setting)
+	}
+	return setting.SettingValue
+}
+
+func saveSettingUnscoped(key, value string) {
+	var setting model.Setting
+	err := config.DB.Unscoped().Where("setting_key = ?", key).First(&setting).Error
+	if err != nil {
+		setting = model.Setting{SettingKey: key, SettingValue: value}
+		config.DB.Create(&setting)
+	} else {
+		setting.SettingValue = value
+		setting.DeletedAt = gorm.DeletedAt{}
+		config.DB.Save(&setting)
+	}
+}
+
 // GetSystemStatus returns license info and current version
 func (h *AdminHandler) GetSystemStatus(c *gin.Context) {
-	var license model.Setting
-	config.DB.Where("setting_key = ?", "license_key").First(&license)
+	systemVersion := getOrSetSettingUnscoped("system_version", Version)
+	systemReleaseDate := getOrSetSettingUnscoped("system_release_date", "2026-04-20")
 
-	status := "Active / Lifetime"
-	if license.SettingValue == "" {
-		status = "Inactive / Trial"
+	var licenseSetting model.Setting
+	config.DB.Unscoped().Where("setting_key = ?", "license_key").First(&licenseSetting)
+
+	status := "Inactive / Trial"
+	maskedKey := ""
+	if licenseSetting.SettingValue != "" && !licenseSetting.DeletedAt.Valid {
+		if _, err := license.ValidateLicense(licenseSetting.SettingValue); err != nil {
+			status = "Invalid / Expired"
+		} else {
+			status = "Active / Lifetime"
+		}
+		// Mask license key except the last 4 characters
+		k := licenseSetting.SettingValue
+		if len(k) >= 8 {
+			maskedKey = strings.Repeat("*", len(k)-4) + k[len(k)-4:]
+		} else {
+			maskedKey = strings.Repeat("*", len(k))
+		}
 	}
 
 	helper.SendSuccess(c, "System status retrieved", gin.H{
-		"version":        Version,
+		"version":        systemVersion,
 		"license_status": status,
-		"license_key":    license.SettingValue,
-		"release_date":   "2026-04-20",
+		"license_key":    maskedKey,
+		"release_date":   systemReleaseDate,
+	})
+}
+
+// SaveLicenseKey validates and stores a new license key
+func (h *AdminHandler) SaveLicenseKey(c *gin.Context) {
+	adminID, _ := c.Get("userID")
+	var input struct {
+		LicenseKey string `json:"license_key" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		return
+	}
+
+	trimmedKey := strings.TrimSpace(input.LicenseKey)
+	if _, err := license.ValidateLicense(trimmedKey); err != nil {
+		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		return
+	}
+
+	saveSettingUnscoped("license_key", trimmedKey)
+
+	logAction(adminID.(uint), "INFO", "Admin", "System license key updated and activated")
+	
+	status := "Active / Lifetime"
+	maskedKey := ""
+	if len(trimmedKey) >= 8 {
+		maskedKey = strings.Repeat("*", len(trimmedKey)-4) + trimmedKey[len(trimmedKey)-4:]
+	} else {
+		maskedKey = strings.Repeat("*", len(trimmedKey))
+	}
+
+	helper.SendSuccess(c, "License key activated successfully", gin.H{
+		"license_status": status,
+		"license_key":    maskedKey,
+	})
+}
+
+// UploadUpdate handles file upload and updates system version info based on manifest.json
+func (h *AdminHandler) UploadUpdate(c *gin.Context) {
+	adminID, _ := c.Get("userID")
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		helper.SendError(c, http.StatusBadRequest, "File is required", err.Error())
+		return
+	}
+	defer file.Close()
+
+	if !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
+		helper.SendError(c, http.StatusBadRequest, "Invalid file format. Only .zip updates allowed", "")
+		return
+	}
+
+	zipReader, err := zip.NewReader(file, header.Size)
+	if err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Failed to read zip archive", err.Error())
+		return
+	}
+
+	var manifestFound bool
+	var manifestData struct {
+		Version     string `json:"version"`
+		ReleaseDate string `json:"release_date"`
+		Description string `json:"description"`
+	}
+
+	for _, f := range zipReader.File {
+		if f.Name == "manifest.json" {
+			manifestFound = true
+			rc, err := f.Open()
+			if err != nil {
+				helper.SendError(c, http.StatusInternalServerError, "Failed to open manifest.json in package", err.Error())
+				return
+			}
+			defer rc.Close()
+
+			manifestBytes, err := io.ReadAll(rc)
+			if err != nil {
+				helper.SendError(c, http.StatusInternalServerError, "Failed to read manifest.json in package", err.Error())
+				return
+			}
+
+			if err := json.Unmarshal(manifestBytes, &manifestData); err != nil {
+				helper.SendError(c, http.StatusBadRequest, "Invalid manifest.json content", err.Error())
+				return
+			}
+			break
+		}
+	}
+
+	if !manifestFound {
+		helper.SendError(c, http.StatusBadRequest, "manifest.json not found in update package", "")
+		return
+	}
+
+	if manifestData.Version == "" || manifestData.ReleaseDate == "" {
+		helper.SendError(c, http.StatusBadRequest, "manifest.json is missing required fields (version, release_date)", "")
+		return
+	}
+
+	saveSettingUnscoped("system_version", manifestData.Version)
+	saveSettingUnscoped("system_release_date", manifestData.ReleaseDate)
+
+	logAction(adminID.(uint), "INFO", "Admin", fmt.Sprintf("System updated to version %s (released: %s). Description: %s", manifestData.Version, manifestData.ReleaseDate, manifestData.Description))
+
+	helper.SendSuccess(c, "System updated successfully", gin.H{
+		"version":      manifestData.Version,
+		"release_date": manifestData.ReleaseDate,
 	})
 }
 
@@ -173,13 +329,15 @@ func formatSize(size int64) string {
 // Helper: Dump Postgres DB using pg_dump
 func dumpDatabase(targetPath string) error {
 	// Example: pg_dump -U postgres -d emailjachai > backup.sql
-	// On Windows, we might need the full path to pg_dump.exe
-	pgDumpPath := `C:\Program Files\PostgreSQL\18\bin\pg_dump.exe`
+	pgDumpPath := os.Getenv("PG_DUMP_PATH")
+	if pgDumpPath == "" {
+		// Fallback to default path on common Windows install
+		pgDumpPath = `C:\Program Files\PostgreSQL\18\bin\pg_dump.exe`
+	}
 	
-	// Get DB URL from env or use config
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://postgres:Pass321@localhost:5432/emailjachai?sslmode=disable"
+		return fmt.Errorf("DATABASE_URL environment variable is not set")
 	}
 
 	cmd := exec.Command(pgDumpPath, "--dbname="+dbURL, "--file="+targetPath, "--no-owner", "--no-privileges")

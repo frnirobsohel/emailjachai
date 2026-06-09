@@ -118,5 +118,81 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
+func WSAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tokenString := c.Query("token")
+		if tokenString == "" {
+			authHeader := c.GetHeader("Authorization")
+			if authHeader != "" {
+				parts := strings.Split(authHeader, " ")
+				if len(parts) == 2 && parts[0] == "Bearer" {
+					tokenString = parts[1]
+				}
+			}
+		}
+
+		if tokenString == "" {
+			helper.SendError(c, http.StatusUnauthorized, "Token is required", "ERR_UNAUTHORIZED")
+			c.Abort()
+			return
+		}
+
+		if token, claims, err := helper.VerifyJWT(tokenString); err == nil && token.Valid {
+			if purpose, ok := claims["purpose"].(string); ok && purpose == "websocket" {
+				if userIDFloat, ok := claims["userID"].(float64); ok {
+					c.Set("userID", uint(userIDFloat))
+					if role, ok := claims["role"].(string); ok {
+						c.Set("role", role)
+					}
+					c.Next()
+					return
+				}
+			}
+		}
+
+		if cached, ok := config.GetCachedAPIAuth(tokenString); ok {
+			c.Set("userID", cached.UserID)
+			c.Set("role", cached.Role)
+			c.Set("apiKeyID", cached.APIKeyID)
+			c.Next()
+			return
+		}
+
+		prefix := ""
+		if len(tokenString) >= 16 {
+			prefix = tokenString[:16]
+		}
+
+		var keys []model.APIKey
+		config.DB.Select("id", "user_id", "api_key", "status", "expires_at").
+			Where("key_prefix = ?", prefix).Limit(5).Find(&keys)
+
+		for _, k := range keys {
+			if helper.CheckPasswordHash(tokenString, k.APIKey) {
+				if k.Status != "active" || (k.ExpiresAt != nil && k.ExpiresAt.Before(time.Now())) {
+					continue
+				}
+				var user model.User
+				if err := config.DB.First(&user, k.UserID).Error; err != nil || strings.ToLower(user.Status) == "suspended" {
+					continue
+				}
+
+				config.SetCachedAPIAuth(tokenString, config.CachedAPIAuth{
+					UserID: user.ID, Role: user.Role, APIKeyID: k.ID,
+				}, 2*time.Minute)
+
+				c.Set("userID", user.ID)
+				c.Set("role", user.Role)
+				c.Set("apiKeyID", k.ID)
+				c.Next()
+				return
+			}
+		}
+
+		helper.SendError(c, http.StatusUnauthorized, "Invalid token", "ERR_AUTH_INVALID")
+		c.Abort()
+	}
+}
+
 
 

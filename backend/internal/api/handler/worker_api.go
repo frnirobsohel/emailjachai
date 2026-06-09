@@ -19,6 +19,7 @@ import (
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/logger"
 	"ejp-backend/internal/helper"
+	"ejp-backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/hibiken/asynq"
@@ -201,7 +202,7 @@ func ReportTaskResult(c *gin.Context) {
 
 		// Idempotency: ignore duplicates for same job+email
 		var existing model.JobResult
-		if err := tx.Where("job_id = ? AND email = ?", job.ID, email).First(&existing).Error; err == nil {
+		if err := tx.Where("job_internal_id = ? AND email = ?", job.ID, email).First(&existing).Error; err == nil {
 			return nil
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
@@ -464,7 +465,19 @@ func broadcastJobUpdate(jobID string) {
 	// Trigger Webhook for major status changes
 	if job.Status == "completed" || job.Status == "failed" {
 		var user model.User
-		if err := config.DB.First(&user, job.UserID).Error; err == nil && user.WebhookURL != "" {
+		if err := config.DB.First(&user, job.UserID).Error; err == nil {
+			if job.Status == "completed" {
+				frontendURL := os.Getenv("FRONTEND_URL")
+				if frontendURL == "" {
+					frontendURL = "http://localhost:3000"
+				}
+				go service.NewEmailService().SendTemplateEmail(user.Email, "job_completed", map[string]string{
+					"name": user.Name,
+					"job_id": job.JobID,
+					"download_link": fmt.Sprintf("%s/dashboard/jobs/%s/download", frontendURL, job.JobID),
+				})
+			}
+			if user.WebhookURL != "" {
 			eventType := "job." + job.Status
 			webhookData := map[string]interface{}{
 				"job_id":          job.JobID,
@@ -488,6 +501,7 @@ func broadcastJobUpdate(jobID string) {
 			} else {
 				logger.Error("Failed to create webhook task", "job_id", job.JobID, "error", err)
 			}
+		}
 		}
 	}
 }
@@ -572,7 +586,7 @@ func ReportTaskResults(c *gin.Context) {
 		}
 
 		var existing []model.JobResult
-		if err := tx.Select("email").Where("job_id = ? AND email IN ?", job.ID, emails).Find(&existing).Error; err != nil {
+		if err := tx.Select("email").Where("job_internal_id = ? AND email IN ?", job.ID, emails).Find(&existing).Error; err != nil {
 			return err
 		}
 		exists := make(map[string]struct{}, len(existing))
@@ -915,7 +929,7 @@ func WorkerAuthMiddleware() gin.HandlerFunc {
 
 		// 2. Fallback: check encrypted setting if exists
 		if encryptedKey != "" {
-			plain, _ := decryptSecret(encryptedKey)
+			plain, _ := helper.DecryptSecret(encryptedKey)
 			if plain != "" && rawKey == plain {
 				c.Next()
 				return
@@ -928,40 +942,7 @@ func WorkerAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// decryptSecret decrypts base64(ciphertext) + ":" + hex(iv) values using JWT_SECRET-derived key.
-func decryptSecret(stored string) (string, error) {
-	if stored == "" {
-		return "", nil
-	}
-	parts := strings.SplitN(stored, ":", 2)
-	if len(parts) != 2 {
-		return "", fmt.Errorf("invalid secret format")
-	}
 
-	encB64 := parts[0]
-	ivHex := parts[1]
-
-	cipherBytes, err := helper.SafeBase64Decode(encB64)
-	if err != nil {
-		return "", err
-	}
-	iv, err := hex.DecodeString(ivHex)
-	if err != nil {
-		return "", err
-	}
-
-	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
-	if secret == "" {
-		return "", fmt.Errorf("JWT_SECRET is required")
-	}
-
-	key := sha256.Sum256([]byte(secret))
-	plainBytes, err := helper.AES256CTRDecrypt(cipherBytes, key[:], iv)
-	if err != nil {
-		return "", err
-	}
-	return string(plainBytes), nil
-}
 
 
 

@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"ejp-backend/internal/ws"
 
@@ -16,8 +17,21 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		// In production, you should restrict this to your frontend domain
-		return true
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // Allow non-browser clients (e.g., workers)
+		}
+		allowedOriginsEnv := os.Getenv("CORS_ORIGINS")
+		if allowedOriginsEnv == "" {
+			allowedOriginsEnv = "http://localhost:3000,http://localhost:8000"
+		}
+		for _, allowed := range strings.Split(allowedOriginsEnv, ",") {
+			if strings.TrimSpace(allowed) == origin {
+				return true
+			}
+		}
+		log.Printf("WebSocket: rejected origin %s", origin)
+		return false
 	},
 }
 

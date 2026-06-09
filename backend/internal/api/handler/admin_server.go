@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -17,6 +16,7 @@ import (
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/logger"
 	"ejp-backend/internal/helper"
+	"ejp-backend/internal/repo"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -54,25 +54,7 @@ func maskKey(workerKey string) string {
 	return workerKey[:8] + "..." + workerKey[len(workerKey)-4:]
 }
 
-func encryptSecret(plain string) (string, error) {
-	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
-	if secret == "" {
-		return "", errors.New("JWT_SECRET is required")
-	}
-	key := sha256.Sum256([]byte(secret))
 
-	iv := make([]byte, 16)
-	if _, err := rand.Read(iv); err != nil {
-		return "", err
-	}
-
-	cipherBytes, err := helper.AES256CTREncrypt([]byte(plain), key[:], iv)
-	if err != nil {
-		return "", err
-	}
-
-	return helper.SafeBase64Encode(cipherBytes) + ":" + hex.EncodeToString(iv), nil
-}
 
 func workerKeyHash(workerKey string) string {
 	sum := sha256.Sum256([]byte("worker-key|" + workerKey))
@@ -90,7 +72,7 @@ func upsertSetting(tx *gorm.DB, key, value string) error {
 func ensureWorkerKeyProvisioned(tx *gorm.DB) (plainKey, maskedKey string, err error) {
 	var encrypted model.Setting
 	if err := tx.Where("setting_key = ?", "worker_api_key_encrypted").First(&encrypted).Error; err == nil {
-		plain, decErr := decryptSecret(encrypted.SettingValue)
+		plain, decErr := helper.DecryptSecret(encrypted.SettingValue)
 		if decErr == nil && plain != "" {
 			return plain, maskKey(plain), nil
 		}
@@ -101,7 +83,7 @@ func ensureWorkerKeyProvisioned(tx *gorm.DB) (plainKey, maskedKey string, err er
 	// Provision a new key
 	plainKey = "wrk_live_" + helper.GenerateRandomHex(24)
 	maskedKey = maskKey(plainKey)
-	enc, err := encryptSecret(plainKey)
+	enc, err := helper.EncryptSecret(plainKey)
 	if err != nil {
 		return "", "", err
 	}
@@ -138,30 +120,18 @@ type serverNode struct {
 
 // ListServers returns all worker servers (legacy-compatible UI shape)
 func (h *AdminHandler) ListServers(c *gin.Context) {
-	var servers []model.WorkerServer
-	if err := config.DB.Order("id DESC").Find(&servers).Error; err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch servers", "")
+	servers, err := h.serverService.ListServers()
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch servers", err.Error())
 		return
 	}
 
-	// Processing summary by server
-	type procRow struct {
-		WorkerServer string `json:"worker_server"`
-		JobID        string `json:"job_id"`
-		TaskCount    int    `json:"task_count"`
+	procRows, err := h.serverService.GetActiveTasksCountByWorker()
+	if err != nil {
+		logger.Error("Failed to fetch active tasks count by worker", "error", err)
 	}
-	var procRows []procRow
-	_ = config.DB.Raw(`
-		SELECT worker_server, job_id, COUNT(*) AS task_count
-		FROM job_tasks
-		WHERE status = 'processing'
-		  AND worker_server IS NOT NULL
-		  AND worker_server <> ''
-		GROUP BY worker_server, job_id
-		ORDER BY MAX(updated_at) DESC
-	`).Scan(&procRows).Error
 
-	summary := make(map[string]procRow)
+	summary := make(map[string]repo.WorkerTaskSummary)
 	for _, r := range procRows {
 		key := strings.TrimSpace(r.WorkerServer)
 		if key == "" {
@@ -251,14 +221,9 @@ func (h *AdminHandler) GetWorkerKey(c *gin.Context) {
 	reveal := c.Query("reveal")
 	revealBool := reveal == "1" || strings.EqualFold(reveal, "true") || strings.EqualFold(reveal, "yes")
 
-	var plainKey, masked string
-	err := config.DB.Transaction(func(tx *gorm.DB) error {
-		var err error
-		plainKey, masked, err = ensureWorkerKeyProvisioned(tx)
-		return err
-	})
+	plainKey, masked, err := h.serverService.GetOrProvisionWorkerKey()
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Unable to access worker key configuration.", "")
+		helper.SendError(c, http.StatusInternalServerError, "Unable to access worker key configuration.", err.Error())
 		return
 	}
 
@@ -302,9 +267,8 @@ func (h *AdminHandler) AddServer(c *gin.Context) {
 		return
 	}
 
-	var exists int64
-	config.DB.Model(&model.WorkerServer{}).Where("server_name = ?", input.ServerName).Count(&exists)
-	if exists > 0 {
+	existing, _ := h.serverService.GetByName(input.ServerName)
+	if existing != nil {
 		helper.SendError(c, http.StatusConflict, "server_name must be unique", "")
 		return
 	}
@@ -320,7 +284,7 @@ func (h *AdminHandler) AddServer(c *gin.Context) {
 		DailyLimit:   50000,
 	}
 
-	if err := config.DB.Create(&server).Error; err != nil {
+	if err := h.serverService.CreateServer(&server); err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to register server", err.Error())
 		return
 	}
@@ -333,7 +297,7 @@ func (h *AdminHandler) AddServer(c *gin.Context) {
 func (h *AdminHandler) UpdateServer(c *gin.Context) {
 	adminID, _ := c.Get("userID")
 	var input struct {
-		ID         uint   `json:"id" binding:"required"`
+		ID         uint    `json:"id" binding:"required"`
 		ServerName *string `json:"server_name"`
 		IPAddress  *string `json:"ip_address"`
 		Port       *int    `json:"port"`
@@ -352,8 +316,8 @@ func (h *AdminHandler) UpdateServer(c *gin.Context) {
 		return
 	}
 
-	var server model.WorkerServer
-	if err := config.DB.First(&server, input.ID).Error; err != nil {
+	server, err := h.serverService.GetByID(input.ID)
+	if err != nil {
 		helper.SendError(c, http.StatusNotFound, "Server not found", "")
 		return
 	}
@@ -367,11 +331,8 @@ func (h *AdminHandler) UpdateServer(c *gin.Context) {
 				helper.SendError(c, http.StatusBadRequest, "Invalid server name", "")
 				return
 			}
-			var exists int64
-			config.DB.Model(&model.WorkerServer{}).
-				Where("server_name = ? AND id <> ?", name, server.ID).
-				Count(&exists)
-			if exists > 0 {
+			existing, _ := h.serverService.GetByName(name)
+			if existing != nil && existing.ID != server.ID {
 				helper.SendError(c, http.StatusConflict, "server_name must be unique", "")
 				return
 			}
@@ -420,7 +381,7 @@ func (h *AdminHandler) UpdateServer(c *gin.Context) {
 		return
 	}
 
-	if err := config.DB.Model(&server).Updates(updates).Error; err != nil {
+	if err := h.serverService.UpdateFields(server.ID, updates); err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to update server", err.Error())
 		return
 	}
@@ -433,7 +394,7 @@ func (h *AdminHandler) UpdateServer(c *gin.Context) {
 func (h *AdminHandler) ToggleServer(c *gin.Context) {
 	adminID, _ := c.Get("userID")
 	var input struct {
-		ID      uint `json:"id" binding:"required"`
+		ID      uint  `json:"id" binding:"required"`
 		Enabled *bool `json:"enabled" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -441,7 +402,7 @@ func (h *AdminHandler) ToggleServer(c *gin.Context) {
 		return
 	}
 
-	if err := config.DB.Model(&model.WorkerServer{}).Where("id = ?", input.ID).Update("enabled", *input.Enabled).Error; err != nil {
+	if err := h.serverService.ToggleServer(input.ID, *input.Enabled); err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to update server status", err.Error())
 		return
 	}
@@ -465,7 +426,7 @@ func (h *AdminHandler) DeleteServer(c *gin.Context) {
 		return
 	}
 
-	if err := config.DB.Delete(&model.WorkerServer{}, input.ID).Error; err != nil {
+	if err := h.serverService.DeleteServer(input.ID); err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to delete server", err.Error())
 		return
 	}
@@ -491,6 +452,14 @@ func WorkerHeartbeat(c *gin.Context) {
 	ip := strings.TrimSpace(input.IPAddress)
 	if ip == "" {
 		ip = strings.TrimSpace(c.ClientIP())
+	}
+
+	var chunkSetting model.Setting
+	chunkSize := 1000 // default
+	if err := config.DB.Where("setting_key = ?", "chunk_size").First(&chunkSetting).Error; err == nil {
+		if val, err := strconv.Atoi(chunkSetting.SettingValue); err == nil && val > 0 {
+			chunkSize = val
+		}
 	}
 
 	now := time.Now().UTC()
@@ -537,7 +506,9 @@ func WorkerHeartbeat(c *gin.Context) {
 				"last_ping":    now.Format(time.RFC3339),
 			})
 
-			helper.SendSuccess(c, "Heartbeat received", nil)
+			helper.SendSuccess(c, "Heartbeat received", gin.H{
+				"chunk_size": chunkSize,
+			})
 			return
 		}
 
@@ -576,7 +547,9 @@ func WorkerHeartbeat(c *gin.Context) {
 
 	logger.Info("Worker heartbeat received", "server", server.ServerName, "ip", ip)
 
-	helper.SendSuccess(c, "Heartbeat received", nil)
+	helper.SendSuccess(c, "Heartbeat received", gin.H{
+		"chunk_size": chunkSize,
+	})
 }
 
 // RotateWorkerKey generates a new worker API key
@@ -590,36 +563,14 @@ func (h *AdminHandler) RotateWorkerKey(c *gin.Context) {
 		return
 	}
 
-	var admin model.User
-	if err := config.DB.First(&admin, adminID).Error; err != nil {
-		helper.SendError(c, http.StatusUnauthorized, "Administrator not found", "")
-		return
-	}
-
-	if !helper.CheckPasswordHash(strings.TrimSpace(input.Password), admin.Password) {
+	valid, err := h.serverService.CheckAdminPassword(adminID.(uint), input.Password)
+	if err != nil || !valid {
 		logAction(adminID.(uint), "WARN", "Admin", "Failed worker key rotation attempt")
 		helper.SendError(c, http.StatusForbidden, "Invalid administrator password.", "")
 		return
 	}
 
-	var newKey, masked string
-	err := config.DB.Transaction(func(tx *gorm.DB) error {
-		newKey = "wrk_live_" + helper.GenerateRandomHex(24)
-		masked = maskKey(newKey)
-
-		enc, err := encryptSecret(newKey)
-		if err != nil {
-			return err
-		}
-
-		if err := upsertSetting(tx, "worker_api_key_encrypted", enc); err != nil {
-			return err
-		}
-		if err := upsertSetting(tx, "worker_api_key_hash", workerKeyHash(newKey)); err != nil {
-			return err
-		}
-		return nil
-	})
+	newKey, masked, err := h.serverService.RotateWorkerKey()
 	if err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Unable to rotate worker key.", err.Error())
 		return

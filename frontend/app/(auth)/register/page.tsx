@@ -41,7 +41,12 @@ export default function RegisterPage() {
         setError("")
 
         try {
-            const result = await ApiClient.post("/auth/register", values);
+            const res = await fetch("/next-api/auth/register", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(values)
+            });
+            const result = await res.json();
 
             if (result.status === 'success') {
                 router.push("/login?registered=true")

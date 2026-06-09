@@ -42,7 +42,7 @@ To ensure consistency and performance, the following libraries MUST be used for 
 | Functional Area | Recommended Package | Purpose |
 | :--- | :--- | :--- |
 | **HTTP Framework** | `github.com/gin-gonic/gin` | High-performance routing & middleware. |
-| **Database Driver** | `github.com/jackc/pgx/v5` | Modern, fast PostgreSQL driver with pool support. |
+| **Database ORM** | `gorm.io/gorm` + `gorm.io/driver/postgres` | Full-featured ORM with AutoMigrate, transactions, soft-delete, and pgx as the underlying driver. |
 | **Redis Client** | `github.com/redis/go-redis/v9` | Typed Redis client for job queue and caching. |
 | **Logging** | `go.uber.org/zap` | Extremely fast, structured JSON logging. |
 | **Validation** | `github.com/go-playground/validator/v10` | Struct-based request validation. |
@@ -313,7 +313,7 @@ The communication between the Backend and Worker Fleet is governed by standardiz
 │   ├── ws/                       # WebSocket Hub, Client, & Message Bus
 │   ├── audit/                    # Admin Action Logging System
 │   ├── license/                  # Key validation & Activation logic
-│   ├── cron/                     # Background maintenance (Stats sync, Cleanup)
+│   ├── tasks/                    # Asynq Task Payload Factory (email:verify, webhook:deliver)
 │   └── helper/                   # Business Helpers (Parsing, IP Utils)
 ├── pkg/
 │   ├── config/                   # Multi-env Loader (YAML/Env)

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"time"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/helper"
@@ -8,6 +9,7 @@ import (
 
 type APIKeyService interface {
 	CreateLoginKey(userID uint) (string, error)
+	CreateImpersonationKey(userID uint) (string, error)
 	ValidateKey(key string) (*model.APIKey, error)
 	GetByUserID(userID uint) ([]model.APIKey, error)
 	Create(userID uint, name string) (*model.APIKey, error)
@@ -35,6 +37,29 @@ func (s *apiKeyService) CreateLoginKey(userID uint) (string, error) {
 		Key:       hashedKey,
 		KeyPrefix: prefix,
 		Status:    "active",
+	}
+
+	if err := s.repo.Create(apiKey); err != nil {
+		return "", err
+	}
+
+	return plainKey, nil
+}
+
+func (s *apiKeyService) CreateImpersonationKey(userID uint) (string, error) {
+	plainKey := "ak_live_" + helper.GenerateRandomKey()
+	prefix := plainKey[:16]
+	hashedKey, _ := helper.HashPassword(plainKey)
+
+	expiry := time.Now().Add(20 * time.Minute)
+	apiKey := &model.APIKey{
+		UserID:    userID,
+		Name:      "Impersonation Key",
+		APIKey:    hashedKey,
+		Key:       hashedKey,
+		KeyPrefix: prefix,
+		Status:    "active",
+		ExpiresAt: &expiry,
 	}
 
 	if err := s.repo.Create(apiKey); err != nil {

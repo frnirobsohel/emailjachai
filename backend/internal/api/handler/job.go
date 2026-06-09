@@ -7,11 +7,8 @@ import (
 
 	"ejp-backend/internal/api/request"
 	"ejp-backend/internal/helper"
-	"ejp-backend/internal/model"
 	"ejp-backend/internal/service"
 	"ejp-backend/internal/storage"
-	"ejp-backend/internal/ws"
-	"ejp-backend/pkg/config"
 
 	"github.com/gin-gonic/gin"
 )
@@ -42,7 +39,7 @@ func (h *JobHandler) GetJobs(c *gin.Context) {
 		}
 	}
 
-	jobs, err := h.jobService.GetJobs(userID.(uint), jobType, limit, offset)
+	jobs, total, err := h.jobService.GetJobs(userID.(uint), jobType, limit, offset)
 	if err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch jobs", err.Error())
 		return
@@ -51,7 +48,7 @@ func (h *JobHandler) GetJobs(c *gin.Context) {
 		helper.SendSuccess(c, "Jobs retrieved successfully", gin.H{"jobs": []interface{}{}, "total": 0})
 		return
 	}
-	helper.SendSuccess(c, "Jobs retrieved successfully", gin.H{"jobs": jobs, "total": len(jobs)})
+	helper.SendSuccess(c, "Jobs retrieved successfully", gin.H{"jobs": jobs, "total": total})
 }
 
 func (h *JobHandler) GetJobStatus(c *gin.Context) {
@@ -89,17 +86,6 @@ func (h *JobHandler) SubmitSingleVerify(c *gin.Context) {
 		helper.SendError(c, http.StatusInternalServerError, "Verification failed", err.Error())
 		return
 	}
-
-	// Broadcast updated credit balance via WebSocket so CreditBadge refreshes instantly
-	go func() {
-		var updatedUser model.User
-		if dbErr := config.DB.Select("id, credits").First(&updatedUser, userID.(uint)).Error; dbErr == nil {
-			ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", gin.H{
-				"credits": updatedUser.Credits,
-			})
-		}
-		config.ClearDashboardCache(userID.(uint))
-	}()
 
 	// Map to structure expected by frontend (form.tsx / VerificationResult)
 	response := gin.H{

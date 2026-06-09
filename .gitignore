@@ -8,6 +8,9 @@
 .env.local
 .env.*.local
 !.env.example   # allow example templates
+*.pem
+*.key
+*.cert
 
 # ─── Backend (Go) ───────────────────────────────────────────
 backend/.env
@@ -25,7 +28,13 @@ backend/.gocache/
 *.dylib
 *.test
 *.out
+tmp_*
 vendor/
+/test_build
+/test_worker
+# Explicit backend build outputs (belt-and-suspenders)
+backend/*.exe
+backend/tmp_*
 
 # ─── Worker (Go) ────────────────────────────────────────────
 worker/.env
@@ -44,6 +53,7 @@ frontend/.turbo/
 frontend/build/
 # Test cache
 frontend/coverage/
+*.tsbuildinfo
 
 # ─── IDE & OS ────────────────────────────────────────────────
 .vscode/
@@ -54,9 +64,13 @@ frontend/coverage/
 Thumbs.db
 desktop.ini
 
-# ─── Logs ────────────────────────────────────────────────────
+# ─── Logs & Data ─────────────────────────────────────────────
 *.log
 logs/
+!frontend/app/admin/logs/
+!frontend/app/admin/logs/*
+*.csv
+mock.csv
 
 # ─── Legacy PHP (api/ and worker/ PHP code) ─────────────────
 # These are deleted from tracking but kept here in case they return

@@ -1,34 +1,18 @@
-"use client"
-
-import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
 import { Button } from "@/components/common/button"
 import Link from "next/link"
 import { ArrowRight, CheckCircle2, Clock, Mail, Zap, FileText } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { ApiClient } from "@/lib/api-client"
+import { fetchServer } from "@/lib/fetch-server"
 
-export function RecentActivity() {
-    const [jobs, setJobs] = useState<any[]>([])
-    const [isLoading, setIsLoading] = useState(true)
+export async function RecentActivity() {
+    let jobs: any[] = [];
+    let isLoading = false;
 
-    const fetchRecentJobs = async () => {
-        try {
-            const result = await ApiClient.get('/jobs/list?limit=4', true);
-            if (result.status === 'success' && result.data) {
-                const data = result.data as any;
-                setJobs(data.jobs || []);
-            }
-        } catch (error) {
-            // Silently fail as ApiClient already logged the error/warning
-        } finally {
-            setIsLoading(false);
-        }
+    const result = await fetchServer('/jobs/list?limit=4');
+    if (result.status === 'success' && result.data) {
+        jobs = result.data.jobs || [];
     }
-
-    useEffect(() => {
-        fetchRecentJobs();
-    }, []);
 
     return (
         <Card className="col-span-1 lg:col-span-4 shadow-sm border-indigo-100 overflow-hidden h-full flex flex-col">

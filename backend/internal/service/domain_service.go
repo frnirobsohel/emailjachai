@@ -12,7 +12,7 @@ type DomainService interface {
 	GetDomains(search, domainType string, limit, offset int) ([]model.Domain, int64, map[string]interface{}, error)
 	AddDomain(name, domainType string, adminID uint) error
 	DeleteDomain(id, adminID uint) error
-	ToggleDomain(id, adminID uint) error
+	ToggleDomain(id, adminID uint) (bool, error)
 	BulkUpload(content string, domainType string, adminID uint) (int, int, int, error)
 }
 
@@ -68,15 +68,19 @@ func (s *domainService) DeleteDomain(id, adminID uint) error {
 	return nil
 }
 
-func (s *domainService) ToggleDomain(id, adminID uint) error {
-	if err := s.repo.ToggleStatus(id); err != nil {
-		return err
+func (s *domainService) ToggleDomain(id, adminID uint) (bool, error) {
+	status, err := s.repo.ToggleStatus(id)
+	if err != nil {
+		return false, err
 	}
-	s.logActivity("INFO", "Admin", fmt.Sprintf("Toggled domain #%d", id), adminID)
-	return nil
+	s.logActivity("INFO", "Admin", fmt.Sprintf("Toggled domain #%d, new excluded state: %v", id, status), adminID)
+	return status, nil
 }
 
 func (s *domainService) BulkUpload(content string, domainType string, adminID uint) (int, int, int, error) {
+	// Strip UTF-8 BOM if present
+	content = strings.TrimPrefix(content, "\xef\xbb\xbf")
+	
 	lines := strings.Split(content, "\n")
 	added := 0
 	duplicates := 0
@@ -93,6 +97,7 @@ func (s *domainService) BulkUpload(content string, domainType string, adminID ui
 		// Handle CSV (first column)
 		parts := strings.Split(line, ",")
 		domainName := strings.ToLower(strings.TrimSpace(parts[0]))
+		domainName = strings.Trim(domainName, `"'`)
 
 		if domainName == "" || !re.MatchString(domainName) {
 			invalid++
@@ -107,7 +112,7 @@ func (s *domainService) BulkUpload(content string, domainType string, adminID ui
 		}
 
 		if err := s.repo.Create(domain); err != nil {
-			if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "Duplicate") {
+			if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "Duplicate") || strings.Contains(err.Error(), "already exists") {
 				duplicates++
 			} else {
 				return added, duplicates, invalid, err

@@ -39,11 +39,13 @@ func (h *SystemHandler) ServeWS(c *gin.Context) {
 		return
 	}
 
+	userID, _ := c.Get("userID")
+
 	client := &ws.Client{
 		Hub:    ws.GlobalHub,
 		Conn:   conn,
 		Send:   make(chan []byte, 256),
-		UserID: 1, // Default for now, should be from token
+		UserID: userID.(uint),
 	}
 	client.Hub.Register <- client
 

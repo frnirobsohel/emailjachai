@@ -9,7 +9,6 @@ import (
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/service"
 	"ejp-backend/pkg/config"
-	"ejp-backend/internal/model"
 
 	"github.com/gin-gonic/gin"
 )
@@ -48,11 +47,18 @@ func NewAdminHandler(adminService service.AdminService, logService service.LogSe
 
 // User Management
 func (h *AdminHandler) AdminStats(c *gin.Context) {
+	if cached, ok := config.GetCachedAdminStats(); ok {
+		helper.SendSuccess(c, "Admin stats retrieved (cached)", cached)
+		return
+	}
+
 	stats, err := h.adminService.GetAdminStats()
 	if err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch stats", err.Error())
 		return
 	}
+
+	config.SetCachedAdminStats(stats, 1*time.Minute)
 	helper.SendSuccess(c, "Admin stats retrieved", stats)
 }
 
@@ -129,18 +135,7 @@ func (h *AdminHandler) AdminDownloadAllJobs(c *gin.Context) {
 	writer := csv.NewWriter(c.Writer)
 	writer.Write([]string{"Email", "Status", "Reason", "Catch-All", "Score", "Verified At", "Job ID"})
 
-	query := config.DB.Model(&model.JobResult{}).
-		Joins("JOIN jobs ON jobs.id = job_results.job_id").
-		Select("job_results.*, jobs.job_id as legacy_job_id")
-
-	switch jobType {
-	case "single":
-		query = query.Where("jobs.job_type = ?", "single")
-	case "bulk":
-		query = query.Where("jobs.job_type = ?", "bulk")
-	}
-
-	rows, err := query.Order("job_results.created_at DESC").Rows()
+	rows, err := h.adminService.AdminDownloadAllJobs(jobType)
 	if err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch results", err.Error())
 		return
@@ -148,26 +143,73 @@ func (h *AdminHandler) AdminDownloadAllJobs(c *gin.Context) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var res struct {
-			model.JobResult
-			LegacyJobID string `gorm:"column:legacy_job_id"`
+		var email, status, reason, legacyJobID string
+		var isCatchAll bool
+		var score int
+		var createdAt time.Time
+		if err := rows.Scan(&email, &status, &reason, &isCatchAll, &score, &createdAt, &legacyJobID); err != nil {
+			continue
 		}
-		config.DB.ScanRows(rows, &res)
 
 		catchAll := "No"
-		if res.IsCatchAll {
+		if isCatchAll {
 			catchAll = "Yes"
 		}
 
 		writer.Write([]string{
-			res.Email,
-			res.Status,
-			res.Reason,
+			email,
+			status,
+			reason,
 			catchAll,
-			fmt.Sprintf("%d", res.Score),
-			res.CreatedAt.Format("2006-01-02 15:04:05"),
-			res.LegacyJobID,
+			fmt.Sprintf("%d", score),
+			createdAt.Format("2006-01-02 15:04:05"),
+			legacyJobID,
 		})
 		writer.Flush()
 	}
+}
+
+func (h *AdminHandler) CreateUser(c *gin.Context) {
+	var input struct {
+		Name     string `json:"name" binding:"required"`
+		Email    string `json:"email" binding:"required,email"`
+		Password string `json:"password" binding:"required,min=6"`
+		Role     string `json:"role" binding:"required"`
+		Credits  int    `json:"credits"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		return
+	}
+
+	err := h.adminService.CreateUser(input.Name, input.Email, input.Password, input.Role, input.Credits)
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, err.Error(), "")
+		return
+	}
+
+	helper.SendSuccess(c, "User created successfully", nil)
+}
+
+func (h *AdminHandler) EditUser(c *gin.Context) {
+	var input struct {
+		ID    uint   `json:"id" binding:"required"`
+		Name  string `json:"name" binding:"required"`
+		Email string `json:"email" binding:"required,email"`
+		Role  string `json:"role" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		return
+	}
+
+	err := h.adminService.EditUser(input.ID, input.Name, input.Email, input.Role)
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, err.Error(), "")
+		return
+	}
+
+	helper.SendSuccess(c, "User profile updated successfully", nil)
 }

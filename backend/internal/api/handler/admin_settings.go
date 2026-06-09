@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,23 @@ func (h *AdminHandler) GetSettings(c *gin.Context) {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch settings", err.Error())
 		return
 	}
+
+	sensitiveKeys := map[string]bool{
+		"stripe_secret_key":        true,
+		"stripe_webhook_secret":    true,
+		"paypal_secret_key":        true,
+		"paypal_webhook_id":        true,
+		"cryptomus_payment_key":    true,
+		"cryptomus_secret_key":     true,
+		"cryptomus_webhook_secret": true,
+	}
+
+	for i, s := range settings {
+		if sensitiveKeys[s.SettingKey] && s.SettingValue != "" {
+			settings[i].SettingValue = "********"
+		}
+	}
+
 	helper.SendSuccess(c, "Settings retrieved", settings)
 }
 
@@ -46,9 +64,27 @@ func (h *AdminHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
-	if len(settingsMap) == 0 {
-		helper.SendError(c, http.StatusBadRequest, "No settings provided", "")
-		return
+	numericRules := map[string]struct{ min, max, def int }{
+		"chunk_size":               {10, 50000, 1000},
+		"task_timeout":             {1, 1440, 60},
+		"max_emails_per_job":       {10, 1000000, 100000},
+		"max_active_jobs_per_user": {0, 10000, 0},
+	}
+
+	for k, v := range settingsMap {
+		if rule, ok := numericRules[k]; ok {
+			num, err := strconv.Atoi(v)
+			if err != nil {
+				num = rule.def
+			}
+			if num < rule.min {
+				num = rule.min
+			}
+			if num > rule.max {
+				num = rule.max
+			}
+			settingsMap[k] = strconv.Itoa(num)
+		}
 	}
 
 	if err := h.settingsService.UpdateSettings(settingsMap, adminID.(uint)); err != nil {
@@ -60,7 +96,7 @@ func (h *AdminHandler) UpdateSettings(c *gin.Context) {
 	helper.SendSuccess(c, "Settings updated successfully", nil)
 }
 
-func GetPublicSettings(c *gin.Context) {
+func (h *AdminHandler) GetPublicSettings(c *gin.Context) {
 	if cached, ok := config.GetCachedPublicSettings(); ok {
 		helper.SendSuccess(c, "Public settings retrieved (cached)", cached)
 		return
@@ -70,6 +106,7 @@ func GetPublicSettings(c *gin.Context) {
 		"site_title",
 		"site_tagline",
 		"logo_url",
+		"favicon_url",
 		"primary_color",
 		"nav_style",
 		"support_email",

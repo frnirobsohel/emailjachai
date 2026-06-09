@@ -13,6 +13,7 @@ type PackageRepo interface {
 	GetByID(id uint) (*model.Package, error)
 	Update(pkg *model.Package) error
 	Delete(id uint) error
+	CountFreePackages(excludeID uint) (int64, error)
 }
 
 type packageRepo struct {
@@ -51,4 +52,14 @@ func (r *packageRepo) Update(pkg *model.Package) error {
 
 func (r *packageRepo) Delete(id uint) error {
 	return r.db.Delete(&model.Package{}, id).Error
+}
+
+func (r *packageRepo) CountFreePackages(excludeID uint) (int64, error) {
+	var count int64
+	query := r.db.Model(&model.Package{}).Where("price = 0")
+	if excludeID > 0 {
+		query = query.Where("id != ?", excludeID)
+	}
+	err := query.Count(&count).Error
+	return count, err
 }

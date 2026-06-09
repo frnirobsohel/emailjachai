@@ -1,54 +1,30 @@
 package config
 
 import (
-	"sync"
+	"encoding/json"
 	"time"
 )
 
-var (
-	publicSettingsCache      map[string]string
-	publicSettingsExpiresAt  time.Time
-	publicSettingsCacheMutex sync.RWMutex
-)
-
 func GetCachedPublicSettings() (map[string]string, bool) {
-	publicSettingsCacheMutex.RLock()
-	defer publicSettingsCacheMutex.RUnlock()
-
-	if publicSettingsCache == nil || time.Now().After(publicSettingsExpiresAt) {
-		return nil, false
+	val, err := Redis.Get(Ctx, "public_settings").Result()
+	if err == nil && val != "" {
+		var cached map[string]string
+		if err := json.Unmarshal([]byte(val), &cached); err == nil {
+			return cached, true
+		}
 	}
-
-	cloned := make(map[string]string, len(publicSettingsCache))
-	for k, v := range publicSettingsCache {
-		cloned[k] = v
-	}
-
-	return cloned, true
+	return nil, false
 }
 
 func SetCachedPublicSettings(data map[string]string, ttl time.Duration) {
 	if ttl <= 0 {
 		return
 	}
-
-	cloned := make(map[string]string, len(data))
-	for k, v := range data {
-		cloned[k] = v
+	if dataBytes, err := json.Marshal(data); err == nil {
+		Redis.Set(Ctx, "public_settings", dataBytes, ttl)
 	}
-
-	publicSettingsCacheMutex.Lock()
-	publicSettingsCache = cloned
-	publicSettingsExpiresAt = time.Now().Add(ttl)
-	publicSettingsCacheMutex.Unlock()
 }
 
 func ClearPublicSettingsCache() {
-	publicSettingsCacheMutex.Lock()
-	publicSettingsCache = nil
-	publicSettingsExpiresAt = time.Time{}
-	publicSettingsCacheMutex.Unlock()
+	Redis.Del(Ctx, "public_settings")
 }
-
-
-

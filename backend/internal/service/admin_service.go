@@ -1,6 +1,7 @@
 package service
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -21,19 +22,24 @@ type AdminService interface {
 	CleanupJobs(days int) (int64, error)
 	GetWorkerKey() (string, error)
 	RotateWorkerKey() (string, error)
+	CreateUser(name, email, password, role string, credits int) error
+	EditUser(id uint, name, email, role string) error
+	AdminDownloadAllJobs(jobType string) (*sql.Rows, error)
 }
 
 type adminService struct {
-	userRepo repo.UserRepo
-	jobRepo  repo.JobRepository
-	logRepo  repo.LogRepo
+	userRepo      repo.UserRepo
+	jobRepo       repo.JobRepository
+	logRepo       repo.LogRepo
+	emailService  EmailService
 }
 
-func NewAdminService(userRepo repo.UserRepo, jobRepo repo.JobRepository, logRepo repo.LogRepo) AdminService {
+func NewAdminService(userRepo repo.UserRepo, jobRepo repo.JobRepository, logRepo repo.LogRepo, emailService EmailService) AdminService {
 	return &adminService{
-		userRepo: userRepo,
-		jobRepo:  jobRepo,
-		logRepo:  logRepo,
+		userRepo:     userRepo,
+		jobRepo:      jobRepo,
+		logRepo:      logRepo,
+		emailService: emailService,
 	}
 }
 
@@ -55,6 +61,79 @@ func (s *adminService) GetAdminStats() (map[string]interface{}, error) {
 	config.DB.Model(&model.Transaction{}).
 		Where("type = ? AND status = ?", "purchase", "completed").
 		Select("COALESCE(SUM(amount), 0)").Row().Scan(&totalRevenue)
+
+	// Dynamic MoM growth calculations
+	now := time.Now()
+	last30Days := now.AddDate(0, 0, -30)
+	prev30Days := now.AddDate(0, 0, -60)
+
+	// 1. Users MoM
+	var newUsersLast30 int64
+	var newUsersPrev30 int64
+	config.DB.Model(&model.User{}).Where("created_at >= ?", last30Days).Count(&newUsersLast30)
+	config.DB.Model(&model.User{}).Where("created_at >= ? AND created_at < ?", prev30Days, last30Days).Count(&newUsersPrev30)
+
+	usersTrend := "+0.0% MoM"
+	usersStatus := "up"
+	if newUsersPrev30 > 0 {
+		pct := float64(newUsersLast30-newUsersPrev30) / float64(newUsersPrev30) * 100
+		if pct >= 0 {
+			usersTrend = fmt.Sprintf("+%.1f%% MoM", pct)
+		} else {
+			usersTrend = fmt.Sprintf("%.1f%% MoM", pct)
+			usersStatus = "down"
+		}
+	} else if newUsersLast30 > 0 {
+		usersTrend = fmt.Sprintf("+%d users last 30d", newUsersLast30)
+	}
+
+	// 2. Credits Sold MoM
+	var creditsLast30 int64
+	var creditsPrev30 int64
+	config.DB.Model(&model.Transaction{}).
+		Where("type = ? AND status = ? AND created_at >= ?", "purchase", "completed", last30Days).
+		Select("COALESCE(SUM(credits_added), 0)").Row().Scan(&creditsLast30)
+	config.DB.Model(&model.Transaction{}).
+		Where("type = ? AND status = ? AND created_at >= ? AND created_at < ?", "purchase", "completed", prev30Days, last30Days).
+		Select("COALESCE(SUM(credits_added), 0)").Row().Scan(&creditsPrev30)
+
+	creditsTrend := "+0.0% MoM"
+	creditsStatus := "up"
+	if creditsPrev30 > 0 {
+		pct := float64(creditsLast30-creditsPrev30) / float64(creditsPrev30) * 100
+		if pct >= 0 {
+			creditsTrend = fmt.Sprintf("+%.1f%% MoM", pct)
+		} else {
+			creditsTrend = fmt.Sprintf("%.1f%% MoM", pct)
+			creditsStatus = "down"
+		}
+	} else if creditsLast30 > 0 {
+		creditsTrend = fmt.Sprintf("+%s credits last 30d", helper.FormatNumber(creditsLast30))
+	}
+
+	// 3. Revenue MoM
+	var revLast30 float64
+	var revPrev30 float64
+	config.DB.Model(&model.Transaction{}).
+		Where("type = ? AND status = ? AND created_at >= ?", "purchase", "completed", last30Days).
+		Select("COALESCE(SUM(amount), 0)").Row().Scan(&revLast30)
+	config.DB.Model(&model.Transaction{}).
+		Where("type = ? AND status = ? AND created_at >= ? AND created_at < ?", "purchase", "completed", prev30Days, last30Days).
+		Select("COALESCE(SUM(amount), 0)").Row().Scan(&revPrev30)
+
+	revTrend := "+0.0% MoM"
+	revStatus := "up"
+	if revPrev30 > 0 {
+		pct := (revLast30 - revPrev30) / revPrev30 * 100
+		if pct >= 0 {
+			revTrend = fmt.Sprintf("+%.1f%% MoM", pct)
+		} else {
+			revTrend = fmt.Sprintf("%.1f%% MoM", pct)
+			revStatus = "down"
+		}
+	} else if revLast30 > 0 {
+		revTrend = fmt.Sprintf("+$%.2f last 30d", revLast30)
+	}
 
 	// Recent Users (Legacy Parity: Top 5)
 	var recentUsers []map[string]interface{}
@@ -94,8 +173,8 @@ func (s *adminService) GetAdminStats() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"total_users": map[string]interface{}{
 			"value":  fmt.Sprintf("%d", totalUsers),
-			"trend":  "+0% from last month",
-			"status": "up",
+			"trend":  usersTrend,
+			"status": usersStatus,
 		},
 		"active_jobs": map[string]interface{}{
 			"value":  fmt.Sprintf("%d", activeJobs),
@@ -104,13 +183,13 @@ func (s *adminService) GetAdminStats() (map[string]interface{}, error) {
 		},
 		"total_credits": map[string]interface{}{
 			"value":  helper.FormatNumber(totalCredits),
-			"trend":  "+0% from last month",
-			"status": "up",
+			"trend":  creditsTrend,
+			"status": creditsStatus,
 		},
 		"total_revenue": map[string]interface{}{
 			"value":  fmt.Sprintf("$%.2f", totalRevenue),
-			"trend":  "+0% from last month",
-			"status": "up",
+			"trend":  revTrend,
+			"status": revStatus,
 		},
 		"recent_users": recentUsers,
 		"recent_logs":  recentLogs,
@@ -140,6 +219,11 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 		}
 		if err := s.userRepo.Update(user, map[string]interface{}{"status": status}); err != nil {
 			return err
+		}
+		if status == "Suspended" {
+			go s.emailService.SendTemplateEmail(user.Email, "account_banned", map[string]string{
+				"name": user.Name,
+			})
 		}
 		s.logActivity("INFO", "Admin", fmt.Sprintf("Changed user #%d status to %s", targetUserID, status), adminID)
 		return nil
@@ -185,10 +269,9 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 				return err
 			}
 
-			txnType := "usage"
+			txnType := "adjustment"
 			desc := "Admin removed credits"
 			if amount > 0 {
-				txnType = "purchase"
 				desc = "Admin added credits"
 			}
 
@@ -207,6 +290,12 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 		})
 
 		if err == nil {
+			if amount > 0 {
+				go s.emailService.SendTemplateEmail(user.Email, "credit_assigned", map[string]string{
+					"name":    user.Name,
+					"credits": fmt.Sprintf("%d", amount),
+				})
+			}
 			s.logActivity("INFO", "Admin", fmt.Sprintf("Adjusted %d credits for user #%d", amount, targetUserID), adminID)
 		}
 		return err
@@ -316,7 +405,7 @@ func (s *adminService) CleanupJobs(days int) (int64, error) {
 		var internalIDs []uint
 		tx.Model(&model.Job{}).Where("job_id IN ?", jobIDs).Pluck("id", &internalIDs)
 		if len(internalIDs) > 0 {
-			tx.Where("job_id IN ?", internalIDs).Delete(&model.JobResult{})
+			tx.Where("job_internal_id IN ?", internalIDs).Delete(&model.JobResult{})
 		}
 		tx.Where("job_id IN ?", jobIDs).Delete(&model.JobTask{})
 		res := tx.Where("job_id IN ?", jobIDs).Delete(&model.Job{})
@@ -333,4 +422,74 @@ func (s *adminService) GetWorkerKey() (string, error) {
 
 func (s *adminService) RotateWorkerKey() (string, error) {
 	return "new_worker_key_abc", nil
+}
+
+func (s *adminService) CreateUser(name, email, password, role string, credits int) error {
+	if name == "" || email == "" || password == "" {
+		return fmt.Errorf("name, email and password are required")
+	}
+
+	// Check if email already exists
+	existing, _ := s.userRepo.GetByEmail(email)
+	if existing != nil {
+		return fmt.Errorf("email is already registered")
+	}
+
+	hashedPassword, err := helper.HashPassword(password)
+	if err != nil {
+		return err
+	}
+
+	user := &model.User{
+		Name:     name,
+		Email:    email,
+		Password: hashedPassword,
+		Role:     role,
+		Credits:  credits,
+		Status:   "Active",
+	}
+
+	return s.userRepo.Create(user)
+}
+
+func (s *adminService) EditUser(id uint, name, email, role string) error {
+	user, err := s.userRepo.GetByID(id)
+	if err != nil {
+		return err
+	}
+
+	if name == "" || email == "" {
+		return fmt.Errorf("name and email are required")
+	}
+
+	// If email changed, verify uniqueness
+	if email != user.Email {
+		existing, _ := s.userRepo.GetByEmail(email)
+		if existing != nil {
+			return fmt.Errorf("email is already in use by another user")
+		}
+	}
+
+	updates := map[string]interface{}{
+		"name":  name,
+		"email": email,
+		"role":  role,
+	}
+
+	return s.userRepo.Update(user, updates)
+}
+
+func (s *adminService) AdminDownloadAllJobs(jobType string) (*sql.Rows, error) {
+	query := config.DB.Model(&model.JobResult{}).
+		Joins("JOIN jobs ON jobs.id = job_results.job_internal_id").
+		Select("job_results.email, job_results.status, job_results.reason, job_results.is_catch_all, job_results.score, job_results.created_at, jobs.job_id as legacy_job_id")
+
+	switch jobType {
+	case "single":
+		query = query.Where("jobs.job_type = ?", "single")
+	case "bulk":
+		query = query.Where("jobs.job_type = ?", "bulk")
+	}
+
+	return query.Order("job_results.created_at DESC").Rows()
 }

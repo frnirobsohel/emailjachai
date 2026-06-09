@@ -8,6 +8,7 @@ import (
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/service"
+	"ejp-backend/pkg/config"
 
 	"github.com/gin-gonic/gin"
 )
@@ -27,20 +28,22 @@ func SetupRoutes(router *gin.Engine) {
 	packageRepo := repo.NewPackageRepo()
 	settingsRepo := repo.NewSettingsRepo()
 	txRepo := repo.NewTransactionRepo()
+	cacheRepo := repo.NewCacheRepository(config.DB)
 
 	// Initialize Services
+	emailService := service.NewEmailService()
 	apiKeyService := service.NewAPIKeyService(apiKeyRepo)
-	authService := service.NewAuthService(userRepo, apiKeyService)
+	authService := service.NewAuthService(userRepo, apiKeyService, logRepo, emailService)
 	userService := service.NewUserService(userRepo)
-	jobService := service.NewJobService(jobRepo, jobResultRepo, userRepo, txRepo)
+	jobService := service.NewJobService(jobRepo, jobResultRepo, userRepo, txRepo, settingsRepo, cacheRepo)
 	logService := service.NewLogService(logRepo)
 	domainService := service.NewDomainService(domainRepo, logRepo)
 	serverService := service.NewServerService(serverRepo)
 	packageService := service.NewPackageService(packageRepo)
 	settingsService := service.NewSettingsService(settingsRepo, logRepo)
-	paymentService := service.NewPaymentService(txRepo, packageRepo, userRepo)
-	workerService := service.NewWorkerService(jobRepo, serverRepo)
-	adminService := service.NewAdminService(userRepo, jobRepo, logRepo)
+	paymentService := service.NewPaymentService(txRepo, packageRepo, userRepo, emailService)
+	workerService := service.NewWorkerService(jobRepo, serverRepo, settingsRepo)
+	adminService := service.NewAdminService(userRepo, jobRepo, logRepo, emailService)
 	systemService := service.NewSystemService()
 	resellerService := service.NewResellerService(userRepo, txRepo)
 
@@ -50,12 +53,14 @@ func SetupRoutes(router *gin.Engine) {
 	userHandler := handler.NewUserHandler(userService, jobService, paymentService, resellerService)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	paymentHandler := handler.NewPaymentHandler(paymentService)
-	workerHandler := handler.NewWorkerHandler(workerService)
+	workerHandler := handler.NewWorkerHandler(workerService, cacheRepo)
 	systemHandler := handler.NewSystemHandler()
 	adminHandler := handler.NewAdminHandler(adminService, logService, domainService, serverService, packageService, settingsService, systemService)
+	cacheHandler := handler.NewCacheHandler(cacheRepo, settingsRepo)
 
 	// Global API v1 Group
 	v1 := router.Group("/api/v1")
+	v1.Use(middleware.RateLimiter())
 	{
 		// ==========================================
 		// 1. PUBLIC / GENERAL ROUTES
@@ -63,13 +68,16 @@ func SetupRoutes(router *gin.Engine) {
 		v1.GET("/", systemHandler.Ping)
 		v1.GET("/health", systemHandler.HealthCheck)
 		v1.GET("/ping", systemHandler.Ping)
-		v1.GET("/settings/public", handler.GetPublicSettings)
+		v1.GET("/settings/public", adminHandler.GetPublicSettings)
 		// WebSocket Route
-		v1.GET("/ws", systemHandler.ServeWS)
+		v1.GET("/ws", middleware.WSAuthMiddleware(), systemHandler.ServeWS)
 
 		// Public Auth
 		v1.POST("/auth/login", authHandler.Login)
 		v1.POST("/auth/register", authHandler.Register)
+		v1.POST("/auth/forgot-password", authHandler.ForgotPassword)
+		v1.POST("/auth/reset-password", authHandler.ResetPassword)
+		v1.GET("/auth/verify-email", authHandler.VerifyEmail)
 
 		// ==========================================
 		// 2. WORKER SPECIFIC API
@@ -79,25 +87,26 @@ func SetupRoutes(router *gin.Engine) {
 		{
 			worker.POST("/claim-task", workerHandler.ClaimTask)
 			worker.POST("/complete-task", workerHandler.CompleteTask)
-			worker.GET("/domains", handler.GetWorkerDomains)
-			worker.POST("/reset-tasks", handler.ResetWorkerTasks)
+			worker.GET("/domains", workerHandler.GetWorkerDomains)
+			worker.POST("/reset-tasks", workerHandler.ResetWorkerTasks)
 		}
 
 		// Job Results Reporting (Worker Access)
 		jobsWorker := v1.Group("/jobs")
 		jobsWorker.Use(handler.WorkerAuthMiddleware())
 		{
-			jobsWorker.POST("/push-result", handler.ReportTaskResult)
-			jobsWorker.POST("/push-results", handler.ReportTaskResults)
+			jobsWorker.POST("/push-result", workerHandler.ReportTaskResult)
+			jobsWorker.POST("/push-results", workerHandler.ReportTaskResults)
 		}
 
 		// Internal compatibility routes (Legacy)
 		internalWorker := v1.Group("/internal")
 		internalWorker.Use(handler.WorkerAuthMiddleware())
 		{
-			internalWorker.POST("/report-task", handler.ReportTaskResult)
-			internalWorker.POST("/report-tasks", handler.ReportTaskResults)
-			internalWorker.GET("/domains", handler.GetWorkerDomains)
+			internalWorker.POST("/report-task", workerHandler.ReportTaskResult)
+			internalWorker.POST("/report-tasks", workerHandler.ReportTaskResults)
+			internalWorker.GET("/domains", workerHandler.GetWorkerDomains)
+			internalWorker.POST("/reset-tasks", workerHandler.ResetWorkerTasks)
 			internalWorker.POST("/heartbeat", handler.WorkerHeartbeat)
 		}
 
@@ -116,10 +125,10 @@ func SetupRoutes(router *gin.Engine) {
 		protected.Use(middleware.AuthMiddleware())
 		{
 			// Jobs & Verification
-			protected.POST("/jobs/submit", handler.SubmitBulkJob)
-			protected.POST("/jobs/submit-file", handler.SubmitBulkJob)
+			protected.POST("/jobs/submit", jobHandler.SubmitBulkJob)
+			protected.POST("/jobs/submit-file", jobHandler.SubmitBulkJob)
 			protected.POST("/jobs/verify-single", jobHandler.SubmitSingleVerify)
-			protected.GET("/jobs/download", handler.DownloadJobResults)
+			protected.GET("/jobs/download", jobHandler.DownloadJobResults)
 			protected.GET("/jobs/list", jobHandler.GetJobs)
 			protected.GET("/jobs/status", jobHandler.GetJobStatus)
 			protected.POST("/jobs/delete", jobHandler.DeleteJob)
@@ -135,9 +144,10 @@ func SetupRoutes(router *gin.Engine) {
 			}
 
 			// Dashboard & Auth
-			protected.GET("/dashboard/stats", userHandler.DashboardStats)
+			protected.GET("/dashboard/stats", handler.DashboardStats)
 			protected.GET("/dashboard/history", userHandler.DashboardHistory)
-			protected.GET("/packages/list", handler.GetActivePackages)
+			protected.GET("/user/transactions", userHandler.DashboardHistory) // Alias for frontend
+			protected.GET("/packages/list", adminHandler.GetActivePackages)
 			protected.GET("/auth/me", authHandler.GetMe)
 			protected.POST("/auth/profile/update", authHandler.UpdateProfile)
 
@@ -146,10 +156,16 @@ func SetupRoutes(router *gin.Engine) {
 			protected.POST("/user/webhook", userHandler.UpdateWebhookSettings)
 
 			// Payment Session Creation
+			payments := protected.Group("/payments")
+			{
+				payments.POST("/create", paymentHandler.CreateSession)
+				payments.POST("/stripe/create", paymentHandler.CreateSession)
+				payments.POST("/paypal/create", paymentHandler.CreateSession)
+				payments.POST("/cryptomus/create", paymentHandler.CreateSession)
+				payments.GET("/verify", paymentHandler.VerifyPayment)
+			}
+			// Legacy singular aliases
 			protected.POST("/payment/create", paymentHandler.CreateSession)
-			protected.POST("/payment/stripe/create", paymentHandler.CreateSession)
-			protected.POST("/payment/paypal/create", paymentHandler.CreateSession)
-			protected.POST("/payment/cryptomus/create", paymentHandler.CreateSession)
 
 			// Reseller
 			protected.POST("/reseller/transfer", userHandler.TransferCredits)
@@ -164,6 +180,8 @@ func SetupRoutes(router *gin.Engine) {
 		{
 			admin.GET("/users", adminHandler.GetAllUsers)
 			admin.POST("/users/action", adminHandler.UserAction)
+			admin.POST("/users/create", adminHandler.CreateUser)
+			admin.POST("/users/edit", adminHandler.EditUser)
 			admin.POST("/users/:id/credits", adminHandler.UpdateUserCredits)
 			admin.POST("/impersonate", authHandler.Impersonate)
 			
@@ -189,6 +207,14 @@ func SetupRoutes(router *gin.Engine) {
 			admin.GET("/logs/list", adminHandler.GetLogs)
 			admin.DELETE("/logs/clear", adminHandler.ClearLogs)
 
+			// Cache Control
+			admin.GET("/cache/stats", cacheHandler.GetStats)
+			admin.POST("/cache/policies", cacheHandler.UpdatePolicies)
+			admin.POST("/cache/lookup", cacheHandler.LookupEmail)
+			admin.DELETE("/cache/lookup", cacheHandler.DeleteEmail)
+			admin.POST("/cache/purge", cacheHandler.PurgeExpiredCache)
+			admin.POST("/cache/upload", cacheHandler.UploadBulkCache)
+
 			// Server Management
 			admin.GET("/server/list", adminHandler.ListServers)
 			admin.GET("/server/worker-key", adminHandler.GetWorkerKey)
@@ -200,6 +226,8 @@ func SetupRoutes(router *gin.Engine) {
 
 			// System Management
 			admin.GET("/system/status", adminHandler.GetSystemStatus)
+			admin.POST("/system/license", adminHandler.SaveLicenseKey)
+			admin.POST("/system/update", adminHandler.UploadUpdate)
 			admin.GET("/system/backups", adminHandler.ListBackups)
 			admin.POST("/system/backups", adminHandler.CreateBackup)
 			admin.DELETE("/system/backups", adminHandler.DeleteBackup)
@@ -209,6 +237,7 @@ func SetupRoutes(router *gin.Engine) {
 			admin.POST("/smtp/settings", adminHandler.SaveSmtpSettings)
 			admin.GET("/smtp/templates", adminHandler.GetTemplates)
 			admin.POST("/smtp/templates", adminHandler.SaveTemplate)
+			admin.POST("/smtp/test", adminHandler.TestSmtpConnection)
 		}
 	}
 

@@ -1,23 +1,13 @@
-"use client"
-
-import { useEffect, useState, useRef } from "react"
 import { WeeklyActivityChart } from "@/app/(dashboard)/_components/weekly-activity-chart"
 import { LifetimeUsageChart } from "@/app/(dashboard)/_components/lifetime-usage-chart"
 import { RecentActivity } from "@/app/(dashboard)/_components/recent-activity"
 import { QuickActions } from "@/app/(dashboard)/_components/quick-actions"
 import { StatsCards } from "@/app/(dashboard)/_components/stats-cards"
-import { ApiClient } from "@/lib/api-client"
-
-type DashboardStats = {
-    today_verifications: string
-    lifetime_verifications: string
-    total_jobs: number
-    active_jobs: number
-    weekly_activity: Array<{ name: string; emails: number; jobs: number }>
-    usage_breakdown: Array<{ name: string; value: number; color: string }>
-}
+import { fetchServer } from "@/lib/fetch-server"
+import type { DashboardStats } from "@/lib/store/dashboard-store"
 
 const EMPTY_STATS: DashboardStats = {
+    credits_remaining: "0",
     today_verifications: "0",
     lifetime_verifications: "0",
     total_jobs: 0,
@@ -40,42 +30,16 @@ const EMPTY_STATS: DashboardStats = {
     ]
 }
 
-export default function DashboardPage() {
-    const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS)
-    const [isLoading, setIsLoading] = useState(true)
-    const statsRef = useRef<string>(JSON.stringify(EMPTY_STATS))
-
-    const fetchStats = async () => {
-        try {
-            const result = await ApiClient.get<DashboardStats>('/dashboard/stats')
-            if (result.status === 'success' && result.data) {
-                const newDataStr = JSON.stringify(result.data)
-                if (newDataStr !== statsRef.current) {
-                    statsRef.current = newDataStr
-                    setStats(result.data)
-                }
-            }
-        } catch (error) {
-            console.error("Failed to fetch dashboard stats:", error)
-        } finally {
-            setIsLoading(false)
-        }
+export default async function DashboardPage() {
+    let stats = EMPTY_STATS;
+    
+    const result = await fetchServer('/dashboard/stats');
+    if (result.status === 'success' && result.data) {
+        stats = { ...EMPTY_STATS, ...result.data };
     }
 
-    useEffect(() => {
-        fetchStats()
-        
-        const onVisibilityChange = () => {
-            if (document.visibilityState === "visible") {
-                fetchStats()
-            }
-        }
-
-        document.addEventListener("visibilitychange", onVisibilityChange)
-        return () => {
-            document.removeEventListener("visibilitychange", onVisibilityChange)
-        }
-    }, [])
+    const currentStats = stats;
+    const isLoadingStats = false; // Always false on server render
 
     return (
         <div className="flex-1 space-y-4">
@@ -83,11 +47,11 @@ export default function DashboardPage() {
                 <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
             </div>
 
-            <StatsCards stats={stats} isLoading={isLoading} />
+            <StatsCards stats={currentStats} isLoading={isLoadingStats} />
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-                <LifetimeUsageChart data={stats.usage_breakdown} isLoading={isLoading} />
-                <WeeklyActivityChart data={stats.weekly_activity} isLoading={isLoading} />
+                <LifetimeUsageChart data={currentStats.usage_breakdown || EMPTY_STATS.usage_breakdown!} isLoading={isLoadingStats} />
+                <WeeklyActivityChart data={currentStats.weekly_activity || EMPTY_STATS.weekly_activity!} isLoading={isLoadingStats} />
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">

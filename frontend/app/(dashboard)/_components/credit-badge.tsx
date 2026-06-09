@@ -1,29 +1,18 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect } from "react"
 import { Coins } from "lucide-react"
-import { ApiClient } from "@/lib/api-client"
+import { useDashboardStore } from "@/lib/store/dashboard-store"
 
 export function CreditBadge() {
-    const [credits, setCredits] = useState<string | null>(null)
-
-    const fetchCredits = async () => {
-        try {
-            const result = await ApiClient.get('/dashboard/stats');
-            if (result.status === 'success') {
-                const stats = result.data as any;
-                setCredits(stats.credits_remaining);
-            }
-        } catch (error) {
-            // Silently fail as ApiClient already logged the error/warning
-        }
-    }
+    const { stats, fetchStats } = useDashboardStore()
+    const credits = stats?.credits_remaining || null;
 
     useEffect(() => {
-        fetchCredits();
+        fetchStats();
         const onVisibilityChange = () => {
             if (document.visibilityState === "visible") {
-                fetchCredits();
+                fetchStats(); // This uses our 60s cache natively now unless forced
             }
         };
 
@@ -31,9 +20,9 @@ export function CreditBadge() {
         return () => {
             document.removeEventListener("visibilitychange", onVisibilityChange);
         };
-    }, []);
+    }, [fetchStats]);
 
-    if (credits === null) return null;
+    if (!stats) return null;
 
     return (
         <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-full shadow-sm hover:bg-amber-100 transition-colors">

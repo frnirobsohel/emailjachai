@@ -255,8 +255,8 @@ func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
 		return res
 	}
 
-	// Legacy uses verify@hostname
-	if err = client.Mail("verify@" + hostname); err != nil {
+	// Legacy uses null sender to reduce block rate
+	if err = client.Mail(""); err != nil {
 		return res
 	}
 

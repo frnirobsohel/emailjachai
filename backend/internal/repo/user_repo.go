@@ -1,11 +1,15 @@
 package repo
 
 import (
+	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
 	"ejp-backend/pkg/config"
+	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 )
+
 
 type UserRepo interface {
 	GetByID(id uint) (*model.User, error)
@@ -14,6 +18,7 @@ type UserRepo interface {
 	Update(user *model.User, updates map[string]interface{}) error
 	GetAll() ([]model.User, error)
 	Delete(id uint) error
+	AddCredits(userID uint, credits int, txnType string, description string, provider string) error
 }
 
 type userRepo struct {
@@ -58,7 +63,48 @@ func (r *userRepo) Delete(id uint) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		tx.Where("user_id = ?", id).Delete(&model.APIKey{})
 		tx.Where("user_id = ?", id).Delete(&model.Transaction{})
-		tx.Where("user_id = ?", id).Delete(&model.Job{})
+		
+		// Cleanup Jobs and their massive sub-records
+		var jobInternalIDs []uint
+		tx.Model(&model.Job{}).Where("user_id = ?", id).Pluck("id", &jobInternalIDs)
+		var jobIDs []string
+		tx.Model(&model.Job{}).Where("user_id = ?", id).Pluck("job_id", &jobIDs)
+		
+		if len(jobInternalIDs) > 0 {
+			tx.Unscoped().Where("job_internal_id IN ?", jobInternalIDs).Delete(&model.JobResult{})
+		}
+		if len(jobIDs) > 0 {
+			tx.Unscoped().Where("job_id IN ?", jobIDs).Delete(&model.JobTask{})
+		}
+		
+		// Hard delete the jobs themselves
+		tx.Unscoped().Where("user_id = ?", id).Delete(&model.Job{})
+		
+		// Finally, delete the user
 		return tx.Delete(&model.User{}, id).Error
 	})
 }
+
+func (r *userRepo) AddCredits(userID uint, credits int, txnType string, description string, provider string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// 1. Update user credits
+		if err := tx.Model(&model.User{}).Where("id = ?", userID).Update("credits", gorm.Expr("credits + ?", credits)).Error; err != nil {
+			return err
+		}
+
+		// 2. Log transaction
+		txnID := fmt.Sprintf("TXN_%x%s", time.Now().Unix(), helper.GenerateRandomHex(6))
+		transaction := &model.Transaction{
+			UserID:        userID,
+			TransactionID: txnID,
+			Amount:        0, // In real scenario, add actual currency amount
+			CreditsAdded:  credits,
+			Type:          txnType,
+			Status:        "completed",
+			Description:   description,
+			Provider:      provider,
+		}
+		return tx.Create(transaction).Error
+	})
+}
+

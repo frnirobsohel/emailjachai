@@ -41,12 +41,14 @@ interface SingleVerifyFormProps {
 export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
     const [email, setEmail] = useState("")
     const [isLoading, setIsLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
 
     const handleVerify = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!email) return
 
         setIsLoading(true)
+        setError(null)
 
         try {
             // Use ApiClient to call the proxied backend
@@ -57,13 +59,11 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
             if (result.status === 'success') {
                 onVerify(result.data as VerificationResult);
             } else {
-                // UI feedback only - ApiClient already logged the warning/error
-                alert(result.message || "Failed to verify email");
+                setError(result.message || "Failed to verify email");
             }
         } catch (err: unknown) {
-            // Truly unexpected technical error (e.g. network down, JSON parse error)
             logger.error("Verification operation failed:", err);
-            alert("An unexpected error occurred during verification");
+            setError("An unexpected error occurred during verification");
         } finally {
             setIsLoading(false)
         }
@@ -102,6 +102,12 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
                             This action uses 1 credit.
                         </p>
                     </div>
+                    {error && (
+                        <div className="p-3 text-sm rounded-md bg-red-50 text-red-900 border border-red-100 flex items-start gap-2">
+                            <span className="text-red-600 font-medium">Error:</span>
+                            {error}
+                        </div>
+                    )}
                     <Button
                         type="submit"
                         disabled={!email || isLoading}

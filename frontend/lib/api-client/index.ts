@@ -9,7 +9,7 @@ export interface ApiResponse<T = unknown> {
     data?: T;
 }
 
-class ApiClient {
+class ApiClientService {
     private instance: AxiosInstance;
 
     constructor() {
@@ -57,7 +57,8 @@ class ApiClient {
         );
     }
 
-    public async get<T>(url: string, config?: AxiosRequestConfig): Promise<ApiResponse<T>> {
+    public async get<T>(url: string, configOrBypassCache?: AxiosRequestConfig | boolean): Promise<ApiResponse<T>> {
+        const config = typeof configOrBypassCache === 'boolean' ? undefined : configOrBypassCache;
         const response = await this.instance.get<ApiResponse<T>>(url, config);
         return response.data;
     }
@@ -82,6 +83,6 @@ class ApiClient {
     }
 }
 
-export const apiClient = new ApiClient();
+export const apiClient = new ApiClientService();
 // For backward compatibility while refactoring
 export const ApiClient = apiClient;

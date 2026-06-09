@@ -1,4 +1,3 @@
-"use client"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/common/card"
 import { Activity, List, ShieldCheck, Zap } from "lucide-react"

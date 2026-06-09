@@ -11,6 +11,7 @@ type JobResultRepo interface {
 	Create(result *model.JobResult) error
 	GetByJobID(jobID uint) ([]model.JobResult, error)
 	DeleteByJobID(jobID uint) error
+	CreateInBatches(results []model.JobResult, batchSize int) error
 }
 
 type jobResultRepo struct {
@@ -27,10 +28,14 @@ func (r *jobResultRepo) Create(result *model.JobResult) error {
 
 func (r *jobResultRepo) GetByJobID(jobID uint) ([]model.JobResult, error) {
 	var results []model.JobResult
-	err := r.db.Where("job_id = ?", jobID).Find(&results).Error
+	err := r.db.Where("job_internal_id = ?", jobID).Find(&results).Error
 	return results, err
 }
 
 func (r *jobResultRepo) DeleteByJobID(jobID uint) error {
-	return r.db.Where("job_id = ?", jobID).Delete(&model.JobResult{}).Error
+	return r.db.Where("job_internal_id = ?", jobID).Delete(&model.JobResult{}).Error
+}
+
+func (r *jobResultRepo) CreateInBatches(results []model.JobResult, batchSize int) error {
+	return r.db.CreateInBatches(&results, batchSize).Error
 }

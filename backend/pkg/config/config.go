@@ -36,36 +36,40 @@ func ConnectDB() {
 		os.Exit(1)
 	}
 
-	// Auto-migrate database models
-	// Legacy Parity: Ensure job_id is VARCHAR, not BIGINT (Fixes 22P02 error)
-	// We do this BEFORE AutoMigrate so GORM doesn't try to cast it incorrectly.
-	logger.Info("Aligning database schema for JobID (VARCHAR conversion)...")
-	if err := db.Exec("ALTER TABLE jobs ALTER COLUMN job_id TYPE VARCHAR(50) USING job_id::text").Error; err != nil {
-		logger.Warn("JobID migration raw SQL failed (it might already be VARCHAR)", "error", err)
-	}
+	// Auto-migrate: ONLY in development. Production uses explicit SQL migrations.
+	if os.Getenv("GO_ENV") != "production" {
+		// Legacy Parity: Ensure job_id is VARCHAR, not BIGINT (Fixes 22P02 error)
+		logger.Info("Aligning database schema for JobID (VARCHAR conversion)...")
+		if err := db.Exec("ALTER TABLE jobs ALTER COLUMN job_id TYPE VARCHAR(50) USING job_id::text").Error; err != nil {
+			logger.Warn("JobID migration raw SQL failed (it might already be VARCHAR)", "error", err)
+		}
 
-	logger.Info("Running Database Migrations...")
-	err = db.AutoMigrate(
-		&model.User{},
-		&model.APIKey{},
-		&model.Job{},
-		&model.JobResult{},
-		&model.Transaction{},
-		&model.Package{},
-		&model.Domain{},
-		&model.Setting{},
-		&model.SmtpConfig{},
-		&model.EmailTemplate{},
-		&model.DeletedJobStats{},
-		&model.DeletedJobDailyStats{},
-		&model.JobTask{},
-		&model.ActivityLog{},
-		&model.SecurityLog{},
-		&model.WorkerServer{},
-	)
-	if err != nil {
-		logger.Error("Failed to run migrations", "error", err)
-		os.Exit(1)
+		logger.Info("Running Database Migrations (dev mode)...")
+		err = db.AutoMigrate(
+			&model.User{},
+			&model.APIKey{},
+			&model.Job{},
+			&model.JobResult{},
+			&model.Transaction{},
+			&model.Package{},
+			&model.Domain{},
+			&model.Setting{},
+			&model.SmtpConfig{},
+			&model.EmailTemplate{},
+			&model.DeletedJobStats{},
+			&model.DeletedJobDailyStats{},
+			&model.JobTask{},
+			&model.ActivityLog{},
+			&model.SecurityLog{},
+			&model.WorkerServer{},
+			&model.EmailCache{},
+		)
+		if err != nil {
+			logger.Error("Failed to run migrations", "error", err)
+			os.Exit(1)
+		}
+	} else {
+		logger.Info("Production mode: Skipping AutoMigrate. Use explicit SQL migrations.")
 	}
 
 	DB = db

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useUserStore } from '@/lib/store/user-state';
 import { logger } from '@/lib/logger';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/api/v1/ws';
@@ -15,13 +14,35 @@ export function useSocket() {
     const [isConnected, setIsConnected] = useState(false);
     const socketRef = useRef<WebSocket | null>(null);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const { token } = useUserStore();
+    const connectRef = useRef<() => void>(() => {});
+    const wsTokenRef = useRef<string | null>(null);
 
-    const connect = useCallback(() => {
+    // Fetch a short-lived WS token from the server (cookie-based auth)
+    const fetchWsToken = useCallback(async (): Promise<string | null> => {
+        try {
+            const res = await fetch('/next-api/auth/ws-token');
+            const data = await res.json();
+            if (data.status === 'success' && data.data?.token) {
+                wsTokenRef.current = data.data.token;
+                return data.data.token;
+            }
+        } catch (err) {
+            logger.warn('Failed to fetch WS token', err);
+        }
+        return null;
+    }, []);
+
+    const connect = useCallback(async () => {
         if (socketRef.current?.readyState === WebSocket.OPEN) return;
 
-        // Append token if available
-        const url = token ? `${WS_URL}?token=${token}` : WS_URL;
+        // Get a fresh WS token
+        const token = await fetchWsToken();
+        if (!token) {
+            // Stop trying if token cannot be fetched, connection will re-trigger on next auth state change
+            return;
+        }
+
+        const url = `${WS_URL}?token=${token}`;
         
         try {
             const ws = new WebSocket(url);
@@ -58,7 +79,7 @@ export function useSocket() {
                 logger.warn('WebSocket Disconnected. Retrying in 3s...');
                 setIsConnected(false);
                 socketRef.current = null;
-                reconnectTimeoutRef.current = setTimeout(connect, 3000);
+                reconnectTimeoutRef.current = setTimeout(() => connectRef.current(), 3000);
             };
 
             ws.onerror = (event) => {
@@ -74,9 +95,14 @@ export function useSocket() {
             socketRef.current = ws;
         } catch (err) {
             logger.error('Failed to initiate WebSocket connection', err);
-            reconnectTimeoutRef.current = setTimeout(connect, 5000);
+            reconnectTimeoutRef.current = setTimeout(() => connectRef.current(), 5000);
         }
-    }, [token]);
+    }, [fetchWsToken]);
+
+    // Keep connectRef in sync (must be inside useEffect, not during render)
+    useEffect(() => {
+        connectRef.current = connect;
+    }, [connect]);
 
     useEffect(() => {
         connect();

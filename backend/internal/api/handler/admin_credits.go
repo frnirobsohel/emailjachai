@@ -1,12 +1,9 @@
 package handler
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 
-	"ejp-backend/pkg/config"
-	"ejp-backend/internal/model"
 	"ejp-backend/internal/helper"
 
 	"github.com/gin-gonic/gin"
@@ -32,26 +29,13 @@ func (h *AdminHandler) UpdateUserCredits(c *gin.Context) {
 		return
 	}
 
-	var user model.User
-	if err := config.DB.First(&user, userID).Error; err != nil {
-		helper.SendError(c, http.StatusNotFound, "User not found", "")
+	err = h.adminService.UserAction("adjust_credits", uint(userID), adminID.(uint), "", "", input.Amount, 0)
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Failed to update credits", err.Error())
 		return
 	}
 
-	newCredits := user.Credits + input.Amount
-	if newCredits < 0 {
-		newCredits = 0
-	}
-
-	if err := config.DB.Model(&user).Update("credits", newCredits).Error; err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to update credits", "")
-		return
-	}
-
-	// Log activity
-	logAction(adminID.(uint), "INFO", "Admin", fmt.Sprintf("Updated credits for user #%d: %+d (New total: %d). Reason: %s", user.ID, input.Amount, newCredits, input.Reason))
-
-	helper.SendSuccess(c, "Credits updated successfully", gin.H{"credits": newCredits})
+	helper.SendSuccess(c, "Credits updated successfully", nil)
 }
 
 

@@ -3,8 +3,12 @@ package helper
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -52,6 +56,62 @@ func AES256CTREncrypt(plain []byte, key []byte, iv []byte) ([]byte, error) {
 func AES256CTRDecrypt(cipherBytes []byte, key []byte, iv []byte) ([]byte, error) {
 	// CTR decrypt is identical to encrypt
 	return AES256CTREncrypt(cipherBytes, key, iv)
+}
+
+// EncryptSecret encrypts a plaintext string using AES-256-CTR with the JWT_SECRET as the key.
+func EncryptSecret(plain string) (string, error) {
+	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	if secret == "" {
+		return "", errors.New("JWT_SECRET is required")
+	}
+	key := sha256.Sum256([]byte(secret))
+
+	iv := make([]byte, 16)
+	if _, err := rand.Read(iv); err != nil {
+		return "", err
+	}
+
+	cipherBytes, err := AES256CTREncrypt([]byte(plain), key[:], iv)
+	if err != nil {
+		return "", err
+	}
+
+	return SafeBase64Encode(cipherBytes) + ":" + hex.EncodeToString(iv), nil
+}
+
+// DecryptSecret decrypts base64(ciphertext) + ":" + hex(iv) values using JWT_SECRET-derived key.
+func DecryptSecret(stored string) (string, error) {
+	if stored == "" {
+		return "", nil
+	}
+	parts := strings.SplitN(stored, ":", 2)
+	if len(parts) != 2 {
+		return "", errors.New("invalid secret format")
+	}
+
+	encB64 := parts[0]
+	ivHex := parts[1]
+
+	cipherBytes, err := SafeBase64Decode(encB64)
+	if err != nil {
+		return "", err
+	}
+	iv, err := hex.DecodeString(ivHex)
+	if err != nil {
+		return "", err
+	}
+
+	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	if secret == "" {
+		return "", errors.New("JWT_SECRET is required")
+	}
+
+	key := sha256.Sum256([]byte(secret))
+	plainBytes, err := AES256CTRDecrypt(cipherBytes, key[:], iv)
+	if err != nil {
+		return "", err
+	}
+	return string(plainBytes), nil
 }
 
 

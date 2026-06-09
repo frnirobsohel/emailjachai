@@ -31,10 +31,16 @@ func (r *logRepo) List(limit, offset int) ([]model.ActivityLog, int64, error) {
 	
 	r.db.Model(&model.ActivityLog{}).Count(&total)
 	
-	err := r.db.Order("created_at desc").Limit(limit).Offset(offset).Find(&logs).Error
+	err := r.db.Table("activity_logs").
+		Select("activity_logs.*, users.name as user_name, activity_logs.created_at as time").
+		Joins("LEFT JOIN users ON activity_logs.user_id = users.id").
+		Order("activity_logs.created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Scan(&logs).Error
 	return logs, total, err
 }
 
 func (r *logRepo) Clear() error {
-	return r.db.Exec("DELETE FROM activity_logs").Error
+	return r.db.Exec("TRUNCATE TABLE activity_logs").Error
 }

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"os"
 
 	"ejp-backend/internal/api/presenter"
 	"ejp-backend/internal/api/request"
@@ -59,7 +60,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	user, apiKey, err := h.authService.Login(input.Email, input.Password)
+	user, apiKey, err := h.authService.Login(input.Email, input.Password, c.ClientIP())
 	if err != nil {
 		helper.SendError(c, http.StatusUnauthorized, err.Error(), "ERR_INVALID_AUTH")
 		return
@@ -119,7 +120,85 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 }
 
 func (h *AuthHandler) Impersonate(c *gin.Context) {
-	// Logic for impersonation usually involves generating a new token/key for target user
-	// This can be refactored into a service later if needed.
-	helper.SendError(c, http.StatusNotImplemented, "Impersonation refactor in progress", "")
+	var input struct {
+		UserID uint `json:"user_id" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "User ID is required", "")
+		return
+	}
+
+	adminID, _ := c.Get("userID")
+	user, apiKey, err := h.authService.Impersonate(input.UserID, adminID.(uint))
+	if err != nil {
+		helper.SendError(c, http.StatusNotFound, "Target user not found", err.Error())
+		return
+	}
+
+	helper.SendSuccess(c, "Impersonation successful", presenter.AuthResponse{
+		APIKey: apiKey,
+		User: presenter.UserResponse{
+			ID:      user.ID,
+			Name:    user.Name,
+			Email:   user.Email,
+			Credits: user.Credits,
+			Role:    user.Role,
+		},
+	})
+}
+
+func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	var input struct {
+		Email string `json:"email" binding:"required,email"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Invalid email address", "")
+		return
+	}
+
+	// Always return success to prevent email enumeration
+	_ = h.authService.ForgotPassword(input.Email)
+
+	helper.SendSuccess(c, "If the email is registered, a password reset link has been sent.", nil)
+}
+
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var input struct {
+		Token    string `json:"token" binding:"required"`
+		Password string `json:"password" binding:"required,min=6"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		return
+	}
+
+	if err := h.authService.ResetPassword(input.Token, input.Password); err != nil {
+		helper.SendError(c, http.StatusBadRequest, err.Error(), "ERR_RESET_FAILED")
+		return
+	}
+
+	helper.SendSuccess(c, "Password has been successfully reset. You can now login.", nil)
+}
+
+func (h *AuthHandler) VerifyEmail(c *gin.Context) {
+	token := c.Query("token")
+	if token == "" {
+		helper.SendError(c, http.StatusBadRequest, "Verification token is required", "")
+		return
+	}
+
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
+
+	if err := h.authService.VerifyEmail(token); err != nil {
+		c.Redirect(http.StatusFound, frontendURL+"/login?error=invalid_verification")
+		return
+	}
+
+	c.Redirect(http.StatusFound, frontendURL+"/login?verified=true")
 }

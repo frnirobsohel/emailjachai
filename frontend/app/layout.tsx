@@ -12,33 +12,47 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: {
-    default: "Loading...",
-    template: "%s",
-  },
-  description: "Professional Email Verification Platform",
-};
-
 import Providers from "./providers";
 import { AppShell } from "@/components/layout/app-shell";
+import { SettingsProvider, PublicSettings } from "@/lib/settings-context";
+import { getPublicSettings } from "@/lib/services/settings";
 
-export default function RootLayout({
+export async function generateMetadata(): Promise<Metadata> {
+  let title = "EmailJachai Pro";
+  let tagline = "Professional Email Verification Platform";
+  
+  const settings = await getPublicSettings();
+  if (settings) {
+      title = settings.site_title || title;
+      tagline = settings.site_tagline || tagline;
+  }
+  
+  return {
+    title: { default: title, template: "%s | " + title },
+    description: tagline,
+  };
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const settings = await getPublicSettings() || {};
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning
       >
-        <Providers>
-          <AppShell>
-            {children}
-          </AppShell>
-        </Providers>
+        <SettingsProvider settings={settings}>
+          <Providers>
+            <AppShell>
+              {children}
+            </AppShell>
+          </Providers>
+        </SettingsProvider>
       </body>
     </html>
   );

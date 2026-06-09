@@ -39,7 +39,8 @@ func ConnectRedis() {
 	defer cancel()
 
 	if _, err := Redis.Ping(ctx).Result(); err != nil {
-		logger.Error("Failed to connect to Redis", "error", err)
+		logger.Error("Failed to connect to Redis — job queue unavailable", "error", err)
+		os.Exit(1)
 	} else {
 		logger.Info("Successfully connected to Redis Queue (Asynq) and Data Cache (Raw)")
 	}

@@ -11,6 +11,7 @@ type UserService interface {
 	GetByID(id uint) (*model.User, error)
 	UpdateProfile(id uint, name, currentPass, newPass string) error
 	GetAllUsers() ([]model.User, error)
+	UpdateWebhookSettings(id uint, url, secret string) error
 }
 
 type userService struct {
@@ -57,4 +58,18 @@ func (s *userService) UpdateProfile(id uint, name, currentPass, newPass string) 
 func (s *userService) GetAllUsers() ([]model.User, error) {
 	// This would typically have pagination, but for now matching legacy
 	return nil, errors.New("not implemented")
+}
+
+func (s *userService) UpdateWebhookSettings(id uint, url, secret string) error {
+	user, err := s.userRepo.GetByID(id)
+	if err != nil {
+		return err
+	}
+
+	updates := map[string]interface{}{
+		"webhook_url":    url,
+		"webhook_secret": secret,
+	}
+
+	return s.userRepo.Update(user, updates)
 }

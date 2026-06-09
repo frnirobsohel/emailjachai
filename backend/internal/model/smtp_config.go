@@ -12,6 +12,7 @@ type SmtpConfig struct {
 	Password   string    `gorm:"type:text" json:"-"`
 	Encryption string    `gorm:"type:varchar(10);default:'tls'" json:"encryption"` // none, ssl, tls
 	DailyLimit int       `gorm:"column:daily_limit;default:5000" json:"daily_limit"`
+	IsActive   bool      `gorm:"default:true" json:"is_active"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }

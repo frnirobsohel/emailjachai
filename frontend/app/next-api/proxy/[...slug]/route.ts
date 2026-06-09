@@ -3,7 +3,7 @@ import { verifyUser } from '@/lib/auth';
 import { cookies } from 'next/headers';
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
-const PUBLIC_PROXY_ROUTES = new Set(['settings/public']);
+const PUBLIC_PROXY_ROUTES = new Set(['settings/public', 'auth/login', 'auth/register', 'auth/forgot-password', 'auth/reset-password']);
 
 /**
  * Proxy function to forward requests to the PHP backend
@@ -54,6 +54,11 @@ async function proxyRequest(request: NextRequest, { params }: { params: Promise<
     try {
         const contentTypeHeader = request.headers.get('content-type') || '';
         const isMultipart = contentTypeHeader.toLowerCase().includes('multipart/form-data');
+
+        // For multipart: explicitly preserve the original Content-Type with boundary
+        if (isMultipart) {
+            headers.set('Content-Type', contentTypeHeader);
+        }
 
         const body = request.method !== 'GET' && request.method !== 'HEAD'
             ? (isMultipart ? request.body : await request.text())

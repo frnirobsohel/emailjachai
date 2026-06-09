@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"os"
 
-	"ejp-backend/pkg/config"
-	"ejp-backend/internal/model"
+	"ejp-backend/internal/repo"
 	"ejp-backend/internal/storage"
+	"ejp-backend/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,7 +23,7 @@ import (
 // Strategy:
 //  1. If job.ResultFilePath points to an existing .ndjson file → stream it directly.
 //  2. Fallback → query job_results table (for backwards compatibility / small jobs).
-func DownloadJobResults(c *gin.Context) {
+func (h *JobHandler) DownloadJobResults(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
 	// Legacy support for both jobId and job_id query params
@@ -43,8 +43,8 @@ func DownloadJobResults(c *gin.Context) {
 	}
 
 	// 1. Find Job (support both string JobID and numeric ID)
-	var job model.Job
-	if err := config.DB.Where("(job_id = ? OR id::text = ?) AND user_id = ?", jobIDStr, jobIDStr, userID).First(&job).Error; err != nil {
+	job, err := h.jobService.GetJobForUser(userID.(uint), jobIDStr)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
 		return
 	}
@@ -93,6 +93,9 @@ func DownloadJobResults(c *gin.Context) {
 			// Allow lines up to 1MB (large JSON objects are rare but possible)
 			scanner.Buffer(make([]byte, 64*1024), 1*1024*1024)
 			for scanner.Scan() {
+				if c.Request.Context().Err() != nil {
+					return
+				}
 				var row storage.ResultRow
 				if err := json.Unmarshal(scanner.Bytes(), &row); err != nil {
 					continue
@@ -112,12 +115,15 @@ func DownloadJobResults(c *gin.Context) {
 				})
 				w.Flush()
 			}
+			if err := scanner.Err(); err != nil {
+				logger.Error("Error reading ndjson file during download", "error", err, "job_id", job.JobID)
+			}
 			return
 		}
 	}
 
 	// 4. Fallback: query job_results table (small jobs / single verify / legacy data)
-	rows, err := config.DB.Model(&model.JobResult{}).Where("job_id = ?", job.ID).Rows()
+	rows, err := h.jobService.GetJobResultsRows(job.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve results"})
 		return
@@ -135,8 +141,13 @@ func DownloadJobResults(c *gin.Context) {
 		writer.Write([]string{"Email", "Status", "Reason", "Catch-All", "Score", "Verified At", "Job ID"})
 
 		for rows.Next() {
-			var res model.JobResult
-			config.DB.ScanRows(rows, &res)
+			if c.Request.Context().Err() != nil {
+				return
+			}
+			var res repo.DownloadResultRow
+			if err := rows.Scan(&res.Email, &res.Status, &res.Reason, &res.IsCatchAll, &res.Score, &res.CreatedAt); err != nil {
+				continue
+			}
 
 			catchAll := "No"
 			if res.IsCatchAll {
@@ -160,8 +171,13 @@ func DownloadJobResults(c *gin.Context) {
 
 		encoder := json.NewEncoder(c.Writer)
 		for rows.Next() {
-			var res model.JobResult
-			config.DB.ScanRows(rows, &res)
+			if c.Request.Context().Err() != nil {
+				return
+			}
+			var res repo.DownloadResultRow
+			if err := rows.Scan(&res.Email, &res.Status, &res.Reason, &res.IsCatchAll, &res.Score, &res.CreatedAt); err != nil {
+				continue
+			}
 			encoder.Encode(gin.H{
 				"email":       res.Email,
 				"status":      res.Status,
@@ -177,6 +193,3 @@ func DownloadJobResults(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid format. Use csv or ndjson."})
 	}
 }
-
-
-

@@ -305,8 +305,10 @@ export function BulkUploadForm() {
                                         <Eye className="mr-2 h-4 w-4" /> View Jobs
                                     </Link>
                                 </Button>
-                                <Button variant="outline" size="sm" className="flex-1 border-blue-200 text-blue-700 hover:bg-blue-50">
-                                    <Download className="mr-2 h-4 w-4" /> Download
+                                <Button variant="outline" size="sm" asChild className="flex-1 border-blue-200 text-blue-700 hover:bg-blue-50">
+                                    <a href={`/next-api/proxy/jobs/download?jobId=${uploadStats.jobId}&format=csv`} target="_blank" rel="noopener noreferrer">
+                                        <Download className="mr-2 h-4 w-4" /> Download
+                                    </a>
                                 </Button>
                             </div>
                         </div>

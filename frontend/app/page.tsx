@@ -1,34 +1,33 @@
-"use client"
-
-import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/common/button"
 import { CheckCircle2, Zap, Shield, Globe } from "lucide-react"
-import { useSiteTitle } from "@/lib/useSiteTitle"
 
-export default function Home() {
-  const siteTitle = useSiteTitle()
-  const [siteTagline, setSiteTagline] = useState("Verify Emails with Precision")
+const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1'
 
-  useEffect(() => {
-    const fetchTagline = async () => {
-      try {
-        const { ApiClient } = await import("@/lib/api-client")
-        const result = await ApiClient.get('/settings/public')
-        if (result.status === 'success' && result.data) {
-          const settingsData = result.data as Record<string, string>
-          if (settingsData.site_tagline) setSiteTagline(settingsData.site_tagline)
-        }
-      } catch { /* silent fallback */ }
+export default async function Home() {
+  let siteTitle = "EmailJachai Pro"
+  let siteTagline = "Verify Emails with Precision"
+  let logoUrl = ""
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/settings/public`, { next: { revalidate: 60 } })
+    const json = await res.json()
+    if (json.status === 'success' && json.data) {
+      siteTitle = json.data.site_title || siteTitle
+      siteTagline = json.data.site_tagline || siteTagline
+      logoUrl = json.data.logo_url || ""
     }
-    fetchTagline()
-  }, [])
+  } catch {}
 
   return (
     <div className="flex min-h-screen flex-col">
       <header className="px-4 lg:px-6 h-14 flex items-center border-b bg-white dark:bg-slate-950">
         <Link className="flex items-center justify-center font-bold text-lg text-slate-900 dark:text-white" href="#">
-          <Globe className="mr-2 h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+          {logoUrl ? (
+             <img src={logoUrl} alt="Logo" className="mr-2 h-6 w-6 object-contain" />
+          ) : (
+             <Globe className="mr-2 h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+          )}
           {siteTitle}
         </Link>
         <nav className="ml-auto flex gap-4 sm:gap-6">
@@ -46,7 +45,7 @@ export default function Home() {
             <div className="flex flex-col items-center space-y-4 text-center">
               <div className="space-y-2">
                 <h1 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl lg:text-6xl/none">
-                  Verify Emails with Precision
+                  {siteTagline}
                 </h1>
                 <p className="mx-auto max-w-[700px] text-slate-400 md:text-xl">
                   Clean your email lists, improve deliverability, and protect your sender reputation with our enterprise-grade verification system.

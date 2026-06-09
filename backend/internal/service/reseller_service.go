@@ -35,7 +35,11 @@ func (s *resellerService) TransferCredits(resellerID uint, recipientEmail string
 		// 1. Get Reseller (Sender)
 		var reseller model.User
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&reseller, resellerID).Error; err != nil {
-			return errors.New("reseller account not found")
+			return errors.New("account not found")
+		}
+
+		if reseller.Role != "reseller" && reseller.Role != "admin" {
+			return errors.New("unauthorized: only resellers can transfer credits")
 		}
 
 		if reseller.Credits < amount {

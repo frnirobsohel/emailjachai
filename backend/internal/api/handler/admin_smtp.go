@@ -1,24 +1,22 @@
 package handler
 
 import (
+	"crypto/tls"
 	"net/http"
 	"strconv"
 	"strings"
 
-	"ejp-backend/pkg/config"
-	"ejp-backend/internal/model"
 	"ejp-backend/internal/helper"
+	"ejp-backend/internal/model"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
+	"gopkg.in/gomail.v2"
 )
 
 // GetSmtpSettings returns SMTP config in the legacy UI shape.
 func (h *AdminHandler) GetSmtpSettings(c *gin.Context) {
-	var cfg model.SmtpConfig
-	err := config.DB.First(&cfg).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
+	cfg, err := h.systemService.GetSmtpSettings()
+	if err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch SMTP settings", err.Error())
 		return
 	}
@@ -30,8 +28,9 @@ func (h *AdminHandler) GetSmtpSettings(c *gin.Context) {
 	username := ""
 	dailyLimit := "5000"
 	hasPassword := false
+	isActive := true
 
-	if err == nil {
+	if cfg.ID > 0 {
 		if strings.TrimSpace(cfg.Host) != "" {
 			host = cfg.Host
 		}
@@ -47,13 +46,14 @@ func (h *AdminHandler) GetSmtpSettings(c *gin.Context) {
 		}
 
 		if strings.TrimSpace(cfg.Password) != "" {
-			plain, decErr := decryptSecret(cfg.Password)
+			plain, decErr := helper.DecryptSecret(cfg.Password)
 			if decErr != nil {
 				helper.SendError(c, http.StatusInternalServerError, "Server security misconfiguration.", "")
 				return
 			}
 			hasPassword = strings.TrimSpace(plain) != ""
 		}
+		isActive = cfg.IsActive
 	}
 
 	helper.SendSuccess(c, "SMTP settings retrieved", gin.H{
@@ -64,6 +64,7 @@ func (h *AdminHandler) GetSmtpSettings(c *gin.Context) {
 		"password":     "",
 		"has_password": hasPassword,
 		"daily_limit":  dailyLimit,
+		"is_active":    isActive,
 	})
 }
 
@@ -77,6 +78,7 @@ func (h *AdminHandler) SaveSmtpSettings(c *gin.Context) {
 		Password   string `json:"password"`
 		Encryption string `json:"encryption"`
 		DailyLimit string `json:"daily_limit"`
+		IsActive   bool   `json:"is_active"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -101,49 +103,37 @@ func (h *AdminHandler) SaveSmtpSettings(c *gin.Context) {
 
 	shouldPreservePassword := strings.TrimSpace(input.Password) == "" || strings.TrimSpace(input.Password) == "********"
 
-	var cfg model.SmtpConfig
-	err := config.DB.First(&cfg).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to access SMTP settings", err.Error())
+	// Backend Input Validation
+	if input.IsActive {
+		if host == "" || username == "" {
+			helper.SendError(c, http.StatusBadRequest, "Host and Username are required to activate SMTP", "")
+			return
+		}
+		if !shouldPreservePassword && strings.TrimSpace(input.Password) == "" {
+			helper.SendError(c, http.StatusBadRequest, "Password is required to activate SMTP", "")
+			return
+		}
+		if shouldPreservePassword {
+			cfg, err := h.systemService.GetSmtpSettings()
+			if err != nil || cfg.Password == "" {
+				helper.SendError(c, http.StatusBadRequest, "Password is required to activate SMTP", "")
+				return
+			}
+		}
+	}
+
+	cfg := &model.SmtpConfig{
+		Host:       host,
+		Port:       port,
+		Username:   username,
+		Encryption: encryption,
+		DailyLimit: dailyLimit,
+		IsActive:   input.IsActive,
+	}
+
+	if err := h.systemService.SaveSmtpSettings(cfg, input.Password, shouldPreservePassword); err != nil {
+		helper.SendError(c, http.StatusInternalServerError, err.Error(), "")
 		return
-	}
-
-	finalPassword := cfg.Password
-	if !shouldPreservePassword {
-		enc, encErr := encryptSecret(input.Password)
-		if encErr != nil {
-			helper.SendError(c, http.StatusInternalServerError, "Server security misconfiguration.", "")
-			return
-		}
-		finalPassword = enc
-	}
-
-	if err == gorm.ErrRecordNotFound {
-		cfg = model.SmtpConfig{
-			Host:       host,
-			Port:       port,
-			Username:   username,
-			Password:   finalPassword,
-			Encryption: encryption,
-			DailyLimit: dailyLimit,
-		}
-		if err := config.DB.Create(&cfg).Error; err != nil {
-			helper.SendError(c, http.StatusInternalServerError, "Failed to save SMTP settings", err.Error())
-			return
-		}
-	} else {
-		updates := map[string]interface{}{
-			"host":        host,
-			"port":        port,
-			"username":    username,
-			"password":    finalPassword,
-			"encryption":  encryption,
-			"daily_limit": dailyLimit,
-		}
-		if err := config.DB.Model(&cfg).Updates(updates).Error; err != nil {
-			helper.SendError(c, http.StatusInternalServerError, "Failed to save SMTP settings", err.Error())
-			return
-		}
 	}
 
 	logAction(adminID.(uint), "INFO", "Admin", "SMTP settings updated")
@@ -152,8 +142,8 @@ func (h *AdminHandler) SaveSmtpSettings(c *gin.Context) {
 
 // GetTemplates fetches all email templates
 func (h *AdminHandler) GetTemplates(c *gin.Context) {
-	var templates []model.EmailTemplate
-	if err := config.DB.Find(&templates).Error; err != nil {
+	templates, err := h.systemService.GetTemplates()
+	if err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch templates", "")
 		return
 	}
@@ -168,6 +158,7 @@ func (h *AdminHandler) SaveTemplate(c *gin.Context) {
 		TemplateKey  string `json:"template_key"`
 		Subject      string `json:"subject"`
 		Body         string `json:"body"`
+		IsActive     bool   `json:"is_active"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -184,16 +175,14 @@ func (h *AdminHandler) SaveTemplate(c *gin.Context) {
 		return
 	}
 
-	template := model.EmailTemplate{
+	template := &model.EmailTemplate{
 		TemplateName: key,
 		Subject:      input.Subject,
 		Body:         input.Body,
+		IsActive:     input.IsActive,
 	}
 
-	if err := config.DB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "template_name"}},
-		DoUpdates: clause.AssignmentColumns([]string{"subject", "body", "updated_at"}),
-	}).Create(&template).Error; err != nil {
+	if err := h.systemService.SaveTemplate(template); err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to save template", err.Error())
 		return
 	}
@@ -201,5 +190,59 @@ func (h *AdminHandler) SaveTemplate(c *gin.Context) {
 	helper.SendSuccess(c, "Template saved", nil)
 }
 
+// TestSmtpConnection attempts to dial the SMTP server with the provided credentials
+func (h *AdminHandler) TestSmtpConnection(c *gin.Context) {
+	var input struct {
+		Host       string `json:"host"`
+		Port       string `json:"port"`
+		Username   string `json:"username"`
+		Password   string `json:"password"`
+		Encryption string `json:"encryption"`
+	}
 
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		return
+	}
 
+	host := strings.TrimSpace(input.Host)
+	port, _ := strconv.Atoi(strings.TrimSpace(input.Port))
+	if port <= 0 {
+		port = 587
+	}
+	username := strings.TrimSpace(input.Username)
+	password := input.Password
+
+	if strings.TrimSpace(password) == "" || strings.TrimSpace(password) == "********" {
+		cfg, err := h.systemService.GetSmtpSettings()
+		if err == nil && cfg.Password != "" {
+			plain, decErr := helper.DecryptSecret(cfg.Password)
+			if decErr == nil {
+				password = plain
+			}
+		}
+	}
+
+	if host == "" || username == "" || password == "" {
+		helper.SendError(c, http.StatusBadRequest, "Missing required SMTP credentials for testing", "")
+		return
+	}
+
+	d := gomail.NewDialer(host, port, username, password)
+	if strings.ToLower(input.Encryption) == "ssl" {
+		d.SSL = true
+	}
+	d.TLSConfig = &tls.Config{
+		ServerName:         host,
+		InsecureSkipVerify: true,
+	}
+
+	closer, err := d.Dial()
+	if err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Connection failed: "+err.Error(), "")
+		return
+	}
+	closer.Close()
+
+	helper.SendSuccess(c, "Connection successful", nil)
+}

@@ -1,4 +1,3 @@
-"use client"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
 import { Button } from "@/components/common/button"
@@ -38,27 +37,29 @@ export function QuickActions() {
                 </Button>
 
                 <div className="mt-auto pt-1">
-                    <div className="rounded-xl bg-gradient-to-br from-slate-900 to-slate-800 text-white overflow-hidden relative group cursor-pointer shadow-md hover:shadow-lg transition-all border border-slate-700">
-                        <div className="relative z-10 p-4">
-                            <div className="flex items-center gap-2 mb-1.5">
-                                <div className="p-1 bg-indigo-500/20 rounded-md ring-1 ring-indigo-500/50">
-                                    <Zap className="h-3 w-3 text-indigo-400" />
+                    <Link href="/dashboard/api-keys" className="block">
+                        <div className="rounded-xl bg-gradient-to-br from-slate-900 to-slate-800 text-white overflow-hidden relative group shadow-md hover:shadow-lg transition-all border border-slate-700">
+                            <div className="relative z-10 p-4">
+                                <div className="flex items-center gap-2 mb-1.5">
+                                    <div className="p-1 bg-indigo-500/20 rounded-md ring-1 ring-indigo-500/50">
+                                        <Zap className="h-3 w-3 text-indigo-400" />
+                                    </div>
+                                    <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest">PRO TIP</p>
                                 </div>
-                                <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest">PRO TIP</p>
+                                <p className="text-sm font-semibold mb-1">Connect via API</p>
+                                <p className="text-[10px] text-slate-400 leading-relaxed mb-3 max-w-[90%]">
+                                    Integrate directly into your app with our robust REST API.
+                                </p>
+                                <div className="flex items-center text-[10px] font-bold gap-1 text-indigo-300 group-hover:text-white group-hover:translate-x-1 transition-all">
+                                    Get API Keys <ArrowRight className="h-2.5 w-2.5" />
+                                </div>
                             </div>
-                            <p className="text-sm font-semibold mb-1">Connect via API</p>
-                            <p className="text-[10px] text-slate-400 leading-relaxed mb-3 max-w-[90%]">
-                                Integrate directly into your app with our robust REST API.
-                            </p>
-                            <div className="flex items-center text-[10px] font-bold gap-1 text-indigo-300 group-hover:text-white group-hover:translate-x-1 transition-all">
-                                Get API Keys <ArrowRight className="h-2.5 w-2.5" />
+                            <Activity className="absolute -right-5 -bottom-5 h-20 w-20 text-white opacity-[0.03] group-hover:opacity-[0.08] transition-opacity rotate-12" />
+                            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+                                <div className="h-16 w-16 rounded-full bg-indigo-500 blur-2xl" />
                             </div>
                         </div>
-                        <Activity className="absolute -right-5 -bottom-5 h-20 w-20 text-white opacity-[0.03] group-hover:opacity-[0.08] transition-opacity rotate-12" />
-                        <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
-                            <div className="h-16 w-16 rounded-full bg-indigo-500 blur-2xl" />
-                        </div>
-                    </div>
+                    </Link>
                 </div>
             </CardContent>
         </Card>

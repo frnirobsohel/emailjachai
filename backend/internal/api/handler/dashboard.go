@@ -80,7 +80,11 @@ func DashboardStats(c *gin.Context) {
 
 	totalVerifications := jobSummary.TotalVerifications + deletedSummary.TotalVerifications
 	totalJobs := jobSummary.TotalJobs + deletedSummary.TotalJobs
-	todayVerifications := jobSummary.TodayVerifications
+	
+	// Calculate Today's Verifications accurately using DB CURRENT_DATE
+	var todayDeleted int64
+	config.DB.Raw(`SELECT COALESCE(SUM(emails), 0) FROM deleted_job_daily_stats WHERE user_id = ? AND activity_date = CURRENT_DATE`, userID).Scan(&todayDeleted)
+	todayVerifications := jobSummary.TodayVerifications + todayDeleted
 
 	breakdown := gin.H{
 		"deliverable":    jobSummary.DeliverableTotal + deletedSummary.Deliverable,
@@ -122,11 +126,11 @@ func DashboardStats(c *gin.Context) {
 	deletedDaily := make([]dailyAgg, 0, 7)
 	config.DB.Raw(`
 		SELECT
-			activity_date as day,
+			TO_CHAR(activity_date, 'YYYY-MM-DD') as day,
 			COALESCE(SUM(emails), 0) as emails,
 			COALESCE(SUM(jobs), 0) as jobs
 		FROM deleted_job_daily_stats
-		WHERE user_id = ? AND activity_date >= TO_CHAR(CURRENT_DATE - INTERVAL '6 days', 'YYYY-MM-DD')
+		WHERE user_id = ? AND activity_date >= CURRENT_DATE - INTERVAL '6 days'
 		GROUP BY activity_date
 	`, userID).Scan(&deletedDaily)
 
@@ -142,9 +146,16 @@ func DashboardStats(c *gin.Context) {
 		dailyMap[row.Day] = current
 	}
 
+	// Get DB's current date to ensure timezone alignment
+	var dbToday time.Time
+	config.DB.Raw("SELECT CURRENT_DATE").Scan(&dbToday)
+	if dbToday.IsZero() {
+		dbToday = time.Now()
+	}
+
 	var weeklyActivity []gin.H
 	for i := 6; i >= 0; i-- {
-		d := time.Now().AddDate(0, 0, -i)
+		d := dbToday.AddDate(0, 0, -i)
 		date := d.Format("2006-01-02")
 		dayName := d.Format("Mon")
 		stats := dailyMap[date]
@@ -154,10 +165,6 @@ func DashboardStats(c *gin.Context) {
 			"emails": stats.Emails,
 			"jobs":   stats.Jobs,
 		})
-
-		if date == time.Now().Format("2006-01-02") {
-			todayVerifications += stats.Emails - jobSummary.TodayVerifications
-		}
 	}
 
 	finalData := gin.H{

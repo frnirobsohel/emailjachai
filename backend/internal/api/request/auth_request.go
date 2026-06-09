@@ -2,9 +2,9 @@ package request
 
 type RegisterRequest struct {
 	FirstName string `json:"firstName" binding:"required"`
-	LastName  string `json:"lastName" binding:"required"`
-	Email     string `json:"email" binding:"required,email"`
-	Password  string `json:"password" binding:"required,min=6"`
+	LastName  string `json:"lastName"  binding:"required"`
+	Email     string `json:"email"     binding:"required,email,not_disposable"`
+	Password  string `json:"password"  binding:"required,strong_password"`
 }
 
 type LoginRequest struct {

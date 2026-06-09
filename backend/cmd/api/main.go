@@ -3,6 +3,7 @@ package main
 import (
 
 	"ejp-backend/pkg/config"
+	"ejp-backend/internal/api/validator"
 	"ejp-backend/internal/routes"
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/logger"
@@ -13,6 +14,9 @@ import (
 func main() {
 	// Initialize Logger
 	logger.Init()
+
+	// Register custom validation tags (not_disposable, valid_domain, ipv4_or_ipv6, etc.)
+	validator.Init()
 
 	// 1. Load Configuration
 	config.LoadConfig()

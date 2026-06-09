@@ -1,14 +1,12 @@
 package handler
 
 import (
-	"bufio"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 
-	"ejp-backend/pkg/config"
-	"ejp-backend/internal/model"
 	"ejp-backend/internal/helper"
 
 	"github.com/gin-gonic/gin"
@@ -29,42 +27,11 @@ func (h *AdminHandler) GetAllDomains(c *gin.Context) {
 	}
 	offset := (page - 1) * perPage
 
-	var domains []model.Domain
-	var total int64
-
-	query := config.DB.Model(&model.Domain{})
-
-	if search != "" {
-		query = query.Where("domain LIKE ?", "%"+search+"%")
-	}
-
-	if domainType != "" {
-		query = query.Where("type = ?", domainType)
-	}
-
-	// Get total count for pagination
-	query.Count(&total)
-
-	// Fetch results
-	if err := query.Order("id DESC").Limit(perPage).Offset(offset).Find(&domains).Error; err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch domains", "")
+	domains, total, stats, err := h.domainService.GetDomains(search, domainType, perPage, offset)
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, err.Error(), "")
 		return
 	}
-
-	// Fetch Stats (Legacy Parity)
-	var stats struct {
-		Total      int64 `json:"total"`
-		Disposable int64 `json:"disposable"`
-		Free       int64 `json:"free"`
-		Blacklist  int64 `json:"blacklist"`
-		Spam       int64 `json:"spam"`
-	}
-
-	config.DB.Model(&model.Domain{}).Count(&stats.Total)
-	config.DB.Model(&model.Domain{}).Where("type = ?", "disposable").Count(&stats.Disposable)
-	config.DB.Model(&model.Domain{}).Where("type = ?", "free").Count(&stats.Free)
-	config.DB.Model(&model.Domain{}).Where("type = ?", "blacklist").Count(&stats.Blacklist)
-	config.DB.Model(&model.Domain{}).Where("type = ?", "spam-trap").Count(&stats.Spam)
 
 	helper.SendSuccess(c, "Domains retrieved", gin.H{
 		"domains":  domains,
@@ -89,55 +56,48 @@ func (h *AdminHandler) AddDomain(c *gin.Context) {
 		return
 	}
 
-	domain := model.Domain{
-		Domain:   strings.ToLower(strings.TrimSpace(input.Domain)),
-		Type:     input.Type,
-		Excluded: false,
-		AddedBy:  &uID,
-	}
-
-	if err := config.DB.Create(&domain).Error; err != nil {
-		helper.SendError(c, http.StatusConflict, "Domain already exists.", "")
+	err := h.domainService.AddDomain(input.Domain, input.Type, uID)
+	if err != nil {
+		helper.SendError(c, http.StatusConflict, err.Error(), "")
 		return
 	}
 
-	logAction(adminID.(uint), "INFO", "Admin", fmt.Sprintf("Added domain: %s (%s)", domain.Domain, domain.Type))
-
-	helper.SendSuccess(c, "Domain added successfully", domain)
+	helper.SendSuccess(c, "Domain added successfully", nil)
 }
 
 // DeleteDomain removes a domain rule
 func (h *AdminHandler) DeleteDomain(c *gin.Context) {
 	adminID, _ := c.Get("userID")
-	id := c.Param("id")
+	uID := adminID.(uint)
+	idStr := c.Param("id")
 
-	if id == "" {
-		id = c.Query("id")
+	if idStr == "" {
+		idStr = c.Query("id")
 	}
-	if id == "" {
+	if idStr == "" {
 		var input struct {
 			ID uint `json:"id"`
 		}
 		if err := c.ShouldBindJSON(&input); err == nil && input.ID != 0 {
-			id = strconv.FormatUint(uint64(input.ID), 10)
+			idStr = strconv.FormatUint(uint64(input.ID), 10)
 		}
 	}
-	if id == "" {
+	if idStr == "" {
 		helper.SendError(c, http.StatusBadRequest, "Domain ID is required", "")
 		return
 	}
 
-	result := config.DB.Delete(&model.Domain{}, id)
-	if result.Error != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to delete domain", "")
-		return
-	}
-	if result.RowsAffected == 0 {
-		helper.SendError(c, http.StatusNotFound, "Domain not found", "")
+	idVal, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Invalid Domain ID format", "")
 		return
 	}
 
-	logAction(adminID.(uint), "WARN", "Admin", fmt.Sprintf("Deleted domain #%s", id))
+	err = h.domainService.DeleteDomain(uint(idVal), uID)
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, err.Error(), "")
+		return
+	}
 
 	helper.SendSuccess(c, "Domain rule deleted", nil)
 }
@@ -145,6 +105,7 @@ func (h *AdminHandler) DeleteDomain(c *gin.Context) {
 // ToggleDomain enables or disables a domain rule
 func (h *AdminHandler) ToggleDomain(c *gin.Context) {
 	adminID, _ := c.Get("userID")
+	uID := adminID.(uint)
 	var input struct {
 		ID uint `json:"id" binding:"required"`
 	}
@@ -154,74 +115,36 @@ func (h *AdminHandler) ToggleDomain(c *gin.Context) {
 		return
 	}
 
-	var domain model.Domain
-	if err := config.DB.First(&domain, input.ID).Error; err != nil {
-		helper.SendError(c, http.StatusNotFound, "Domain not found", "")
+	excluded, err := h.domainService.ToggleDomain(input.ID, uID)
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, err.Error(), "")
 		return
 	}
 
-	newExcluded := !domain.Excluded
-
-	if err := config.DB.Model(&domain).Update("excluded", newExcluded).Error; err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to toggle domain", "")
-		return
-	}
-
-	logAction(adminID.(uint), "INFO", "Admin", fmt.Sprintf("Toggled domain #%d excluded=%v", domain.ID, newExcluded))
-
-	helper.SendSuccess(c, "Domain status toggled", gin.H{"excluded": newExcluded})
+	helper.SendSuccess(c, "Domain status toggled", gin.H{"excluded": excluded})
 }
 
-// UploadDomains allows bulk uploading of domains via JSON or File (Legacy Parity)
+// UploadDomains allows bulk uploading of domains via JSON or File
 func (h *AdminHandler) UploadDomains(c *gin.Context) {
 	adminID, _ := c.Get("userID")
+	uID := adminID.(uint)
 	domainType := c.PostForm("type")
-	if domainType == "" {
-		// Fallback for JSON
-		var jsonInput struct {
-			Type string `json:"type"`
-		}
-		c.ShouldBindJSON(&jsonInput)
-		domainType = jsonInput.Type
-	}
 
-	if domainType == "" {
-		domainType = "disposable"
-	}
+	var content string
 
-	added := 0
-	duplicates := 0
-	invalid := 0
-
-	// Handle File Upload
+	// 1. Handle File Upload (Multipart Form)
 	file, err := c.FormFile("file")
 	if err == nil {
-		f, _ := file.Open()
-		defer f.Close()
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
-				continue
-			}
-			// Simple CSV/Line parsing
-			parts := strings.Split(line, ",")
-			domainName := strings.ToLower(strings.TrimSpace(parts[0]))
-
-			if !helper.IsValidDomain(domainName) {
-				invalid++
-				continue
-			}
-
-			d := model.Domain{Domain: domainName, Type: domainType}
-			if err := config.DB.Create(&d).Error; err != nil {
-				duplicates++
-			} else {
-				added++
+		f, err := file.Open()
+		if err == nil {
+			defer f.Close()
+			bytes, err := io.ReadAll(f)
+			if err == nil {
+				content = string(bytes)
 			}
 		}
 	} else {
-		// Handle JSON Body with 'domains' array or 'content' string
+		// 2. Handle JSON Body (if not a multipart form)
 		var input struct {
 			Domains []string `json:"domains"`
 			Content string   `json:"content"`
@@ -231,44 +154,23 @@ func (h *AdminHandler) UploadDomains(c *gin.Context) {
 			if domainType == "" && input.Type != "" {
 				domainType = input.Type
 			}
-
 			if len(input.Domains) > 0 {
-				for _, dName := range input.Domains {
-					domainName := strings.ToLower(strings.TrimSpace(dName))
-					if !helper.IsValidDomain(domainName) {
-						invalid++
-						continue
-					}
-					d := model.Domain{Domain: domainName, Type: domainType}
-					if err := config.DB.Create(&d).Error; err != nil {
-						duplicates++
-					} else {
-						added++
-					}
-				}
-			} else if input.Content != "" {
-				lines := strings.Split(input.Content, "\n")
-				for _, line := range lines {
-					domainName := strings.ToLower(strings.TrimSpace(line))
-					if domainName == "" {
-						continue
-					}
-					if !helper.IsValidDomain(domainName) {
-						invalid++
-						continue
-					}
-					d := model.Domain{Domain: domainName, Type: domainType}
-					if err := config.DB.Create(&d).Error; err != nil {
-						duplicates++
-					} else {
-						added++
-					}
-				}
+				content = strings.Join(input.Domains, "\n")
+			} else {
+				content = input.Content
 			}
 		}
 	}
 
-	logAction(adminID.(uint), "INFO", "Admin", fmt.Sprintf("Bulk uploaded domains: added=%d duplicates=%d invalid=%d", added, duplicates, invalid))
+	if domainType == "" {
+		domainType = "disposable"
+	}
+
+	added, duplicates, invalid, err := h.domainService.BulkUpload(content, domainType, uID)
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, err.Error(), "")
+		return
+	}
 
 	helper.SendSuccess(c, fmt.Sprintf("Upload complete: %d added, %d duplicates skipped, %d invalid.", added, duplicates, invalid), gin.H{
 		"added":      added,

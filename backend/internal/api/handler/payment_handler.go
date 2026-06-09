@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"io"
 	"net/http"
 
 	"ejp-backend/internal/helper"
@@ -55,7 +56,47 @@ func (h *PaymentHandler) CreateSession(c *gin.Context) {
 
 func (h *PaymentHandler) HandleWebhook(c *gin.Context) {
 	provider := c.Param("provider")
-	// Process payload for provider
-	_ = provider
+	if provider == "" {
+		helper.SendError(c, http.StatusBadRequest, "Payment provider is required", "ERR_MISSING_PROVIDER")
+		return
+	}
+
+	// Read the raw webhook payload
+	rawBody, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Failed to read request body", err.Error())
+		return
+	}
+
+	// Extract headers
+	headers := make(map[string]string)
+	for k, v := range c.Request.Header {
+		if len(v) > 0 {
+			headers[k] = v[0]
+		}
+	}
+
+	if err := h.paymentService.ProcessWebhook(provider, rawBody, headers); err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Webhook processing failed", err.Error())
+		return
+	}
+
 	helper.SendSuccess(c, "Webhook processed", nil)
 }
+
+func (h *PaymentHandler) VerifyPayment(c *gin.Context) {
+	txid := c.Query("txid")
+	if txid == "" {
+		helper.SendError(c, http.StatusBadRequest, "Transaction ID is required", "ERR_MISSING_TXID")
+		return
+	}
+
+	status, err := h.paymentService.VerifyPayment(txid)
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Failed to verify payment", err.Error())
+		return
+	}
+
+	helper.SendSuccess(c, "Payment verification status", gin.H{"status": status})
+}
+
