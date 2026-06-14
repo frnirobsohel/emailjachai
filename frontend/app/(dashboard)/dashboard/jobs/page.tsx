@@ -1,6 +1,7 @@
+export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
-import { JobsClient } from "./jobs-client"
-import type { Job } from "./jobs-client"
+import { JobsClient } from "@/features/jobs/components/jobs-client"
+import type { Job } from "@/features/jobs/components/jobs-client"
 
 export default async function JobsPage() {
     let initialJobs: Job[] = [];

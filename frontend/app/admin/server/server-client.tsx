@@ -1,44 +1,24 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
+import { useState, useEffect, useMemo, useRef } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-    Server,
-    RefreshCcw,
-    Power,
-    Activity,
-    Plus,
-    Copy,
-    Check,
-    Trash2,
-    Settings2,
-    ShieldCheck,
-    Zap,
-    Clock,
-    Database,
-    Globe,
-    Signal,
-    MoreVertical,
-    Search,
-    Eye,
-    EyeOff,
-    Lock
+    Server, RefreshCcw, Power, Activity, Plus, Copy, Check, Trash2, Settings2,
+    ShieldCheck, Zap, Clock, Database, Globe, Signal, MoreVertical, Search, Eye, EyeOff, Lock, AlertCircle, Loader2
 } from "lucide-react"
-import { Button } from "@/components/common/button"
-import { Input } from "@/components/common/input"
-import { Badge } from "@/components/common/badge"
-import { Label } from "@/components/common/label"
-import { Progress } from "@/components/common/progress"
-import { Separator } from "@/components/common/separator"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import { Progress } from "@/components/ui/progress"
+import { Separator } from "@/components/ui/separator"
 import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/common/table"
-
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
+import { toast } from "react-hot-toast"
 import { ApiClient } from "@/lib/api-client"
 
 export interface ServerNode {
@@ -63,20 +43,61 @@ export interface ServerNode {
 
 type ServerConfigUpdate = Pick<ServerNode["config"], "dailyLimit" | "rateLimit">
 
+const addServerSchema = z.object({
+    name: z.string().min(1, "Display name is required"),
+    ip: z.string().min(1, "IP/Domain is required"),
+    port: z.string().min(1, "Invalid port")
+})
+
+const manageServerSchema = z.object({
+    rateLimit: z.union([z.string(), z.number()]),
+    dailyLimit: z.union([z.string(), z.number()])
+})
+
+const rotateKeySchema = z.object({
+    password: z.string().min(1, "Password is required")
+})
+
 export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
     const [servers, setServers] = useState<ServerNode[]>(initialData)
     const [isLoading, setIsLoading] = useState(false)
     const [workerKey, setWorkerKey] = useState("")
     const [isKeyLoading, setIsKeyLoading] = useState(false)
-    const [isRotatingKey, setIsRotatingKey] = useState(false)
     const [copied, setCopied] = useState(false)
     const [showAddForm, setShowAddForm] = useState(false)
     const [showApiKey, setShowApiKey] = useState(false)
     const [showRegenerateModal, setShowRegenerateModal] = useState(false)
-    const [confirmPassword, setConfirmPassword] = useState("")
-    const [newServer, setNewServer] = useState({ name: '', ip: '', port: '8080' })
     const [manageServer, setManageServer] = useState<ServerNode | null>(null)
     const [searchTerm, setSearchTerm] = useState("")
+    
+    // Inline confirmation state for delete
+    const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
+    const deleteTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+    const addForm = useForm<z.infer<typeof addServerSchema>>({
+        resolver: zodResolver(addServerSchema),
+        defaultValues: { name: "", ip: "", port: "8080" }
+    })
+
+    const manageForm = useForm<z.infer<typeof manageServerSchema>>({
+        resolver: zodResolver(manageServerSchema)
+    })
+
+    const rotateForm = useForm<z.infer<typeof rotateKeySchema>>({
+        resolver: zodResolver(rotateKeySchema),
+        defaultValues: { password: "" }
+    })
+
+    useEffect(() => {
+        if (manageServer) {
+            manageForm.reset({
+                rateLimit: manageServer.config.rateLimit,
+                dailyLimit: manageServer.config.dailyLimit
+            })
+            setConfirmDeleteId(null)
+            if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current)
+        }
+    }, [manageServer, manageForm])
 
     const filteredServers = useMemo(() => {
         const query = searchTerm.trim().toLowerCase()
@@ -92,10 +113,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                 server.status,
                 server.currentJob,
                 server.ipReputation,
-            ]
-                .join(" ")
-                .toLowerCase()
-
+            ].join(" ").toLowerCase()
             return haystack.includes(query)
         })
     }, [servers, searchTerm])
@@ -107,7 +125,6 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                 const data = Array.isArray(result.data) ? result.data : [];
                 setServers(data);
             }
-
             setWorkerKey("");
         } catch (error) {
             console.error("Failed to fetch servers:", error);
@@ -116,36 +133,30 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
         }
     }
 
-    useEffect(() => {
-        // fetchServers(); // Handled by SSR initialData
-    }, []);
-
-    const handleAddServer = async () => {
-        if (!newServer.name.trim() || !newServer.ip.trim()) {
-            alert("Server name and IP/Domain are required.");
-            return;
-        }
-
-        const parsedPort = Number.parseInt(newServer.port, 10);
-        if (!Number.isFinite(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
-            alert("Port must be a number between 1 and 65535.");
-            return;
-        }
-
+    const onAddServer = async (values: z.infer<typeof addServerSchema>) => {
         try {
+            const portNum = parseInt(values.port as string, 10);
+            if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+                toast.error("Port must be between 1 and 65535");
+                return;
+            }
+
             const result = await ApiClient.post('/admin/server/add', {
-                server_name: newServer.name.trim(),
-                ip_address: newServer.ip.trim(),
-                port: parsedPort,
+                server_name: values.name.trim(),
+                ip_address: values.ip.trim(),
+                port: portNum,
             });
 
             if (result.status === 'success') {
+                toast.success("Worker server added successfully");
                 setShowAddForm(false);
-                setNewServer({ name: '', ip: '', port: '8080' });
+                addForm.reset();
                 fetchServers();
+            } else {
+                toast.error(result.message || "Failed to add server");
             }
-        } catch (error) {
-            alert("Error adding server");
+        } catch (error: any) {
+            toast.error(error.message || "Error adding server");
         }
     }
 
@@ -157,30 +168,46 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             });
 
             if (result.status === 'success') {
-                fetchServers(); // Refresh list to get updated config
+                toast.success(enable ? "Server enabled" : "Server disabled");
+                fetchServers();
             } else {
-                alert(result.message || "Failed to toggle server status");
+                toast.error(result.message || "Failed to toggle server status");
             }
-        } catch (error) {
-            console.error("Error toggling server:", error);
-            alert("Error toggling server status");
+        } catch (error: any) {
+            toast.error(error.message || "Error toggling server status");
         }
     }
 
-    const handleDeleteServer = async (id: number) => {
-        if (!confirm("Are you sure you want to delete this server?")) return;
+    const handleDeleteClick = (id: number) => {
+        if (confirmDeleteId !== id) {
+            setConfirmDeleteId(id)
+            if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current)
+            deleteTimerRef.current = setTimeout(() => {
+                setConfirmDeleteId(null)
+            }, 3000)
+            return
+        }
 
+        doDeleteServer(id)
+    }
+
+    const doDeleteServer = async (id: number) => {
+        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current)
+        setConfirmDeleteId(null)
+        setManageServer(null)
+        
+        const toastId = toast.loading("Deleting server...")
         try {
             const result = await ApiClient.post('/admin/server/delete', { id });
 
             if (result.status === 'success') {
+                toast.success("Server deleted successfully", { id: toastId });
                 fetchServers();
             } else {
-                alert(result.message || "Failed to delete server");
+                toast.error(result.message || "Failed to delete server", { id: toastId });
             }
-        } catch (error) {
-            console.error("Error deleting server:", error);
-            alert("Error deleting server");
+        } catch (error: any) {
+            toast.error(error.message || "Error deleting server", { id: toastId });
         }
     }
 
@@ -196,8 +223,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                 }
                 return data.worker_key || "";
             }
-        } catch (error) {
-            console.error("Failed to fetch worker key:", error);
+        } catch (error: any) {
+            toast.error(error.message || "Failed to fetch worker key");
         } finally {
             setIsKeyLoading(false);
         }
@@ -218,15 +245,10 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
         await fetchWorkerKey(true);
     };
 
-    const handleRotateWorkerKey = async () => {
-        if (!confirmPassword.trim() || isRotatingKey) {
-            return;
-        }
-
-        setIsRotatingKey(true);
+    const onRotateKey = async (values: z.infer<typeof rotateKeySchema>) => {
         try {
             const result = await ApiClient.post<{ worker_key?: string }>('/admin/server/worker-key/rotate', {
-                password: confirmPassword
+                password: values.password
             });
 
             if (result.status === 'success') {
@@ -234,17 +256,14 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                 setWorkerKey(data.worker_key || "");
                 setShowApiKey(true);
                 setShowRegenerateModal(false);
-                setConfirmPassword("");
+                rotateForm.reset();
                 setCopied(false);
-                alert("Worker key rotated successfully.");
+                toast.success("Worker key rotated successfully.");
             } else {
-                alert(result.message || "Failed to rotate worker key.");
+                toast.error(result.message || "Failed to rotate worker key.");
             }
-        } catch (error) {
-            console.error("Worker key rotation failed:", error);
-            alert("Failed to rotate worker key.");
-        } finally {
-            setIsRotatingKey(false);
+        } catch (error: any) {
+            toast.error(error.message || "Failed to rotate worker key.");
         }
     }
 
@@ -260,7 +279,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
         }
 
         if (!keyToCopy) {
-            alert("Please reveal the key first or check your connection.");
+            toast.error("Please reveal the key first or check your connection.");
             return;
         }
         navigator.clipboard.writeText(keyToCopy)
@@ -268,23 +287,27 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
         setTimeout(() => setCopied(false), 2000)
     }
 
-    const handleUpdateConfig = async (id: number, config: ServerConfigUpdate) => {
+    const onUpdateConfig = async (values: z.infer<typeof manageServerSchema>) => {
+        if (!manageServer) return;
+
         try {
             const result = await ApiClient.post('/admin/server/update', {
-                id,
-                config
+                id: manageServer.id,
+                config: {
+                    rateLimit: parseInt(values.rateLimit as string, 10),
+                    dailyLimit: parseInt(values.dailyLimit as string, 10)
+                }
             });
 
             if (result.status === 'success') {
                 setManageServer(null);
                 fetchServers();
-                alert("Settings updated successfully.");
+                toast.success("Settings updated successfully.");
             } else {
-                alert(result.message || "Failed to update settings.");
+                toast.error(result.message || "Failed to update settings.");
             }
-        } catch (error) {
-            console.error("Failed to update config:", error);
-            alert("Error updating server configuration.");
+        } catch (error: any) {
+            toast.error(error.message || "Error updating server configuration.");
         }
     }
 
@@ -298,7 +321,10 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                 </div>
                 <div className="flex items-center gap-3">
                     <Button
-                        onClick={() => setShowAddForm(!showAddForm)}
+                        onClick={() => {
+                            setShowAddForm(true);
+                            addForm.reset();
+                        }}
                         className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white shadow-sm transition-all active:scale-95"
                     >
                         <Plus className="mr-2 h-4 w-4" /> Add New Server
@@ -307,57 +333,63 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             </div>
 
             {/* Manage Server Modal */}
-            {manageServer && (() => {
-                // Inline component-like logic to manage local state for the modal
-                return (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-                        <div className="w-full max-w-md animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
-                            <Card className="shadow-2xl border-indigo-100 overflow-hidden">
-                                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <CardTitle className="text-xl font-bold text-slate-900">Manage Server</CardTitle>
-                                            <CardDescription>{manageServer.name}</CardDescription>
-                                        </div>
-                                        <Button variant="ghost" size="icon" onClick={() => setManageServer(null)} className="h-8 w-8 text-slate-400">
-                                            <Plus className="h-5 w-5 rotate-45" />
-                                        </Button>
+            {manageServer && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="w-full max-w-md animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
+                        <Card className="shadow-2xl border-indigo-100 overflow-hidden">
+                            <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <CardTitle className="text-xl font-bold text-slate-900">Manage Server</CardTitle>
+                                        <CardDescription>{manageServer.name}</CardDescription>
                                     </div>
-                                </CardHeader>
-                                <CardContent className="space-y-6 pt-6">
+                                    <Button variant="ghost" size="icon" onClick={() => setManageServer(null)} className="h-8 w-8 text-slate-400">
+                                        <Plus className="h-5 w-5 rotate-45" />
+                                    </Button>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="space-y-6 pt-6">
+                                <form onSubmit={manageForm.handleSubmit(onUpdateConfig)} className="space-y-4">
                                     <div className="space-y-4">
                                         <div className="space-y-2">
                                             <Label htmlFor="manage-rate" className="text-xs font-bold text-slate-500 uppercase">Rate Limit (per min)</Label>
-                                            <Input id="manage-rate" name="rateLimit" defaultValue={manageServer.config.rateLimit} type="number" className="focus-visible:ring-indigo-500 border-indigo-50 font-medium" />
+                                            <Input 
+                                                id="manage-rate" 
+                                                type="number" 
+                                                className={`focus-visible:ring-indigo-500 font-medium ${manageForm.formState.errors.rateLimit ? 'border-red-400' : 'border-indigo-50'}`} 
+                                                {...manageForm.register("rateLimit")} 
+                                            />
+                                            {manageForm.formState.errors.rateLimit && <p className="text-xs text-red-500">{manageForm.formState.errors.rateLimit.message}</p>}
                                         </div>
                                         <div className="space-y-2">
                                             <Label htmlFor="manage-daily" className="text-xs font-bold text-slate-500 uppercase">Daily Verification Limit</Label>
-                                            <Input id="manage-daily" name="dailyLimit" defaultValue={manageServer.config.dailyLimit} type="number" className="focus-visible:ring-indigo-500 border-indigo-50 font-medium" />
+                                            <Input 
+                                                id="manage-daily" 
+                                                type="number" 
+                                                className={`focus-visible:ring-indigo-500 font-medium ${manageForm.formState.errors.dailyLimit ? 'border-red-400' : 'border-indigo-50'}`} 
+                                                {...manageForm.register("dailyLimit")} 
+                                            />
+                                            {manageForm.formState.errors.dailyLimit && <p className="text-xs text-red-500">{manageForm.formState.errors.dailyLimit.message}</p>}
                                         </div>
                                     </div>
 
                                     <div className="flex flex-col gap-3 pt-4 border-t border-slate-100">
                                         <Button
-                                            onClick={() => {
-                                                const rate = (document.getElementById('manage-rate') as HTMLInputElement).value;
-                                                const daily = (document.getElementById('manage-daily') as HTMLInputElement).value;
-                                                handleUpdateConfig(manageServer.id, {
-                                                    rateLimit: parseInt(rate),
-                                                    dailyLimit: parseInt(daily)
-                                                });
-                                            }}
+                                            type="submit"
+                                            disabled={manageForm.formState.isSubmitting}
                                             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold uppercase tracking-widest shadow-lg shadow-indigo-100/50"
                                         >
-                                            Save Changes
+                                            {manageForm.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
                                         </Button>
 
                                         <div className="flex items-center justify-between pt-2">
                                             <span className="text-sm font-semibold text-slate-700">Server Status</span>
                                             <Button
+                                                type="button"
                                                 onClick={() => { handleToggleServer(manageServer.id, !manageServer.config.enabled); setManageServer(null); }}
                                                 variant={manageServer.config.enabled ? "destructive" : "default"}
                                                 size="sm"
-                                                className={`h-9 px-6 font-bold uppercase tracking-wider ${!manageServer.config.enabled ? "bg-indigo-600" : "bg-slate-900"}`}
+                                                className={`h-9 px-6 font-bold uppercase tracking-wider ${!manageServer.config.enabled ? "bg-indigo-600 hover:bg-indigo-700" : "bg-slate-900"}`}
                                             >
                                                 {manageServer.config.enabled ? "Disable Node" : "Enable Node"}
                                             </Button>
@@ -368,21 +400,26 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                                 <p className="text-[10px] text-slate-500">Irreversible action</p>
                                             </div>
                                             <Button
-                                                onClick={() => { handleDeleteServer(manageServer.id); setManageServer(null); }}
+                                                type="button"
+                                                onClick={() => handleDeleteClick(manageServer.id)}
                                                 variant="ghost"
                                                 size="sm"
-                                                className="h-9 text-red-500 hover:text-red-600 hover:bg-red-50 font-bold uppercase tracking-wider"
+                                                className={`h-9 font-bold uppercase tracking-wider transition-all ${
+                                                    confirmDeleteId === manageServer.id 
+                                                        ? "bg-red-600 text-white hover:bg-red-700 hover:text-white" 
+                                                        : "text-red-500 hover:text-red-600 hover:bg-red-50"
+                                                }`}
                                             >
-                                                <Trash2 className="h-4 w-4 mr-2" /> Delete Server
+                                                <Trash2 className="h-4 w-4 mr-2" /> {confirmDeleteId === manageServer.id ? "Confirm Delete" : "Delete Server"}
                                             </Button>
                                         </div>
                                     </div>
-                                </CardContent>
-                            </Card>
-                        </div>
+                                </form>
+                            </CardContent>
+                        </Card>
                     </div>
-                );
-            })()}
+                </div>
+            )}
 
             {/* Worker API Key Card */}
             <Card className="shadow-sm border-indigo-100 overflow-hidden relative">
@@ -421,7 +458,10 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() => setShowRegenerateModal(true)}
+                                    onClick={() => {
+                                        setShowRegenerateModal(true);
+                                        rotateForm.reset();
+                                    }}
                                     className="h-8 w-8 text-slate-400 hover:text-amber-600 hover:bg-amber-50"
                                     title="Regenerate Key"
                                 >
@@ -454,47 +494,50 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                 <CardDescription>Register a new backend node to your verification fleet.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4 pt-6">
-                                <div className="space-y-4">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="server-name" className="text-sm font-semibold text-slate-700">Display Name</Label>
-                                        <Input
-                                            id="server-name" name="serverName" placeholder="e.g. Primary Node - US"
-                                            className="focus-visible:ring-indigo-500 border-indigo-50"
-                                            value={newServer.name}
-                                            onChange={(e) => setNewServer((prev) => ({ ...prev, name: e.target.value }))}
-                                        />
-                                        <p className="text-[11px] text-slate-500">Use the same value in the worker's `WORKER_SERVER_NAME` setting, or keep the machine hostname.</p>
-                                    </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                                        <div className="sm:col-span-3 space-y-2">
-                                            <Label htmlFor="server-address" className="text-sm font-semibold text-slate-700">IP or Domain</Label>
-                                            <Input
-                                                id="server-address" name="serverAddress" placeholder="123.45.67.89"
-                                                className="focus-visible:ring-indigo-500 border-indigo-50"
-                                                value={newServer.ip}
-                                                onChange={(e) => setNewServer((prev) => ({ ...prev, ip: e.target.value }))}
-                                            />
-                                        </div>
+                                <form onSubmit={addForm.handleSubmit(onAddServer)}>
+                                    <div className="space-y-4">
                                         <div className="space-y-2">
-                                            <Label htmlFor="server-port" className="text-sm font-semibold text-slate-700">Port</Label>
+                                            <Label htmlFor="server-name" className="text-sm font-semibold text-slate-700">Display Name</Label>
                                             <Input
-                                                id="server-port" name="serverPort" placeholder="8080"
-                                                className="focus-visible:ring-indigo-500 border-indigo-50"
-                                                value={newServer.port}
-                                                onChange={(e) => setNewServer((prev) => ({ ...prev, port: e.target.value }))}
+                                                id="server-name" placeholder="e.g. Primary Node - US"
+                                                className={`focus-visible:ring-indigo-500 ${addForm.formState.errors.name ? 'border-red-400' : 'border-indigo-50'}`}
+                                                {...addForm.register("name")}
                                             />
+                                            {addForm.formState.errors.name && <p className="text-xs text-red-500">{addForm.formState.errors.name.message}</p>}
+                                            <p className="text-[11px] text-slate-500">Use the same value in the worker's `WORKER_SERVER_NAME` setting, or keep the machine hostname.</p>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                                            <div className="sm:col-span-3 space-y-2">
+                                                <Label htmlFor="server-address" className="text-sm font-semibold text-slate-700">IP or Domain</Label>
+                                                <Input
+                                                    id="server-address" placeholder="123.45.67.89"
+                                                    className={`focus-visible:ring-indigo-500 ${addForm.formState.errors.ip ? 'border-red-400' : 'border-indigo-50'}`}
+                                                    {...addForm.register("ip")}
+                                                />
+                                                {addForm.formState.errors.ip && <p className="text-xs text-red-500">{addForm.formState.errors.ip.message}</p>}
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="server-port" className="text-sm font-semibold text-slate-700">Port</Label>
+                                                <Input
+                                                    id="server-port" placeholder="8080"
+                                                    className={`focus-visible:ring-indigo-500 ${addForm.formState.errors.port ? 'border-red-400' : 'border-indigo-50'}`}
+                                                    {...addForm.register("port")}
+                                                />
+                                                {addForm.formState.errors.port && <p className="text-xs text-red-500">{addForm.formState.errors.port.message}</p>}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                                    <Button variant="outline" onClick={() => setShowAddForm(false)} className="px-6">Cancel</Button>
-                                    <Button
-                                        onClick={handleAddServer}
-                                        className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white px-6 font-bold"
-                                    >
-                                        Connect Server
-                                    </Button>
-                                </div>
+                                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-6">
+                                        <Button type="button" variant="outline" onClick={() => setShowAddForm(false)} className="px-6">Cancel</Button>
+                                        <Button
+                                            type="submit"
+                                            disabled={addForm.formState.isSubmitting}
+                                            className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white px-6 font-bold"
+                                        >
+                                            {addForm.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Connect Server"}
+                                        </Button>
+                                    </div>
+                                </form>
                             </CardContent>
                         </Card>
                     </div>
@@ -514,30 +557,33 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                 <CardDescription>Please enter your administrator password to regenerate the universal API key for all backend worker servers.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4 pt-6">
-                                <div className="space-y-2">
-                                    <Label htmlFor="admin-password" className="font-semibold text-slate-700">Admin Password</Label>
-                                    <Input
-                                        id="admin-password"
-                                        type="password"
-                                        placeholder="Enter password..."
-                                        value={confirmPassword}
-                                        onChange={(e) => setConfirmPassword(e.target.value)}
-                                        className="focus-visible:ring-indigo-500 border-indigo-50"
-                                    />
-                                    <p className="text-[10px] text-amber-600 bg-amber-50 p-2 rounded border border-amber-100 italic">
-                                        Warning: Regenerating this API key will immediately disconnect all backend worker servers until they are updated with the new key.
-                                    </p>
-                                </div>
-                                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                                    <Button variant="outline" onClick={() => setShowRegenerateModal(false)} className="px-6">Cancel</Button>
-                                    <Button
-                                        onClick={() => { void handleRotateWorkerKey(); }}
-                                        disabled={isRotatingKey || !confirmPassword.trim()}
-                                        className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white px-6 font-bold"
-                                    >
-                                        {isRotatingKey ? "Regenerating..." : "Regenerate Key"}
-                                    </Button>
-                                </div>
+                                <form onSubmit={rotateForm.handleSubmit(onRotateKey)}>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="admin-password" className="font-semibold text-slate-700">Admin Password</Label>
+                                        <Input
+                                            id="admin-password"
+                                            type="password"
+                                            placeholder="Enter password..."
+                                            className={`focus-visible:ring-indigo-500 ${rotateForm.formState.errors.password ? 'border-red-400' : 'border-indigo-50'}`}
+                                            {...rotateForm.register("password")}
+                                        />
+                                        {rotateForm.formState.errors.password && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3" />{rotateForm.formState.errors.password.message}</p>}
+                                        <p className="text-[10px] text-amber-600 bg-amber-50 p-2 rounded border border-amber-100 italic mt-2">
+                                            Warning: Regenerating this API key will immediately disconnect all backend worker servers until they are updated with the new key.
+                                        </p>
+                                    </div>
+                                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-4">
+                                        <Button type="button" variant="outline" onClick={() => setShowRegenerateModal(false)} className="px-6">Cancel</Button>
+                                        <Button
+                                            type="submit"
+                                            disabled={rotateForm.formState.isSubmitting}
+                                            className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white px-6 font-bold"
+                                        >
+                                            {rotateForm.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                                            {rotateForm.formState.isSubmitting ? "Regenerating..." : "Regenerate Key"}
+                                        </Button>
+                                    </div>
+                                </form>
                             </CardContent>
                         </Card>
                     </div>

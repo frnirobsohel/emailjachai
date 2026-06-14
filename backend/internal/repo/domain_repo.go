@@ -5,10 +5,12 @@ import (
 	"ejp-backend/pkg/config"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type DomainRepo interface {
 	Create(domain *model.Domain) error
+	BulkCreate(domains []*model.Domain) error
 	List(search, domainType string, limit, offset int) ([]model.Domain, int64, error)
 	Delete(id uint) error
 	ToggleStatus(id uint) (bool, error)
@@ -25,6 +27,11 @@ func NewDomainRepo() DomainRepo {
 
 func (r *domainRepo) Create(domain *model.Domain) error {
 	return r.db.Create(domain).Error
+}
+
+func (r *domainRepo) BulkCreate(domains []*model.Domain) error {
+	// Use CreateInBatches with OnConflict DoNothing to ignore duplicates
+	return r.db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(domains, 1000).Error
 }
 
 func (r *domainRepo) List(search, domainType string, limit, offset int) ([]model.Domain, int64, error) {

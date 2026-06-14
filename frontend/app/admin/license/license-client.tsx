@@ -1,18 +1,57 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
-import { ShieldCheck, ArrowUpCircle, Key, RefreshCcw, CheckCircle, Download, UploadCloud, FileArchive, Database, History, HardDriveDownload, FileText, Trash2, RotateCcw, AlertCircle } from "lucide-react"
-import { Button } from "@/components/common/button"
-import { Progress } from "@/components/common/progress"
-import { Input } from "@/components/common/input"
-import { Label } from "@/components/common/label"
+import { useState, useRef } from "react"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
+import { toast } from "react-hot-toast"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { ShieldCheck, ArrowUpCircle, Key, RefreshCcw, CheckCircle, Download, UploadCloud, FileArchive, Database, History, HardDriveDownload, RotateCcw, AlertCircle, Loader2, Trash2 } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Progress } from "@/components/ui/progress"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import { ApiClient } from "@/lib/api-client"
 
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+export type LicenseInfo = {
+    version: string
+    license_status: string
+    license_key: string
+    release_date: string
+}
+
+export type BackupFile = {
+    id: number
+    name: string
+    type: string
+    size: string
+    date: string
+}
+
 type UpdateStatus = "idle" | "dragging" | "uploading" | "installing" | "latest" | "error"
 
-export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialLicenseInfo: any, initialBackups: any[] }) {
+// ─── Zod Schema ─────────────────────────────────────────────────────────────
+
+const licenseSchema = z.object({
+    license_key: z.string()
+        .min(1, "License key is required")
+        .regex(
+            /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/i,
+            "Invalid format. Expected: XXXX-XXXX-XXXX-XXXX"
+        )
+})
+
+type LicenseFormValues = z.infer<typeof licenseSchema>
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export function LicenseClient({ initialLicenseInfo, initialBackups }: {
+    initialLicenseInfo: LicenseInfo | null
+    initialBackups: BackupFile[]
+}) {
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle")
     const [uploadProgress, setUploadProgress] = useState(0)
     const [uploadedFile, setUploadedFile] = useState<File | null>(null)
@@ -20,69 +59,62 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
     const [isBackingUp, setIsBackingUp] = useState(false)
     const [isRestoring, setIsRestoring] = useState(false)
     const [restoreProgress, setRestoreProgress] = useState(0)
-    const [showRestoreConfirm, setShowRestoreConfirm] = useState<{id: number, name: string} | null>(null)
+    const [showRestoreConfirm, setShowRestoreConfirm] = useState<{ id: number; name: string } | null>(null)
 
-    const [backups, setBackups] = useState<any[]>(initialBackups)
-    const [licenseInfo, setLicenseInfo] = useState<any>(initialLicenseInfo)
-    const [isLoading, setIsLoading] = useState(false)
-
+    const [backups, setBackups] = useState<BackupFile[]>(initialBackups)
+    const [licenseInfo, setLicenseInfo] = useState<LicenseInfo | null>(initialLicenseInfo)
     const [isEditingLicense, setIsEditingLicense] = useState(false)
-    const [newLicenseKey, setNewLicenseKey] = useState("")
-    const [isActivating, setIsActivating] = useState(false)
-    const [licenseError, setLicenseError] = useState("")
+
+    const licenseForm = useForm<LicenseFormValues>({
+        resolver: zodResolver(licenseSchema),
+        defaultValues: { license_key: "" }
+    })
+
+    // ── Data fetchers ──
 
     const fetchSystemStatus = async () => {
         try {
-            const result = await ApiClient.get('/admin/system/status')
-            if (result.status === 'success') {
+            const result = await ApiClient.get<LicenseInfo>('/admin/system/status')
+            if (result.status === 'success' && result.data) {
                 setLicenseInfo(result.data)
             }
         } catch (error) {
-            console.error("Failed to fetch system status:", error)
+            toast.error("Failed to refresh system status")
         }
     }
 
     const fetchBackups = async () => {
-        setIsLoading(true)
         try {
-            const result = await ApiClient.get('/admin/system/backups')
-            if (result.status === 'success') {
+            const result = await ApiClient.get<BackupFile[]>('/admin/system/backups')
+            if (result.status === 'success' && result.data) {
                 setBackups(Array.isArray(result.data) ? result.data : [])
             }
         } catch (error) {
-            setBackups([])
-            console.error("Failed to fetch backups:", error)
-        } finally {
-            setIsLoading(false)
+            toast.error("Failed to load backup list")
         }
     }
 
-    useEffect(() => {
-        // fetchSystemStatus() // Handled by SSR initialData
-        // fetchBackups() // Handled by SSR initialData
-    }, [])
+    // ── License key form ──
 
-    const backupList = Array.isArray(backups) ? backups : []
-
-    const handleSaveLicense = async () => {
-        setIsActivating(true)
-        setLicenseError("")
+    const onLicenseSubmit = async (values: LicenseFormValues) => {
         try {
-            const res = await ApiClient.post<any>('/admin/system/license', {
-                license_key: newLicenseKey
+            const res = await ApiClient.post<LicenseInfo>('/admin/system/license', {
+                license_key: values.license_key
             })
-            if (res.status === 'success') {
+            if (res.status === 'success' && res.data) {
+                setLicenseInfo(prev => prev ? { ...prev, ...res.data } : res.data!)
                 setIsEditingLicense(false)
-                fetchSystemStatus()
+                licenseForm.reset()
+                toast.success("License activated successfully")
             } else {
-                setLicenseError(res.message || "Failed to activate license key")
+                toast.error(res.message || "Failed to activate license key")
             }
         } catch (error: any) {
-            setLicenseError(error.message || "An unexpected error occurred")
-        } finally {
-            setIsActivating(false)
+            toast.error(error.message || "An unexpected error occurred")
         }
     }
+
+    // ── File upload (XHR for progress) ──
 
     const handleFileSelect = async (file: File) => {
         setUploadedFile(file)
@@ -99,8 +131,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
 
             xhr.upload.onprogress = (event) => {
                 if (event.lengthComputable) {
-                    const percentage = Math.round((event.loaded / event.total) * 100)
-                    setUploadProgress(percentage)
+                    setUploadProgress(Math.round((event.loaded / event.total) * 100))
                 }
             }
 
@@ -109,52 +140,67 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
                     setUpdateStatus("installing")
                     setTimeout(() => {
                         setUpdateStatus("latest")
-                        fetchSystemStatus() // update version
+                        fetchSystemStatus()
                     }, 2000)
                 } else {
+                    let errMsg = "Upload failed"
                     try {
                         const parsed = JSON.parse(xhr.responseText)
-                        console.error("Upload failed:", parsed)
+                        errMsg = parsed.message || errMsg
                     } catch (_) {}
+                    toast.error(errMsg)
                     setUpdateStatus("error")
                 }
             }
 
             xhr.onerror = () => {
+                toast.error("Upload failed. Please check your connection.")
                 setUpdateStatus("error")
             }
 
             xhr.send(formData)
-        } catch (error) {
-            console.error("Failed to upload update:", error)
+        } catch (error: any) {
+            toast.error(error.message || "Failed to upload update package")
             setUpdateStatus("error")
         }
     }
 
+    // ── Backup operations ──
+
     const generateBackup = async (type: string) => {
         setIsBackingUp(true)
+        const toastId = toast.loading(`Creating ${type} backup...`)
         try {
             const result = await ApiClient.post('/admin/system/backups', { type })
             if (result.status === 'success') {
+                toast.success(`${type} backup created successfully`, { id: toastId })
                 fetchBackups()
+            } else {
+                toast.error(result.message || "Backup failed", { id: toastId })
             }
-        } catch (error) {
-            console.error("Backup failed:", error)
+        } catch (error: any) {
+            toast.error(error.message || "Backup failed", { id: toastId })
         } finally {
             setIsBackingUp(false)
         }
     }
 
     const deleteBackup = async (name: string) => {
+        const toastId = toast.loading("Deleting backup...")
         try {
             const result = await ApiClient.delete(`/admin/system/backups?name=${name}`)
             if (result.status === 'success') {
-                fetchBackups()
+                setBackups(prev => prev.filter(b => b.name !== name))
+                toast.success("Backup deleted", { id: toastId })
+            } else {
+                toast.error(result.message || "Failed to delete backup", { id: toastId })
             }
-        } catch (error) {
-            console.error("Delete failed:", error)
+        } catch (error: any) {
+            toast.error(error.message || "Failed to delete backup", { id: toastId })
         }
     }
+
+    // ── Restore ──
 
     const startRestore = () => {
         if (!showRestoreConfirm) return
@@ -168,9 +214,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
             setRestoreProgress(progress)
             if (progress >= 100) {
                 clearInterval(interval)
-                setTimeout(() => {
-                    setIsRestoring(false)
-                }, 1000)
+                setTimeout(() => setIsRestoring(false), 1000)
             }
         }, 150)
     }
@@ -193,10 +237,10 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault()
         const files = e.dataTransfer.files
-        if (files && files.length > 0) {
-            handleFileSelect(files[0])
-        }
+        if (files && files.length > 0) handleFileSelect(files[0])
     }
+
+    const backupList = Array.isArray(backups) ? backups : []
 
     return (
         <div className="flex-1 space-y-6 pb-10 relative">
@@ -221,7 +265,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
                 </div>
             )}
 
-            {/* Confirmation Modal */}
+            {/* Restore Confirm Modal */}
             {showRestoreConfirm && (
                 <div className="absolute inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] rounded-xl flex items-center justify-center p-6">
                     <Card className="w-full max-w-sm shadow-xl border-amber-100">
@@ -232,7 +276,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
                         </CardHeader>
                         <CardContent className="pt-6 space-y-4 text-center">
                             <p className="text-sm text-slate-600 leading-relaxed">
-                                Are you sure you want to restore <span className="font-bold text-slate-900">{showRestoreConfirm.name}</span>? 
+                                Are you sure you want to restore <span className="font-bold text-slate-900">{showRestoreConfirm.name}</span>?
                                 <br /><br />
                                 <span className="text-red-500 font-semibold italic text-xs">Warning: Current data will be overwritten!</span>
                             </p>
@@ -273,46 +317,53 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
                                 <RefreshCcw className="h-3.5 w-3.5 mr-1.5 text-slate-500" /> Refresh
                             </Button>
                         </div>
+
                         <div className="space-y-3">
                             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Licence Key</label>
                             {isEditingLicense ? (
-                                <div className="space-y-2">
+                                <form onSubmit={licenseForm.handleSubmit(onLicenseSubmit)} className="space-y-2">
                                     <div className="flex gap-2">
                                         <Input
-                                            value={newLicenseKey}
-                                            onChange={(e) => setNewLicenseKey(e.target.value)}
+                                            {...licenseForm.register("license_key")}
                                             placeholder="XXXX-XXXX-XXXX-XXXX"
-                                            className="flex-1 font-mono uppercase"
-                                            disabled={isActivating}
+                                            className={cn(
+                                                "flex-1 font-mono uppercase",
+                                                licenseForm.formState.errors.license_key && "border-red-400"
+                                            )}
+                                            disabled={licenseForm.formState.isSubmitting}
                                         />
                                         <Button
-                                            onClick={handleSaveLicense}
-                                            disabled={isActivating || !newLicenseKey}
+                                            type="submit"
+                                            disabled={licenseForm.formState.isSubmitting}
                                             className="bg-indigo-600 hover:bg-indigo-700 text-white shrink-0"
                                         >
-                                            {isActivating ? "Saving..." : "Save"}
+                                            {licenseForm.formState.isSubmitting
+                                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                                : "Save"}
                                         </Button>
                                         <Button
+                                            type="button"
                                             variant="outline"
                                             onClick={() => {
                                                 setIsEditingLicense(false)
-                                                setLicenseError("")
+                                                licenseForm.reset()
                                             }}
-                                            disabled={isActivating}
+                                            disabled={licenseForm.formState.isSubmitting}
                                             className="bg-white shrink-0"
                                         >
                                             Cancel
                                         </Button>
                                     </div>
-                                    {licenseError && (
+                                    {licenseForm.formState.errors.license_key && (
                                         <p className="text-xs font-semibold text-red-500 flex items-center gap-1">
-                                            <AlertCircle className="h-3.5 w-3.5" /> {licenseError}
+                                            <AlertCircle className="h-3.5 w-3.5" />
+                                            {licenseForm.formState.errors.license_key.message}
                                         </p>
                                     )}
                                     <p className="text-[10px] text-slate-400">
                                         Format: 16 alphanumeric characters separated by dashes (e.g. A1B2-C3D4-E5F6-G7H8)
                                     </p>
-                                </div>
+                                </form>
                             ) : (
                                 <div className="flex gap-2">
                                     <div className="flex-1 px-4 py-2.5 rounded-lg border bg-slate-50 font-mono text-sm text-slate-700 flex items-center shadow-inner">
@@ -324,8 +375,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
                                         className="h-10 w-10 shrink-0 bg-white"
                                         onClick={() => {
                                             setIsEditingLicense(true)
-                                            setNewLicenseKey("")
-                                            setLicenseError("")
+                                            licenseForm.reset()
                                         }}
                                     >
                                         <Key className="h-4 w-4 text-indigo-500" />
@@ -392,7 +442,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
                                         </div>
                                     </div>
                                 )}
- 
+
                                 {updateStatus === "installing" && (
                                     <div className="p-6 rounded-xl bg-amber-50 border border-amber-100 flex flex-col items-center text-center gap-3 animate-pulse">
                                         <RefreshCcw className="h-8 w-8 text-amber-500 animate-spin" />
@@ -402,7 +452,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
                                         </div>
                                     </div>
                                 )}
- 
+
                                 {updateStatus === "latest" && (
                                     <div className="p-6 rounded-xl bg-green-50 border border-green-100 flex flex-col items-center text-center gap-3">
                                         <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
@@ -412,9 +462,20 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
                                             <p className="text-sm font-bold text-green-900">System Updated Successfully</p>
                                             <p className="text-xs text-green-700">Your application is now running the latest version.</p>
                                         </div>
-                                        <Button size="sm" variant="outline" className="mt-2 bg-white" onClick={resetUpdate}>
-                                            Done
-                                        </Button>
+                                        <Button size="sm" variant="outline" className="mt-2 bg-white" onClick={resetUpdate}>Done</Button>
+                                    </div>
+                                )}
+
+                                {updateStatus === "error" && (
+                                    <div className="p-6 rounded-xl bg-red-50 border border-red-100 flex flex-col items-center text-center gap-3">
+                                        <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center">
+                                            <AlertCircle className="h-6 w-6 text-red-600" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold text-red-900">Upload Failed</p>
+                                            <p className="text-xs text-red-700">Please try again or check the server logs.</p>
+                                        </div>
+                                        <Button size="sm" variant="outline" className="mt-2 bg-white" onClick={resetUpdate}>Try Again</Button>
                                     </div>
                                 )}
                             </div>
@@ -443,27 +504,11 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
                             size="sm"
                             className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
                         >
-                            {isBackingUp ? <RefreshCcw className="h-3.5 w-3.5 animate-spin mr-2" /> : <HardDriveDownload className="h-3.5 w-3.5 mr-2" />}
+                            {isBackingUp ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : <HardDriveDownload className="h-3.5 w-3.5 mr-2" />}
                             Full Backup
                         </Button>
-                        <Button
-                            onClick={() => generateBackup("Database")}
-                            disabled={isBackingUp}
-                            size="sm"
-                            variant="outline"
-                            className="bg-white"
-                        >
-                            DB Only
-                        </Button>
-                        <Button
-                            onClick={() => generateBackup("Conversation")}
-                            disabled={isBackingUp}
-                            size="sm"
-                            variant="outline"
-                            className="bg-white"
-                        >
-                            Chats
-                        </Button>
+                        <Button onClick={() => generateBackup("Database")} disabled={isBackingUp} size="sm" variant="outline" className="bg-white">DB Only</Button>
+                        <Button onClick={() => generateBackup("Conversation")} disabled={isBackingUp} size="sm" variant="outline" className="bg-white">Chats</Button>
                     </div>
                 </CardHeader>
                 <CardContent className="pt-6">
@@ -472,7 +517,9 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
                             <History className="h-3.5 w-3.5" /> Backup History
                         </div>
                         <div className="grid gap-3">
-                            {backupList.map((backup) => (
+                            {backupList.length === 0 ? (
+                                <p className="text-sm text-slate-400 text-center py-6">No backups yet. Create your first backup above.</p>
+                            ) : backupList.map((backup) => (
                                 <div key={backup.id} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-white hover:bg-slate-50 transition-colors group">
                                     <div className="flex items-center gap-3">
                                         <div className="h-9 w-9 rounded-lg bg-slate-50 flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
@@ -491,19 +538,21 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: { initialL
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
-                                        <Button 
-                                            size="icon" 
-                                            variant="ghost" 
-                                            title="Restore"
+                                        <Button
+                                            size="icon" variant="ghost" title="Restore"
                                             className="h-8 w-8 text-slate-400 hover:text-indigo-600"
-                                            onClick={() => setShowRestoreConfirm({id: backup.id, name: backup.name})}
+                                            onClick={() => setShowRestoreConfirm({ id: backup.id, name: backup.name })}
                                         >
                                             <RotateCcw className="h-4 w-4" />
                                         </Button>
                                         <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-indigo-600">
                                             <Download className="h-4 w-4" />
                                         </Button>
-                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-red-500" onClick={() => deleteBackup(backup.name)}>
+                                        <Button
+                                            size="icon" variant="ghost"
+                                            className="h-8 w-8 text-slate-400 hover:text-red-500"
+                                            onClick={() => deleteBackup(backup.name)}
+                                        >
                                             <Trash2 className="h-4 w-4" />
                                         </Button>
                                     </div>

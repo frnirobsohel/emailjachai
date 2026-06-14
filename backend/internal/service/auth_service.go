@@ -10,7 +10,6 @@ import (
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/helper"
-	"ejp-backend/pkg/config"
 )
 
 type AuthService interface {
@@ -27,10 +26,19 @@ type authService struct {
 	apiKeyService APIKeyService
 	logRepo       repo.LogRepo
 	emailService  EmailService
+	systemRepo    repo.SystemRepo
+	settingsRepo  repo.SettingsRepo
 }
 
-func NewAuthService(userRepo repo.UserRepo, apiKeyService APIKeyService, logRepo repo.LogRepo, emailService EmailService) AuthService {
-	return &authService{userRepo: userRepo, apiKeyService: apiKeyService, logRepo: logRepo, emailService: emailService}
+func NewAuthService(userRepo repo.UserRepo, apiKeyService APIKeyService, logRepo repo.LogRepo, emailService EmailService, systemRepo repo.SystemRepo, settingsRepo repo.SettingsRepo) AuthService {
+	return &authService{
+		userRepo:      userRepo,
+		apiKeyService: apiKeyService,
+		logRepo:       logRepo,
+		emailService:  emailService,
+		systemRepo:    systemRepo,
+		settingsRepo:  settingsRepo,
+	}
 }
 
 func (s *authService) Register(firstName, lastName, email, password string) (*model.User, string, error) {
@@ -45,8 +53,10 @@ func (s *authService) Register(firstName, lastName, email, password string) (*mo
 		return nil, "", err
 	}
 
-	var smtpConfig model.SmtpConfig
-	config.DB.First(&smtpConfig)
+	smtpConfig, errSmtp := s.systemRepo.GetSmtpSettings()
+	if errSmtp != nil {
+		smtpConfig = &model.SmtpConfig{}
+	}
 
 	status := "Active"
 	if smtpConfig.IsActive {
@@ -55,7 +65,7 @@ func (s *authService) Register(firstName, lastName, email, password string) (*mo
 
 	defaultCredits := 100
 	var setting model.Setting
-	if errSetting := config.DB.Where("setting_key = 'registration_credits' OR setting_key = 'default_credits'").Order("setting_key DESC").First(&setting).Error; errSetting == nil {
+	if errSetting := s.settingsRepo.DB().Where("setting_key = 'registration_credits' OR setting_key = 'default_credits'").Order("setting_key DESC").First(&setting).Error; errSetting == nil {
 		if val, convErr := helper.SafeAtoi(setting.SettingValue); convErr == nil && val >= 0 {
 			defaultCredits = val
 		}
@@ -112,11 +122,8 @@ func (s *authService) Login(email, password, ip string) (*model.User, string, er
 	ip = strings.TrimSpace(ip)
 
 	// 1. Throttle check (limit to 10 failures / 15 minutes)
-	var failedCount int64
 	fifteenMinutesAgo := time.Now().Add(-15 * time.Minute)
-	config.DB.Model(&model.ActivityLog{}).
-		Where("source = 'Auth' AND event = 'Login Failed' AND (ip = ? OR identifier = ?) AND created_at >= ?", ip, email, fifteenMinutesAgo).
-		Count(&failedCount)
+	failedCount, _ := s.logRepo.CountFailedLogins(ip, email, fifteenMinutesAgo)
 
 	if failedCount >= 10 {
 		return nil, "", errors.New("too many failed login attempts. Please try again in 15 minutes")
@@ -265,7 +272,7 @@ func (s *authService) VerifyEmail(token string) error {
 	}
 
 	user.Status = "Active"
-	if updateErr := config.DB.Model(&model.User{}).Where("id = ?", user.ID).Update("status", "Active").Error; updateErr != nil {
+	if updateErr := s.userRepo.Update(user, map[string]interface{}{"status": "Active"}); updateErr != nil {
 		return errors.New("failed to verify email")
 	}
 

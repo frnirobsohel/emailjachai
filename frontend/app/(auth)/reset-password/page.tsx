@@ -3,9 +3,9 @@
 import { useState, useEffect, Suspense } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Button } from "@/components/common/button"
-import { Input } from "@/components/common/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/common/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { ArrowLeft, CheckCircle2 } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
 

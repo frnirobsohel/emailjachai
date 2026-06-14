@@ -1,5 +1,6 @@
+export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
-import { ProfileClient } from "./profile-client"
+import { ProfileClient } from "@/features/profile/components/profile-client"
 
 export default async function ProfilePage() {
     let initialProfile = null;

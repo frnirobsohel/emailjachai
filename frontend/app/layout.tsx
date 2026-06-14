@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-import Providers from "./providers";
+import Providers from "@/providers";
 import { AppShell } from "@/components/layout/app-shell";
 import { SettingsProvider, PublicSettings } from "@/lib/settings-context";
 import { getPublicSettings } from "@/lib/services/settings";
@@ -32,6 +32,8 @@ export async function generateMetadata(): Promise<Metadata> {
     description: tagline,
   };
 }
+
+import { Toaster } from "react-hot-toast";
 
 export default async function RootLayout({
   children,
@@ -53,6 +55,7 @@ export default async function RootLayout({
             </AppShell>
           </Providers>
         </SettingsProvider>
+        <Toaster position="top-right" />
       </body>
     </html>
   );

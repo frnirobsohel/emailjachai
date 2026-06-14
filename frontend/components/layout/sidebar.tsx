@@ -1,10 +1,9 @@
 "use client"
 
-import { useState, useEffect, HTMLAttributes } from "react"
+import { useState, useEffect, useRef, HTMLAttributes } from "react"
 import Link from "next/link"
 import { useRouter, usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/common/button"
 import { useSettings } from "@/lib/settings-context"
 import {
     LayoutDashboard,
@@ -45,20 +44,25 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
-} from "@/components/common/dropdown-menu"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/common/avatar"
+} from "@/components/ui/dropdown-menu"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
-import { useUIStore } from "@/lib/store/ui-state"
-// ...
+import { useUIStore } from "@/stores/ui-state"
+import { useUserStore } from "@/stores/user-state"
+
 export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
     const pathname = usePathname()
     const router = useRouter()
     const { isSidebarOpen, isSidebarCollapsed, toggleSidebarCollapse } = useUIStore()
+    // Zustand persist store থেকে user নেওয়া — পেজ চেঞ্জেও state থাকে
+    const { user: zustandUser } = useUserStore()
     const [openSection, setOpenSection] = useState<"user" | "admin" | "system" | "reseller" | null>(null)
-    const [user, setUser] = useState<{ name: string, email: string, role?: string } | null>(null)
-    const [userRole, setUserRole] = useState<string>('user')
+    const [user, setUser] = useState<{ name: string, email: string, role?: string } | null>(zustandUser)
+    const [userRole, setUserRole] = useState<string>(zustandUser?.role || 'user')
     const [isImpersonating, setIsImpersonating] = useState<boolean>(false)
     const [mounted, setMounted] = useState(false)
+    // /auth/me কতক্ষণ আগে fetch হয়েছিল track করতে
+    const lastAuthFetch = useRef<number>(0)
     const settings = useSettings()
     const siteTitle = settings?.site_title || "EmailJachai Pro"
     const logoUrl = settings?.logo_url
@@ -66,46 +70,40 @@ export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
     useEffect(() => {
         setMounted(true)
 
-        // Load cached state immediately if available
-        const cachedUser = localStorage.getItem('sidebar_user')
-        const cachedRole = localStorage.getItem('sidebar_role')
-        const cachedUserSyncedAt = localStorage.getItem('sidebar_user_synced_at')
-        const userCacheAge = cachedUserSyncedAt ? Date.now() - Number(cachedUserSyncedAt) : Number.POSITIVE_INFINITY
-        const hasFreshSidebarCache = !!cachedUser && userCacheAge < 5 * 60 * 1000
+        // যদি Zustand store-এ ইতিমধ্যে user থাকে, sync করো
+        if (zustandUser) {
+            setUser(zustandUser)
+            setUserRole(zustandUser.role || 'user')
+        }
 
-        if (cachedUser) setUser(JSON.parse(cachedUser))
-        if (cachedRole) setUserRole(cachedRole)
+        // /auth/me শুধুমাত্র একবার fetch করবো (৫ মিনিটের TTL)
+        const AUTH_TTL = 5 * 60 * 1000
+        const now = Date.now()
+        const shouldFetch = !zustandUser || (now - lastAuthFetch.current > AUTH_TTL)
 
-        const fetchSettings = async () => {
+        if (!shouldFetch) return
+
+        const fetchAuthMe = async () => {
             try {
-                // Avoid re-fetching /auth/me on every navigation when we already have a fresh sidebar cache.
-                if (!hasFreshSidebarCache) {
-                    const meResponse = await fetch('/next-api/auth/me');
-                    if (meResponse.ok) {
-                        const meData = await meResponse.json();
-                        const sessionUser = meData?.data?.user;
-                        if (meData.status === 'success' && sessionUser) {
-                            setUser(sessionUser);
-                            setUserRole(sessionUser.role || 'user');
-
-                            // Persist to localStorage
-                            localStorage.setItem('sidebar_user', JSON.stringify(sessionUser))
-                            localStorage.setItem('sidebar_role', sessionUser.role || 'user')
-                            localStorage.setItem('sidebar_user_synced_at', Date.now().toString())
-
-                            if (meData.data.isImpersonating) {
-                                setIsImpersonating(true)
-                            }
+                lastAuthFetch.current = now
+                const meResponse = await fetch('/next-api/auth/me')
+                if (meResponse.ok) {
+                    const meData = await meResponse.json()
+                    const sessionUser = meData?.data?.user
+                    if (meData.status === 'success' && sessionUser) {
+                        setUser(sessionUser)
+                        setUserRole(sessionUser.role || 'user')
+                        if (meData.data.isImpersonating) {
+                            setIsImpersonating(true)
                         }
                     }
                 }
-
             } catch (error) {
-                console.error("Failed to fetch site settings or sync session:", error);
+                console.error("Failed to sync session:", error)
             }
-        };
-        fetchSettings();
-    }, [])
+        }
+        fetchAuthMe()
+    }, []) // mount-এ একবারই
 
     // ...
 
@@ -344,7 +342,7 @@ export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
             </div>
 
             {/* Scrollable Content */}
-            <div className="flex-1 overflow-y-auto py-6 px-3 scrollbar-hide">
+            <div className="flex-1 overflow-y-auto py-6 px-3 custom-scrollbar">
                 {/* User Area Group */}
                 <div className="mb-2">
                     <button
@@ -611,7 +609,7 @@ export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
                     
                     <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-56 bg-[#0F172A] border border-slate-800/50 shadow-2xl rounded-xl p-2 ml-2">
                         <DropdownMenuItem asChild className="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-all duration-200 text-slate-400 hover:text-white hover:bg-slate-800/50 focus:bg-slate-800/50 focus:text-white cursor-pointer mb-1 outline-none">
-                            <Link href="/dashboard/settings" className="flex items-center w-full">
+                            <Link href="/dashboard/profile" className="flex items-center w-full">
                                 <Settings className="mr-3 h-4 w-4 text-slate-500 group-hover:text-slate-300 transition-colors" />
                                 Profile Settings
                             </Link>

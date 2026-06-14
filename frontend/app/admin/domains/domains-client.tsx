@@ -1,18 +1,28 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
-import { Button } from "@/components/common/button"
-import { Input } from "@/components/common/input"
-import { Label } from "@/components/common/label"
-import { Badge } from "@/components/common/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/common/table"
-import { SimpleSelect } from "@/components/common/simple-select"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { SimpleSelect } from "@/components/ui/simple-select"
 import { Globe, Plus, Filter, Trash2, Ban, CheckCircle, ShieldAlert, Upload, Loader2 } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
+import { toast } from "react-hot-toast"
 
 type DomainType = 'disposable' | 'free' | 'blacklist' | 'spam-trap'
+
+const addDomainSchema = z.object({
+    domain: z.string().min(3, "Domain name is required").regex(/^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/, "Invalid domain format"),
+    type: z.enum(['disposable', 'free', 'blacklist', 'spam-trap'])
+})
+type AddDomainValues = z.infer<typeof addDomainSchema>
 
 type DomainRow = {
     id: number
@@ -44,9 +54,11 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
     const [isActionLoading, setIsActionLoading] = useState<number | null>(null)
     const [isUploading, setIsUploading] = useState(false)
 
-    // Form states
-    const [newDomain, setNewDomain] = useState("")
-    const [newType, setNewType] = useState<DomainType>('disposable')
+    const addForm = useForm<AddDomainValues>({
+        resolver: zodResolver(addDomainSchema),
+        defaultValues: { domain: "", type: "disposable" }
+    })
+
     const [search, setSearch] = useState("")
     const [typeFilter, setTypeFilter] = useState<string>("")
     const [page, setPage] = useState(1)
@@ -88,21 +100,19 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
         return () => clearTimeout(timer)
     }, [fetchDomains])
 
-    const handleAddDomain = async (e: React.FormEvent) => {
-        e.preventDefault()
-        if (!newDomain.trim()) return
-
+    const handleAddSubmit = async (values: AddDomainValues) => {
         try {
-            const res = await ApiClient.post('/admin/domains/store', {
-                domain: newDomain,
-                type: newType
-            })
+            const res = await ApiClient.post('/admin/domains/store', values)
             if (res.status === 'success') {
-                setNewDomain("")
+                addForm.reset()
+                toast.success("Domain added successfully")
                 fetchDomains()
+            } else {
+                toast.error(res.message || "Failed to add domain")
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error("Add domain failed", err)
+            toast.error(err.message || "An error occurred")
         }
     }
 
@@ -113,9 +123,13 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
             if (res.status === 'success' && res.data) {
                 const newExcluded = res.data.excluded
                 setDomains(domains.map(d => d.id === id ? { ...d, excluded: newExcluded } : d))
+                toast.success(`Domain ${newExcluded ? 'disabled' : 'enabled'} successfully`)
+            } else {
+                toast.error(res.message || "Failed to toggle domain status")
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error("Toggle domain failed", err)
+            toast.error(err.message || "An error occurred")
         } finally {
             setIsActionLoading(null)
         }
@@ -131,9 +145,13 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                 if (stats) {
                     setStats({ ...stats, total: stats.total - 1 })
                 }
+                toast.success("Domain deleted successfully")
+            } else {
+                toast.error(res.message || "Failed to delete domain")
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error("Delete domain failed", err)
+            toast.error(err.message || "An error occurred")
         } finally {
             setIsActionLoading(null)
         }
@@ -146,7 +164,10 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
         setIsUploading(true)
         const formData = new FormData()
         formData.append('file', file)
-        formData.append('type', newType)
+        // Default to "disposable" for bulk upload if we want, or keep it generic
+        // Since we don't have a specific type selector for upload anymore, we will default to disposable
+        // Wait, previously newType was used. Let's use the current form's type value.
+        formData.append('type', addForm.getValues("type"))
 
         try {
             const response = await fetch('/next-api/proxy/admin/domains/upload', {
@@ -155,13 +176,14 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
             })
             const res = await response.json()
             if (res.status === 'success') {
-                alert(res.message || 'Upload complete')
+                toast.success(res.message || 'Upload complete')
                 fetchDomains()
             } else {
-                alert(res.message || 'Upload failed')
+                toast.error(res.message || 'Upload failed')
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error("Upload failed", err)
+            toast.error(err.message || "Upload failed")
         } finally {
             setIsUploading(false)
             if (fileInputRef.current) fileInputRef.current.value = ''
@@ -243,36 +265,36 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                 </CardHeader>
 
                 <CardContent className="space-y-4 pt-6">
-                    <form onSubmit={handleAddDomain} className="grid gap-4 sm:grid-cols-3">
+                    <form onSubmit={addForm.handleSubmit(handleAddSubmit)} className="grid gap-4 sm:grid-cols-3">
                         <div className="sm:col-span-1">
                             <Label htmlFor="new-domain" className="sr-only">Add Domain</Label>
                             <Input
                                 id="new-domain"
-                                name="newDomain"
                                 placeholder="domain.com"
-                                value={newDomain}
-                                onChange={(e) => setNewDomain(e.target.value)}
-                                className="border-indigo-50 focus-visible:ring-indigo-500"
+                                className={cn("border-indigo-50 focus-visible:ring-indigo-500", addForm.formState.errors.domain && "border-red-500")}
+                                {...addForm.register("domain")}
                             />
+                            {addForm.formState.errors.domain && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.domain.message}</p>}
                         </div>
                         <div className="sm:col-span-1">
                             <Label htmlFor="new-type" className="sr-only">Domain Type</Label>
                             <SimpleSelect
                                 id="new-type"
-                                name="newType"
-                                value={newType}
-                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNewType(e.target.value as DomainType)}
                                 options={[
                                     { label: 'Disposable Provider', value: 'disposable' },
                                     { label: 'Free Webmail (Gmail/etc)', value: 'free' },
                                     { label: 'Global Blacklist', value: 'blacklist' },
                                     { label: 'Known Spam Trap', value: 'spam-trap' },
                                 ]}
+                                {...addForm.register("type")}
                             />
+                            {addForm.formState.errors.type && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.type.message}</p>}
                         </div>
-                        <Button type="submit" className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white shadow-sm">
-                            Add Domain
-                        </Button>
+                        <div className="sm:col-span-1">
+                            <Button type="submit" disabled={addForm.formState.isSubmitting} className="w-full bg-[#0f172b] hover:bg-[#0f172b]/90 text-white shadow-sm">
+                                {addForm.formState.isSubmitting ? "Adding..." : "Add Domain"}
+                            </Button>
+                        </div>
                     </form>
                 </CardContent>
             </Card>
@@ -328,8 +350,8 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                                 <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
-                        <TableBody>
-                            {isLoading ? (
+                        <TableBody className={cn("transition-opacity", isLoading && "opacity-50")}>
+                            {domains.length === 0 && isLoading ? (
                                 <TableRow>
                                     <TableCell colSpan={5} className="h-32 text-center">
                                         <Loader2 className="h-8 w-8 animate-spin mx-auto text-slate-300" />

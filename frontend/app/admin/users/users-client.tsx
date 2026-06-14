@@ -1,9 +1,13 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Button } from "@/components/common/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
-import { Input } from "@/components/common/input"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { z } from "zod"
+import toast from "react-hot-toast"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import {
     Table,
     TableBody,
@@ -11,8 +15,8 @@ import {
     TableHead,
     TableHeader,
     TableRow
-} from "@/components/common/table"
-import { Badge } from "@/components/common/badge"
+} from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
 import {
     Search,
     UserPlus,
@@ -46,9 +50,9 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuSubContent,
     DropdownMenuPortal,
-} from "@/components/common/dropdown-menu"
+} from "@/components/ui/dropdown-menu"
 import { ApiClient } from "@/lib/api-client"
-import { SimpleSelect } from "@/components/common/simple-select"
+import { SimpleSelect } from "@/components/ui/simple-select"
 import { cn } from "@/lib/utils"
 
 type Role = "admin" | "manager" | "reseller" | "user" | "demo"
@@ -100,6 +104,29 @@ const roleMeta: Record<Role, { label: string; color: string; icon: React.Element
 
 const roles: Role[] = ["admin", "manager", "reseller", "user", "demo"]
 
+const addUserSchema = z.object({
+    name: z.string().min(2, "Name is required"),
+    email: z.string().email("Invalid email"),
+    password: z.string().min(6, "Password min 6 characters"),
+    role: z.enum(["admin", "manager", "reseller", "user", "demo"]),
+    credits: z.number().min(0, "Credits cannot be negative")
+})
+type AddUserValues = z.infer<typeof addUserSchema>
+
+const editUserSchema = z.object({
+    id: z.number(),
+    name: z.string().min(2, "Name is required"),
+    email: z.string().email("Invalid email"),
+    role: z.enum(["admin", "manager", "reseller", "user", "demo"])
+})
+type EditUserValues = z.infer<typeof editUserSchema>
+
+const adjustCreditsSchema = z.object({
+    id: z.number(),
+    amount: z.number(),
+    amountPaid: z.number().min(0, "Amount paid cannot be negative")
+})
+type AdjustCreditsValues = z.infer<typeof adjustCreditsSchema>
 export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
     const [users, setUsers] = useState<User[]>(initialData ? initialData.map(normalizeUser) : [])
     const [isLoading, setIsLoading] = useState(false)
@@ -110,65 +137,67 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
     const [creditAmount, setCreditAmount] = useState<number>(0)
     const [copiedId, setCopiedId] = useState<number | null>(null)
 
-    // Add User Modal State
     const [isAddModalOpen, setIsAddModalOpen] = useState(false)
-    const [newName, setNewName] = useState("")
-    const [newEmail, setNewEmail] = useState("")
-    const [newPassword, setNewPassword] = useState("")
-    const [newRole, setNewRole] = useState<Role>("user")
-    const [newCredits, setNewCredits] = useState<number>(0)
-
-    // Edit User Modal State
     const [editUserTarget, setEditUserTarget] = useState<User | null>(null)
-    const [editName, setEditName] = useState("")
-    const [editEmail, setEditEmail] = useState("")
-    const [editRole, setEditRole] = useState<Role>("user")
 
-    const handleAddUser = async () => {
-        if (!newName || !newEmail || !newPassword) return;
+    const addForm = useForm<AddUserValues>({
+        resolver: zodResolver(addUserSchema),
+        defaultValues: { name: "", email: "", password: "", role: "user", credits: 0 }
+    })
+
+    const editForm = useForm<EditUserValues>({
+        resolver: zodResolver(editUserSchema),
+        defaultValues: { id: 0, name: "", email: "", role: "user" }
+    })
+
+    const adjustCreditsForm = useForm<AdjustCreditsValues>({
+        resolver: zodResolver(adjustCreditsSchema),
+        defaultValues: { id: 0, amount: 0, amountPaid: 0 }
+    })
+
+    const handleAddSubmit = async (values: AddUserValues) => {
         try {
-            const data = await ApiClient.post('/admin/users/create', {
-                name: newName,
-                email: newEmail,
-                password: newPassword,
-                role: newRole,
-                credits: Number(newCredits)
-            });
+            const data = await ApiClient.post('/admin/users/create', values);
             if (data.status === 'success') {
                 setIsAddModalOpen(false);
-                setNewName("");
-                setNewEmail("");
-                setNewPassword("");
-                setNewRole("user");
-                setNewCredits(0);
+                addForm.reset();
+                toast.success("User created successfully!");
                 fetchUsers();
             } else {
-                alert(data.message || "Failed to create user");
+                toast.error(data.message || "Failed to create user");
             }
         } catch (error: any) {
             console.error("Add user failed:", error);
-            alert(error.message || "An error occurred");
+            toast.error(error.message || "An error occurred");
         }
     }
 
-    const handleEditUser = async () => {
-        if (!editUserTarget || !editName || !editEmail) return;
+    const handleEditSubmit = async (values: EditUserValues) => {
         try {
-            const data = await ApiClient.post('/admin/users/edit', {
-                id: editUserTarget.id,
-                name: editName,
-                email: editEmail,
-                role: editRole
-            });
+            const data = await ApiClient.post('/admin/users/edit', values);
             if (data.status === 'success') {
                 setEditUserTarget(null);
+                toast.success("User updated successfully!");
                 fetchUsers();
             } else {
-                alert(data.message || "Failed to update user");
+                toast.error(data.message || "Failed to update user");
             }
         } catch (error: any) {
             console.error("Edit user failed:", error);
-            alert(error.message || "An error occurred");
+            toast.error(error.message || "An error occurred");
+        }
+    }
+
+    const handleAdjustCreditsSubmit = async (values: AdjustCreditsValues) => {
+        const success = await performAction({
+            action: 'adjust_credits',
+            user_id: values.id,
+            amount: values.amount,
+            amount_paid: values.amountPaid
+        });
+        if (success) {
+            setAdjustCreditsTarget(null);
+            toast.success("Credits adjusted successfully!");
         }
     }
 
@@ -198,10 +227,11 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                 fetchUsers();
                 return true;
             }
-            alert(result.message);
+            toast.error(result.message);
             return false;
         } catch (error) {
             console.error("Action failed:", error);
+            toast.error("Action failed");
             return false;
         }
     }
@@ -211,12 +241,14 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
         try {
             const result = await ApiClient.post('/admin/users/action', { action: 'delete', user_id: id });
             if (result.status === 'success') {
+                toast.success("User deleted successfully!");
                 fetchUsers();
             } else {
-                alert(result.message);
+                toast.error(result.message);
             }
         } catch (error) {
             console.error("Delete failed:", error);
+            toast.error("Failed to delete user");
         }
     }
 
@@ -416,9 +448,12 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                                         <DropdownMenuItem className="cursor-pointer mx-1 rounded-md focus:bg-slate-50">
                                                             <span className="flex items-center w-full cursor-pointer" onClick={() => {
                                                                 setEditUserTarget(user);
-                                                                setEditName(user.name);
-                                                                setEditEmail(user.email);
-                                                                setEditRole(user.role);
+                                                                editForm.reset({
+                                                                    id: user.id,
+                                                                    name: user.name,
+                                                                    email: user.email,
+                                                                    role: user.role
+                                                                });
                                                             }}>
                                                                 <Edit className="mr-2 h-4 w-4 text-slate-400" /> Edit Profile
                                                             </span>
@@ -441,7 +476,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                                                         className="cursor-pointer mx-1 rounded-md focus:bg-slate-50"
                                                                         onClick={() => {
                                                                             setAdjustCreditsTarget(user);
-                                                                            setCreditAmount(0);
+                                                                            adjustCreditsForm.reset({ id: user.id, amount: 0, amountPaid: 0 });
                                                                         }}
                                                                     >
                                                                         <CreditCard className="mr-2 h-4 w-4 text-slate-400" /> Adjust Credits
@@ -570,7 +605,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                 Cancel
                             </button>
                             <button
-                                onClick={async () => { if (!loginAsTarget) return; try { const response = await fetch('/next-api/auth/impersonate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: loginAsTarget.id }) }); const result = await response.json(); if (result.status === 'success') { localStorage.removeItem('sidebar_user'); localStorage.removeItem('sidebar_role'); localStorage.removeItem('sidebar_user_synced_at'); window.location.href = '/dashboard'; } else { alert(result.message || 'Failed to login as user'); } } catch (err) { console.error('Impersonation failed', err); alert('An error occurred during impersonation.'); } finally { setLoginAsTarget(null); } }}
+                                onClick={async () => { if (!loginAsTarget) return; try { const response = await fetch('/next-api/auth/impersonate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: loginAsTarget.id }) }); const result = await response.json(); if (result.status === 'success') { localStorage.removeItem('sidebar_user'); localStorage.removeItem('sidebar_role'); localStorage.removeItem('sidebar_user_synced_at'); window.location.href = '/dashboard'; } else { toast.error(result.message || 'Failed to login as user'); } } catch (err) { console.error('Impersonation failed', err); toast.error('An error occurred during impersonation.'); } finally { setLoginAsTarget(null); } }}
                                 className="flex-1 py-2 text-sm font-medium rounded-lg bg-[#0f172b] hover:bg-[#0f172b]/90 text-white transition-colors flex items-center justify-center gap-2"
                             >
                                 <LogIn className="h-4 w-4" /> Confirm Login
@@ -605,75 +640,72 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                             </div>
                         </div>
 
-                        <div className="space-y-4">
-                            <div>
-                                <label htmlFor="credit-amount" className="text-xs font-semibold text-slate-600 mb-1 block">Credits to Add/Deduct</label>
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={() => setCreditAmount(prev => prev - 1000)}
-                                        className="p-2 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-                                    >
-                                        <Minus className="h-4 w-4 text-slate-600" />
-                                    </button>
-                                    <Input
-                                        id="credit-amount"
-                                        name="creditAmount"
-                                        type="number"
-                                        className="text-center font-bold text-lg h-12"
-                                        value={creditAmount}
-                                        onChange={(e) => setCreditAmount(parseInt(e.target.value) || 0)}
-                                    />
-                                    <button
-                                        onClick={() => setCreditAmount(prev => prev + 1000)}
-                                        className="p-2 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors text-indigo-600"
-                                    >
-                                        <Plus className="h-4 w-4" />
-                                    </button>
+                        <form onSubmit={adjustCreditsForm.handleSubmit(handleAdjustCreditsSubmit)}>
+                            <div className="space-y-4">
+                                <div>
+                                    <label htmlFor="credit-amount" className="text-xs font-semibold text-slate-600 mb-1 block">Credits to Add/Deduct</label>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => adjustCreditsForm.setValue("amount", (adjustCreditsForm.getValues("amount") || 0) - 1000)}
+                                            className="p-2 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                                        >
+                                            <Minus className="h-4 w-4 text-slate-600" />
+                                        </button>
+                                        <div className="flex-1">
+                                            <Input
+                                                id="credit-amount"
+                                                type="number"
+                                                className="text-center font-bold text-lg h-12"
+                                                {...adjustCreditsForm.register("amount", { valueAsNumber: true })}
+                                            />
+                                            {adjustCreditsForm.formState.errors.amount && <p className="text-[10px] text-red-500 mt-1 text-center">{adjustCreditsForm.formState.errors.amount.message}</p>}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => adjustCreditsForm.setValue("amount", (adjustCreditsForm.getValues("amount") || 0) + 1000)}
+                                            className="p-2 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors text-indigo-600"
+                                        >
+                                            <Plus className="h-4 w-4" />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label htmlFor="manual_price" className="text-xs font-semibold text-slate-600 mb-1 block">Price Paid (track as revenue)</label>
+                                    <div className="relative">
+                                        <div className="absolute left-3 top-2.5 text-slate-400 text-sm">$</div>
+                                        <Input
+                                            type="number"
+                                            placeholder="0.00"
+                                            className="pl-7"
+                                            id="manual_price"
+                                            step="0.01"
+                                            {...adjustCreditsForm.register("amountPaid", { valueAsNumber: true })}
+                                        />
+                                    </div>
+                                    {adjustCreditsForm.formState.errors.amountPaid && <p className="text-[10px] text-red-500 mt-1">{adjustCreditsForm.formState.errors.amountPaid.message}</p>}
                                 </div>
                             </div>
+                            <p className="text-[10px] text-center text-slate-400 mt-4 mb-2">Total revenue will be updated if price is greater than 0.</p>
 
-                            <div>
-                                <label htmlFor="manual_price" className="text-xs font-semibold text-slate-600 mb-1 block">Price Paid (track as revenue)</label>
-                                <div className="relative">
-                                    <div className="absolute left-3 top-2.5 text-slate-400 text-sm">$</div>
-                                    <Input
-                                        type="number"
-                                        placeholder="0.00"
-                                        className="pl-7"
-                                        id="manual_price"
-                                        name="manualPrice"
-                                        step="0.01"
-                                    />
-                                </div>
+                            <div className="flex gap-2 pt-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setAdjustCreditsTarget(null)}
+                                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={adjustCreditsForm.formState.isSubmitting}
+                                    className="flex-1 py-2 text-sm font-medium rounded-lg bg-[#0f172b] hover:bg-[#0f172b]/90 text-white transition-colors"
+                                >
+                                    {adjustCreditsForm.formState.isSubmitting ? "Updating..." : "Update Balance"}
+                                </button>
                             </div>
-                        </div>
-                        <p className="text-[10px] text-center text-slate-400">Total revenue will be updated if price is greater than 0.</p>
-
-                        <div className="flex gap-2 pt-1">
-                            <button
-                                onClick={() => setAdjustCreditsTarget(null)}
-                                className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={async () => {
-                                    const priceInput = document.getElementById('manual_price') as HTMLInputElement;
-                                    const amount_paid = parseFloat(priceInput?.value) || 0;
-
-                                    const success = await performAction({
-                                        action: 'adjust_credits',
-                                        user_id: adjustCreditsTarget.id,
-                                        amount: creditAmount,
-                                        amount_paid: amount_paid
-                                    });
-                                    if (success) setAdjustCreditsTarget(null);
-                                }}
-                                className="flex-1 py-2 text-sm font-medium rounded-lg bg-[#0f172b] hover:bg-[#0f172b]/90 text-white transition-colors"
-                            >
-                                Update Balance
-                            </button>
-                        </div>
+                        </form>
                     </div>
                 </div>
             )}
@@ -692,70 +724,71 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                             </div>
                         </div>
 
-                        <div className="space-y-3">
+                        <form onSubmit={addForm.handleSubmit(handleAddSubmit)} className="space-y-3">
                             <div>
                                 <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Full Name</label>
                                 <Input
                                     placeholder="e.g. John Doe"
-                                    value={newName}
-                                    onChange={(e) => setNewName(e.target.value)}
+                                    {...addForm.register("name")}
                                 />
+                                {addForm.formState.errors.name && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.name.message}</p>}
                             </div>
                             <div>
                                 <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Email Address</label>
                                 <Input
                                     type="email"
                                     placeholder="john@example.com"
-                                    value={newEmail}
-                                    onChange={(e) => setNewEmail(e.target.value)}
+                                    {...addForm.register("email")}
                                 />
+                                {addForm.formState.errors.email && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.email.message}</p>}
                             </div>
                             <div>
                                 <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Password</label>
                                 <Input
                                     type="password"
                                     placeholder="Min 6 characters"
-                                    value={newPassword}
-                                    onChange={(e) => setNewPassword(e.target.value)}
+                                    {...addForm.register("password")}
                                 />
+                                {addForm.formState.errors.password && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.password.message}</p>}
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Role</label>
                                     <SimpleSelect
-                                        value={newRole}
-                                        onChange={(e) => setNewRole(e.target.value as Role)}
+                                        value={addForm.watch("role")}
+                                        onChange={(e) => addForm.setValue("role", e.target.value as Role)}
                                         options={roles.map(r => ({ label: roleMeta[r].label, value: r }))}
                                         className="h-10 text-xs border-slate-200 focus:ring-indigo-500"
                                     />
+                                    {addForm.formState.errors.role && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.role.message}</p>}
                                 </div>
                                 <div>
                                     <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Initial Credits</label>
                                     <Input
                                         type="number"
                                         placeholder="0"
-                                        value={newCredits}
-                                        onChange={(e) => setNewCredits(parseInt(e.target.value) || 0)}
+                                        {...addForm.register("credits", { valueAsNumber: true })}
                                     />
+                                    {addForm.formState.errors.credits && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.credits.message}</p>}
                                 </div>
                             </div>
-                        </div>
-
-                        <div className="flex gap-2 pt-2">
-                            <button
-                                onClick={() => setIsAddModalOpen(false)}
-                                className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleAddUser}
-                                disabled={!newName || !newEmail || !newPassword}
-                                className="flex-1 py-2 text-sm font-medium rounded-lg bg-[#0f172b] hover:bg-[#0f172b]/90 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                                Create User
-                            </button>
-                        </div>
+                            <div className="flex gap-2 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => { setIsAddModalOpen(false); addForm.reset(); }}
+                                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={addForm.formState.isSubmitting}
+                                    className="flex-1 py-2 text-sm font-medium rounded-lg bg-[#0f172b] hover:bg-[#0f172b]/90 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    {addForm.formState.isSubmitting ? "Creating..." : "Create User"}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
@@ -774,48 +807,49 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                             </div>
                         </div>
 
-                        <div className="space-y-3">
+                        <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-3">
                             <div>
                                 <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Full Name</label>
                                 <Input
-                                    value={editName}
-                                    onChange={(e) => setEditName(e.target.value)}
+                                    {...editForm.register("name")}
                                 />
+                                {editForm.formState.errors.name && <p className="text-[10px] text-red-500 mt-1">{editForm.formState.errors.name.message}</p>}
                             </div>
                             <div>
                                 <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Email Address</label>
                                 <Input
                                     type="email"
-                                    value={editEmail}
-                                    onChange={(e) => setEditEmail(e.target.value)}
+                                    {...editForm.register("email")}
                                 />
+                                {editForm.formState.errors.email && <p className="text-[10px] text-red-500 mt-1">{editForm.formState.errors.email.message}</p>}
                             </div>
                             <div>
                                 <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Role</label>
                                 <SimpleSelect
-                                    value={editRole}
-                                    onChange={(e) => setEditRole(e.target.value as Role)}
+                                    value={editForm.watch("role")}
+                                    onChange={(e) => editForm.setValue("role", e.target.value as Role)}
                                     options={roles.map(r => ({ label: roleMeta[r].label, value: r }))}
                                     className="h-10 text-xs border-slate-200 focus:ring-indigo-500"
                                 />
+                                {editForm.formState.errors.role && <p className="text-[10px] text-red-500 mt-1">{editForm.formState.errors.role.message}</p>}
                             </div>
-                        </div>
-
-                        <div className="flex gap-2 pt-2">
-                            <button
-                                onClick={() => setEditUserTarget(null)}
-                                className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleEditUser}
-                                disabled={!editName || !editEmail}
-                                className="flex-1 py-2 text-sm font-medium rounded-lg bg-[#0f172b] hover:bg-[#0f172b]/90 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                                Save Changes
-                            </button>
-                        </div>
+                            <div className="flex gap-2 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditUserTarget(null)}
+                                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={editForm.formState.isSubmitting}
+                                    className="flex-1 py-2 text-sm font-medium rounded-lg bg-[#0f172b] hover:bg-[#0f172b]/90 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    {editForm.formState.isSubmitting ? "Saving..." : "Save Changes"}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}

@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { apiClient } from '@/lib/api-client';
-import { useUserStore } from '@/lib/store/user-state';
+import { useUserStore } from '@/stores/user-state';
 
 export function useAdmin() {
     const { user } = useUserStore();

@@ -19,8 +19,10 @@ type UserRepo interface {
 	GetAll() ([]model.User, error)
 	Delete(id uint) error
 	AddCredits(userID uint, credits int, txnType string, description string, provider string) error
+	CountUsers(from, to *time.Time) (int64, error)
+	GetRecentUsers(limit int) ([]model.User, error)
+	AdjustCredits(userID uint, amount int, amountPaid float64, desc string) error
 }
-
 type userRepo struct {
 	db *gorm.DB
 }
@@ -108,3 +110,53 @@ func (r *userRepo) AddCredits(userID uint, credits int, txnType string, descript
 	})
 }
 
+func (r *userRepo) CountUsers(from, to *time.Time) (int64, error) {
+	var count int64
+	query := r.db.Model(&model.User{})
+	if from != nil {
+		query = query.Where("created_at >= ?", *from)
+	}
+	if to != nil {
+		query = query.Where("created_at < ?", *to)
+	}
+	err := query.Count(&count).Error
+	return count, err
+}
+
+func (r *userRepo) GetRecentUsers(limit int) ([]model.User, error) {
+	var users []model.User
+	err := r.db.Order("id DESC").Limit(limit).Find(&users).Error
+	return users, err
+}
+
+func (r *userRepo) AdjustCredits(userID uint, amount int, amountPaid float64, desc string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var user model.User
+		if err := tx.First(&user, userID).Error; err != nil {
+			return err
+		}
+
+		newCredits := user.Credits + amount
+		if newCredits < 0 {
+			newCredits = 0
+		}
+
+		if err := tx.Model(&user).Update("credits", newCredits).Error; err != nil {
+			return err
+		}
+
+		txnType := "adjustment"
+		txnID := fmt.Sprintf("TXN_%x%s", time.Now().Unix(), helper.GenerateRandomHex(4))
+		transaction := &model.Transaction{
+			UserID:        userID,
+			TransactionID: txnID,
+			Amount:        amountPaid,
+			CreditsAdded:  amount,
+			Type:          txnType,
+			Status:        "completed",
+			Description:   desc,
+			Provider:      "system",
+		}
+		return tx.Create(transaction).Error
+	})
+}

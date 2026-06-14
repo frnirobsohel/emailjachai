@@ -52,6 +52,7 @@ class ApiClientService {
                     status: error.response?.status,
                     url: error.config?.url 
                 });
+                error.message = message;
                 return Promise.reject(error);
             }
         );

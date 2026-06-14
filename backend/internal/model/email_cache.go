@@ -15,6 +15,7 @@ type EmailCache struct {
 	IsFree          bool    `gorm:"default:false" json:"is_free"`
 	IsRole          bool    `gorm:"default:false" json:"is_role"`
 	HasMx           bool    `gorm:"default:false" json:"has_mx"`
+	MxRecords       []string `gorm:"serializer:json;type:text" json:"mx_records,omitempty"`
 	SmtpConnect     bool    `gorm:"default:false" json:"smtp_connect"`
 	UserExists      bool    `gorm:"default:false" json:"user_exists"`
 	IsCatchAll      bool    `gorm:"default:false" json:"is_catch_all"`

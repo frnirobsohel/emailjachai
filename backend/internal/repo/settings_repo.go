@@ -10,8 +10,11 @@ import (
 
 type SettingsRepo interface {
 	GetByKey(key string) (*model.Setting, error)
+	GetByKeys(keys []string) ([]model.Setting, error)
 	GetAll() ([]model.Setting, error)
 	Update(key string, value string) error
+	GetByPrefix(prefix string) ([]model.Setting, error)
+	DB() *gorm.DB
 }
 
 type settingsRepo struct {
@@ -20,6 +23,16 @@ type settingsRepo struct {
 
 func NewSettingsRepo() SettingsRepo {
 	return &settingsRepo{db: config.DB}
+}
+
+func (r *settingsRepo) DB() *gorm.DB {
+	return r.db
+}
+
+func (r *settingsRepo) GetByPrefix(prefix string) ([]model.Setting, error) {
+	var settings []model.Setting
+	err := r.db.Where("setting_key LIKE ?", prefix+"_%").Find(&settings).Error
+	return settings, err
 }
 
 func (r *settingsRepo) GetByKey(key string) (*model.Setting, error) {
@@ -33,6 +46,12 @@ func (r *settingsRepo) GetByKey(key string) (*model.Setting, error) {
 func (r *settingsRepo) GetAll() ([]model.Setting, error) {
 	var settings []model.Setting
 	err := r.db.Find(&settings).Error
+	return settings, err
+}
+
+func (r *settingsRepo) GetByKeys(keys []string) ([]model.Setting, error) {
+	var settings []model.Setting
+	err := r.db.Where("setting_key IN ?", keys).Find(&settings).Error
 	return settings, err
 }
 

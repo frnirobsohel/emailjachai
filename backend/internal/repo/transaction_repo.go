@@ -1,6 +1,8 @@
 package repo
 
 import (
+	"time"
+
 	"ejp-backend/internal/model"
 	"ejp-backend/pkg/config"
 
@@ -15,6 +17,10 @@ type TransactionRepo interface {
 	List(userID uint, limit, offset int) ([]model.Transaction, error)
 	Count(userID uint) (int64, error)
 	GetUserSummary(userID uint) (purchased int64, refunds int64, err error)
+	SumCreditsSold(from, to *time.Time) (int64, error)
+	SumRevenue(from, to *time.Time) (float64, error)
+	GetByTransactionOrExternalID(id string) (*model.Transaction, error)
+	DB() *gorm.DB
 }
 
 type transactionRepo struct {
@@ -23,6 +29,18 @@ type transactionRepo struct {
 
 func NewTransactionRepo() TransactionRepo {
 	return &transactionRepo{db: config.DB}
+}
+
+func (r *transactionRepo) DB() *gorm.DB {
+	return r.db
+}
+
+func (r *transactionRepo) GetByTransactionOrExternalID(id string) (*model.Transaction, error) {
+	var tx model.Transaction
+	if err := r.db.Where("transaction_id = ? OR external_id = ?", id, id).First(&tx).Error; err != nil {
+		return nil, err
+	}
+	return &tx, nil
 }
 
 func (r *transactionRepo) Create(tx *model.Transaction) error {
@@ -78,4 +96,30 @@ func (r *transactionRepo) GetUserSummary(userID uint) (int64, int64, error) {
 		Where("user_id = ?", userID).
 		Scan(&summary).Error
 	return summary.TotalPurchased, summary.TotalRefunds, err
+}
+
+func (r *transactionRepo) SumCreditsSold(from, to *time.Time) (int64, error) {
+	var total int64
+	query := r.db.Model(&model.Transaction{}).Where("type = ? AND status = ?", "purchase", "completed")
+	if from != nil {
+		query = query.Where("created_at >= ?", *from)
+	}
+	if to != nil {
+		query = query.Where("created_at < ?", *to)
+	}
+	err := query.Select("COALESCE(SUM(credits_added), 0)").Row().Scan(&total)
+	return total, err
+}
+
+func (r *transactionRepo) SumRevenue(from, to *time.Time) (float64, error) {
+	var total float64
+	query := r.db.Model(&model.Transaction{}).Where("type = ? AND status = ?", "purchase", "completed")
+	if from != nil {
+		query = query.Where("created_at >= ?", *from)
+	}
+	if to != nil {
+		query = query.Where("created_at < ?", *to)
+	}
+	err := query.Select("COALESCE(SUM(amount), 0)").Row().Scan(&total)
+	return total, err
 }

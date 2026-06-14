@@ -14,11 +14,11 @@ import (
 )
 
 type AdminHandler struct {
-	adminService  service.AdminService
-	logService    service.LogService
-	domainService service.DomainService
-	serverService service.ServerService
-	packageService service.PackageService
+	adminService    service.AdminService
+	logService      service.LogService
+	domainService   service.DomainService
+	serverService   service.ServerService
+	packageService  service.PackageService
 	settingsService service.SettingsService
 	systemService   service.SystemService
 }

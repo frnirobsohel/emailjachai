@@ -1,7 +1,7 @@
-import { BulkUploadForm } from "@/app/(dashboard)/_components/bulk-upload/form"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
+import { BulkUploadForm } from "@/features/bulk-upload/components/form"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Mail, Database, CheckCircle, AlertTriangle } from "lucide-react"
-import { CreditBadge } from "@/app/(dashboard)/_components/credit-badge"
+import { CreditBadge } from "@/features/dashboard/components/credit-badge"
 
 export default function BulkUploadPage() {
     return (

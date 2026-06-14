@@ -18,7 +18,6 @@ import (
 
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
-	"ejp-backend/pkg/config"
 
 	"gorm.io/gorm"
 )
@@ -36,21 +35,23 @@ type paymentService struct {
 	packageRepo  repo.PackageRepo
 	userRepo     repo.UserRepo
 	emailService EmailService
+	settingsRepo repo.SettingsRepo
 }
 
-func NewPaymentService(txRepo repo.TransactionRepo, packageRepo repo.PackageRepo, userRepo repo.UserRepo, emailService EmailService) PaymentService {
+func NewPaymentService(txRepo repo.TransactionRepo, packageRepo repo.PackageRepo, userRepo repo.UserRepo, emailService EmailService, settingsRepo repo.SettingsRepo) PaymentService {
 	return &paymentService{
 		txRepo:       txRepo,
 		packageRepo:  packageRepo,
 		userRepo:     userRepo,
 		emailService: emailService,
+		settingsRepo: settingsRepo,
 	}
 }
 
 func (s *paymentService) ProcessWebhook(provider string, rawBody []byte, headers map[string]string) error {
 	switch provider {
 	case "stripe":
-		creds := getStripeCredentials()
+		creds := s.getStripeCredentials()
 		if creds == nil {
 			return fmt.Errorf("Stripe is not enabled")
 		}
@@ -82,18 +83,18 @@ func (s *paymentService) ProcessWebhook(provider string, rawBody []byte, headers
 			paymentStatus, _ := session["payment_status"].(string)
 
 			if sessionID != "" && paymentStatus == "paid" {
-				return fulfillPaymentMapping("stripe_session_"+sessionID, sessionID, "Stripe")
+				return s.fulfillPaymentMapping("stripe_session_"+sessionID, sessionID, "Stripe")
 			}
 		}
 		return nil
 
 	case "paypal":
-		creds := getPayPalCredentials()
+		creds := s.getPayPalCredentials()
 		if creds == nil {
 			return fmt.Errorf("PayPal is not enabled")
 		}
 
-		token, err := getPayPalToken(creds)
+		token, err := s.getPayPalToken(creds)
 		if err != nil {
 			return fmt.Errorf("PayPal auth failed: %v", err)
 		}
@@ -181,7 +182,7 @@ func (s *paymentService) ProcessWebhook(provider string, rawBody []byte, headers
 					if rel, ok := sup["related_ids"].(map[string]interface{}); ok {
 						orderID, _ := rel["order_id"].(string)
 						if orderID != "" {
-							return fulfillPaymentMapping("paypal_order_"+orderID, orderID, "PayPal")
+							return s.fulfillPaymentMapping("paypal_order_"+orderID, orderID, "PayPal")
 						}
 					}
 				}
@@ -190,7 +191,7 @@ func (s *paymentService) ProcessWebhook(provider string, rawBody []byte, headers
 		return nil
 
 	case "cryptomus":
-		creds := getCryptomusCredentials()
+		creds := s.getCryptomusCredentials()
 		if creds == nil {
 			return fmt.Errorf("Cryptomus is not enabled")
 		}
@@ -234,7 +235,7 @@ func (s *paymentService) ProcessWebhook(provider string, rawBody []byte, headers
 		orderID, _ := data["order_id"].(string)
 
 		if (status == "paid" || status == "paid_over") && orderID != "" {
-			return fulfillPaymentMapping("cryptomus_order_"+orderID, orderID, "Cryptomus")
+			return s.fulfillPaymentMapping("cryptomus_order_"+orderID, orderID, "Cryptomus")
 		}
 		return nil
 
@@ -272,13 +273,13 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		Provider:      provider,
 	}
 
-	if err := config.DB.Create(transaction).Error; err != nil {
+	if err := s.txRepo.Create(transaction); err != nil {
 		return "", fmt.Errorf("failed to initialize transaction: %v", err)
 	}
 
 	switch provider {
 	case "stripe":
-		creds := getStripeCredentials()
+		creds := s.getStripeCredentials()
 		if creds == nil {
 			return "", fmt.Errorf("Stripe is not enabled")
 		}
@@ -295,8 +296,8 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		form.Add("line_items[0][price_data][unit_amount]", fmt.Sprintf("%d", amountCents))
 		form.Add("line_items[0][quantity]", "1")
 		form.Add("mode", "payment")
-		form.Add("success_url", getBaseURL()+"/dashboard/credits?status=success&session_id={CHECKOUT_SESSION_ID}")
-		form.Add("cancel_url", getBaseURL()+"/dashboard/credits?status=cancelled")
+		form.Add("success_url", s.getBaseURL()+"/dashboard/credits?status=success&session_id={CHECKOUT_SESSION_ID}")
+		form.Add("cancel_url", s.getBaseURL()+"/dashboard/credits?status=cancelled")
 		form.Add("client_reference_id", txnID)
 		form.Add("metadata[user_id]", fmt.Sprintf("%d", userID))
 		form.Add("metadata[pkg_id]", fmt.Sprintf("%d", packageID))
@@ -335,7 +336,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 			return "", fmt.Errorf("Stripe returned invalid checkout URL")
 		}
 
-		err = saveMapping("stripe_session_"+sessionID, map[string]interface{}{
+		err = s.saveMapping("stripe_session_"+sessionID, map[string]interface{}{
 			"txn_id":  transaction.ID,
 			"user_id": userID,
 			"credits": pkg.CreditsAmount,
@@ -347,12 +348,12 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		return checkoutURL, nil
 
 	case "paypal":
-		creds := getPayPalCredentials()
+		creds := s.getPayPalCredentials()
 		if creds == nil {
 			return "", fmt.Errorf("PayPal is not enabled")
 		}
 
-		token, err := getPayPalToken(creds)
+		token, err := s.getPayPalToken(creds)
 		if err != nil {
 			return "", fmt.Errorf("PayPal auth failed: %v", err)
 		}
@@ -417,7 +418,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 			return "", fmt.Errorf("PayPal order creation failed: %v", result)
 		}
 
-		err = saveMapping("paypal_order_"+paypalOrderID, map[string]interface{}{
+		err = s.saveMapping("paypal_order_"+paypalOrderID, map[string]interface{}{
 			"txn_id":  transaction.ID,
 			"user_id": userID,
 			"credits": pkg.CreditsAmount,
@@ -445,7 +446,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		return approvalURL, nil
 
 	case "cryptomus":
-		creds := getCryptomusCredentials()
+		creds := s.getCryptomusCredentials()
 		if creds == nil {
 			return "", fmt.Errorf("Cryptomus is not enabled")
 		}
@@ -469,9 +470,9 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 			Amount:            amountStr,
 			Currency:          "USD",
 			OrderID:           orderID,
-			URLCallback:       getBaseURL() + "/api/v1/payment/cryptomus/webhook",
-			URLSuccess:        getBaseURL() + "/dashboard/credits",
-			URLReturn:         getBaseURL() + "/dashboard/credits",
+			URLCallback:       s.getBaseURL() + "/api/v1/payment/cryptomus/webhook",
+			URLSuccess:        s.getBaseURL() + "/dashboard/credits",
+			URLReturn:         s.getBaseURL() + "/dashboard/credits",
 			IsPaymentMultiple: false,
 			Lifetime:          3600,
 			ToCurrency:        "USDT",
@@ -517,7 +518,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 			return "", fmt.Errorf("Cryptomus returned no payment URL")
 		}
 
-		err = saveMapping("cryptomus_order_"+orderID, map[string]interface{}{
+		err = s.saveMapping("cryptomus_order_"+orderID, map[string]interface{}{
 			"txn_id":  transaction.ID,
 			"user_id": userID,
 			"credits": pkg.CreditsAmount,
@@ -526,7 +527,8 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 			return "", fmt.Errorf("failed to save payment mapping: %v", err)
 		}
 
-		config.DB.Model(&transaction).Update("transaction_id", orderID)
+		transaction.TransactionID = orderID
+		s.txRepo.Update(transaction)
 
 		return paymentURL, nil
 
@@ -542,8 +544,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 }
 
 func (s *paymentService) VerifyPayment(transactionID string) (string, error) {
-	var tx model.Transaction
-	err := config.DB.Where("transaction_id = ? OR external_id = ?", transactionID, transactionID).First(&tx).Error
+	tx, err := s.txRepo.GetByTransactionOrExternalID(transactionID)
 	if err != nil {
 		return "not_found", nil
 	}
@@ -628,10 +629,10 @@ func (s *paymentService) GetTransactionSummary(userID uint) (int64, int64, error
 
 // Private Helpers
 
-func getBaseURL() string {
-	var s model.Setting
-	if err := config.DB.Where("setting_key = 'api_base_url'").First(&s).Error; err == nil {
-		url := strings.TrimSpace(s.SettingValue)
+func (s *paymentService) getBaseURL() string {
+	var sDB model.Setting
+	if err := s.settingsRepo.DB().Where("setting_key = 'api_base_url'").First(&sDB).Error; err == nil {
+		url := strings.TrimSpace(sDB.SettingValue)
 		if url != "" {
 			return strings.TrimSuffix(url, "/")
 		}
@@ -643,18 +644,18 @@ func getBaseURL() string {
 	return "http://localhost:3000"
 }
 
-func getGatewaySettings(prefix string) map[string]string {
+func (s *paymentService) getGatewaySettings(prefix string) map[string]string {
 	var settings []model.Setting
-	config.DB.Where("setting_key LIKE ?", prefix+"_%").Find(&settings)
+	s.settingsRepo.DB().Where("setting_key LIKE ?", prefix+"_%").Find(&settings)
 	res := make(map[string]string)
-	for _, s := range settings {
-		res[s.SettingKey] = s.SettingValue
+	for _, sDB := range settings {
+		res[sDB.SettingKey] = sDB.SettingValue
 	}
 	return res
 }
 
-func getStripeCredentials() *StripeCredentials {
-	creds := getGatewaySettings("stripe")
+func (s *paymentService) getStripeCredentials() *StripeCredentials {
+	creds := s.getGatewaySettings("stripe")
 	if creds["stripe_enabled"] != "1" {
 		return nil
 	}
@@ -673,8 +674,8 @@ type StripeCredentials struct {
 	TestMode      bool
 }
 
-func getPayPalCredentials() *PayPalCredentials {
-	creds := getGatewaySettings("paypal")
+func (s *paymentService) getPayPalCredentials() *PayPalCredentials {
+	creds := s.getGatewaySettings("paypal")
 	if creds["paypal_enabled"] != "1" {
 		return nil
 	}
@@ -693,7 +694,7 @@ type PayPalCredentials struct {
 	TestMode  bool
 }
 
-func getPayPalToken(creds *PayPalCredentials) (string, error) {
+func (s *paymentService) getPayPalToken(creds *PayPalCredentials) (string, error) {
 	urlVal := "https://api-m.paypal.com/v1/oauth2/token"
 	if creds.TestMode {
 		urlVal = "https://api-m.sandbox.paypal.com/v1/oauth2/token"
@@ -724,9 +725,9 @@ func getPayPalToken(creds *PayPalCredentials) (string, error) {
 	return res.AccessToken, nil
 }
 
-func getCryptomusCredentials() *CryptomusCredentials {
+func (s *paymentService) getCryptomusCredentials() *CryptomusCredentials {
 	var settings []model.Setting
-	config.DB.Where("setting_key IN ?", []string{"cryptomus_enabled", "cryptomus_merchant_id", "cryptomus_payment_key"}).Find(&settings)
+	s.settingsRepo.DB().Where("setting_key IN ?", []string{"cryptomus_enabled", "cryptomus_merchant_id", "cryptomus_payment_key"}).Find(&settings)
 
 	creds := make(map[string]string)
 	for _, s := range settings {
@@ -788,27 +789,27 @@ func verifyStripeSignature(payload []byte, sigHeader, secret string) bool {
 	return hmac.Equal([]byte(signature), []byte(expectedSignature))
 }
 
-func saveMapping(key string, val interface{}) error {
+func (s *paymentService) saveMapping(key string, val interface{}) error {
 	bytesVal, err := json.Marshal(val)
 	if err != nil {
 		return err
 	}
 	var setting model.Setting
-	err = config.DB.Where("setting_key = ?", key).First(&setting).Error
+	err = s.settingsRepo.DB().Where("setting_key = ?", key).First(&setting).Error
 	if err == nil {
 		setting.SettingValue = string(bytesVal)
-		return config.DB.Save(&setting).Error
+		return s.settingsRepo.DB().Save(&setting).Error
 	}
 	setting = model.Setting{
 		SettingKey:   key,
 		SettingValue: string(bytesVal),
 	}
-	return config.DB.Create(&setting).Error
+	return s.settingsRepo.DB().Create(&setting).Error
 }
 
-func fulfillPaymentMapping(mapKey, externalID, gateway string) error {
-	var s model.Setting
-	if err := config.DB.Where("setting_key = ?", mapKey).First(&s).Error; err != nil {
+func (s *paymentService) fulfillPaymentMapping(mapKey, externalID, gateway string) error {
+	var setting model.Setting
+	if err := s.settingsRepo.DB().Where("setting_key = ?", mapKey).First(&setting).Error; err != nil {
 		return fmt.Errorf("mapping settings not found for key: %s", mapKey)
 	}
 
@@ -817,7 +818,7 @@ func fulfillPaymentMapping(mapKey, externalID, gateway string) error {
 		UserID  uint `json:"user_id"`
 		Credits int  `json:"credits"`
 	}
-	if err := json.Unmarshal([]byte(s.SettingValue), &mapData); err != nil {
+	if err := json.Unmarshal([]byte(setting.SettingValue), &mapData); err != nil {
 		return fmt.Errorf("failed to unmarshal mapping data: %v", err)
 	}
 
@@ -825,7 +826,7 @@ func fulfillPaymentMapping(mapKey, externalID, gateway string) error {
 		return fmt.Errorf("invalid mapping data: %v", mapData)
 	}
 
-	return config.DB.Transaction(func(tx *gorm.DB) error {
+	return s.txRepo.DB().Transaction(func(tx *gorm.DB) error {
 		var txn model.Transaction
 		if err := tx.Where("id = ? AND status = 'pending'", mapData.TxnID).First(&txn).Error; err != nil {
 			return err

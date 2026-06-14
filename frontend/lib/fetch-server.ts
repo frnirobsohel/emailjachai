@@ -10,22 +10,23 @@ export async function fetchServer<T = any>(endpoint: string, options: RequestIni
         return { status: 'error', message: 'No API Key found in session' };
     }
 
-    const res = await fetch(`${API_BASE_URL}${endpoint}`, {
-        ...options,
-        headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-            ...(options.headers || {})
-        },
-        // We use Next.js native fetch caching here if needed, 
-        // but for user-specific dynamic dashboard data, we default to no-store.
-        cache: 'no-store'
-    });
-
     try {
+        const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+            ...options,
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+                ...(options.headers || {})
+            },
+            // We use Next.js native fetch caching here if needed, 
+            // but for user-specific dynamic dashboard data, we default to no-store.
+            cache: 'no-store'
+        });
+
         const json = await res.json();
         return json;
-    } catch (e) {
-        return { status: 'error', message: 'Failed to parse JSON' };
+    } catch (e: any) {
+        console.error(`[fetchServer] Error fetching ${endpoint}:`, e.message);
+        return { status: 'error', message: 'Failed to connect to backend server or parse JSON' };
     }
 }

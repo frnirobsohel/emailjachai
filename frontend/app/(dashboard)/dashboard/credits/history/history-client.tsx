@@ -1,10 +1,10 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Button } from "@/components/common/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/common/table"
-import { Badge } from "@/components/common/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
 import { Wallet, CreditCard, RefreshCcw, Loader2 } from "lucide-react"
 
 export interface Transaction {

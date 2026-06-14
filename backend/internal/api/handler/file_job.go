@@ -90,7 +90,14 @@ func (h *JobHandler) SubmitBulkJob(c *gin.Context) {
 		}
 	}
 
-	job, _, err := h.jobService.SubmitBulkJob(userID.(uint), filename, sourceEmails, idempotencyKey)
+	var apiKeyID *uint
+	if kID, exists := c.Get("apiKeyID"); exists {
+		if id, ok := kID.(uint); ok {
+			apiKeyID = &id
+		}
+	}
+
+	job, _, err := h.jobService.SubmitBulkJob(userID.(uint), filename, sourceEmails, idempotencyKey, apiKeyID)
 	if err != nil {
 		var idempErr *service.IdempotencyError
 		if errors.As(err, &idempErr) {

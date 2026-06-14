@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"time"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
@@ -78,6 +79,20 @@ func (s *apiKeyService) GetByUserID(userID uint) ([]model.APIKey, error) {
 }
 
 func (s *apiKeyService) Create(userID uint, name string) (*model.APIKey, error) {
+	// Check max 5 active keys rule
+	keys, err := s.repo.GetByUserID(userID)
+	if err == nil {
+		activeCount := 0
+		for _, k := range keys {
+			if k.Status == "active" && k.Name != "Login Key" && k.Name != "Impersonation Key" {
+				activeCount++
+			}
+		}
+		if activeCount >= 5 {
+			return nil, errors.New("maximum 5 active API keys allowed per user")
+		}
+	}
+
 	plainKey := "ak_live_" + helper.GenerateRandomKey()
 	prefix := plainKey[:16]
 	hashedKey, _ := helper.HashPassword(plainKey)

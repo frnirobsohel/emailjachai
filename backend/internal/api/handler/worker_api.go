@@ -17,6 +17,7 @@ import (
 	"ejp-backend/internal/storage"
 	"ejp-backend/internal/tasks"
 	"ejp-backend/internal/ws"
+	"ejp-backend/internal/repo"
 	"ejp-backend/pkg/logger"
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/service"
@@ -471,7 +472,7 @@ func broadcastJobUpdate(jobID string) {
 				if frontendURL == "" {
 					frontendURL = "http://localhost:3000"
 				}
-				go service.NewEmailService().SendTemplateEmail(user.Email, "job_completed", map[string]string{
+				go service.NewEmailService(repo.NewSystemRepo()).SendTemplateEmail(user.Email, "job_completed", map[string]string{
 					"name": user.Name,
 					"job_id": job.JobID,
 					"download_link": fmt.Sprintf("%s/dashboard/jobs/%s/download", frontendURL, job.JobID),

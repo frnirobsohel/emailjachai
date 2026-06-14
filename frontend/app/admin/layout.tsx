@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { Sidebar } from "@/components/layout/sidebar"
 import { LayoutWrapper } from "@/components/layout/layout-wrapper"
 

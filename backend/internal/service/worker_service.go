@@ -70,13 +70,15 @@ type WorkerService interface {
 }
 
 type workerService struct {
+	workerRepo   repo.WorkerRepo
 	jobRepo      repo.JobRepository
 	serverRepo   repo.ServerRepo
 	settingsRepo repo.SettingsRepo
 }
 
-func NewWorkerService(jobRepo repo.JobRepository, serverRepo repo.ServerRepo, settingsRepo repo.SettingsRepo) WorkerService {
+func NewWorkerService(workerRepo repo.WorkerRepo, jobRepo repo.JobRepository, serverRepo repo.ServerRepo, settingsRepo repo.SettingsRepo) WorkerService {
 	return &workerService{
+		workerRepo:   workerRepo,
 		jobRepo:      jobRepo,
 		serverRepo:   serverRepo,
 		settingsRepo: settingsRepo,
@@ -84,66 +86,11 @@ func NewWorkerService(jobRepo repo.JobRepository, serverRepo repo.ServerRepo, se
 }
 
 func (s *workerService) IsWorkerEnabled(serverName string) bool {
-	var rows []struct{ Enabled bool }
-	result := config.DB.Model(&model.WorkerServer{}).
-		Select("enabled").
-		Where("server_name = ?", serverName).
-		Find(&rows)
-	if result.Error != nil || len(rows) != 1 {
-		return false // server not found or ambiguous
-	}
-	return rows[0].Enabled
+	return s.workerRepo.IsWorkerEnabled(serverName)
 }
 
 func (s *workerService) ReconcileJobStatus(jobID string) error {
-	var counts struct {
-		QueuedCount     int64
-		ProcessingCount int64
-		FailedCount     int64
-	}
-	config.DB.Model(&model.JobTask{}).
-		Select("SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued_count, " +
-			"SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing_count, " +
-			"SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_count").
-		Where("job_id = ?", jobID).
-		Scan(&counts)
-
-	// If tasks still active, nothing to do
-	if counts.QueuedCount+counts.ProcessingCount > 0 {
-		return nil
-	}
-
-	// If no failed tasks, check if job processed count matches total
-	if counts.FailedCount == 0 {
-		var job model.Job
-		if err := config.DB.Where("job_id = ?", jobID).First(&job).Error; err != nil {
-			return err
-		}
-		if job.TotalEmails > 0 && int64(job.ProcessedCount) < int64(job.TotalEmails) {
-			// Requeue tasks that were completed but have pushed_count < expected
-			result := config.DB.Model(&model.JobTask{}).
-				Where("job_id = ? AND status = 'completed' AND pushed_count < (end_index - start_index + 1)", jobID).
-				Updates(map[string]interface{}{
-					"status":        "queued",
-					"worker_server": "",
-					"updated_at":    time.Now(),
-				})
-			if result.RowsAffected > 0 {
-				config.DB.Model(&model.Job{}).Where("job_id = ?", jobID).Update("status", "processing")
-				return nil
-			}
-		}
-	}
-
-	// Set final job status
-	newStatus := "completed"
-	if counts.FailedCount > 0 {
-		newStatus = "failed"
-	}
-	config.DB.Model(&model.Job{}).
-		Where("job_id = ? AND status != 'completed'", jobID).
-		Update("status", newStatus)
-	return nil
+	return s.workerRepo.ReconcileJobStatus(jobID)
 }
 
 func (s *workerService) ClaimTask(serverName string) (*model.JobTask, error) {
@@ -232,7 +179,7 @@ func (s *workerService) ReportTaskResult(payload *WorkerReportPayload) (*model.J
 	var job model.Job
 	var result model.JobResult
 
-	err := config.DB.Transaction(func(tx *gorm.DB) error {
+	err := s.workerRepo.DB().Transaction(func(tx *gorm.DB) error {
 		// 1. Find the parent job
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("job_id = ?", jobID).
@@ -554,7 +501,7 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 	var job model.Job
 	var batchWriteRows []model.JobResult
 
-	err := config.DB.Transaction(func(tx *gorm.DB) error {
+	err := s.workerRepo.DB().Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("job_id = ?", jobID).
 			First(&job).Error; err != nil {
@@ -771,7 +718,7 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 
 func (s *workerService) BroadcastJobUpdate(jobID string) {
 	var job model.Job
-	if err := config.DB.Where("job_id = ?", jobID).First(&job).Error; err == nil {
+	if err := s.workerRepo.DB().Where("job_id = ?", jobID).First(&job).Error; err == nil {
 		ws.GlobalHub.Broadcast <- ws.Message{
 			UserID: job.UserID,
 			JobID:  job.JobID,
@@ -794,13 +741,13 @@ func (s *workerService) BroadcastJobUpdate(jobID string) {
 	// Trigger Webhook/Email for major status changes
 	if job.Status == "completed" || job.Status == "failed" {
 		var user model.User
-		if err := config.DB.First(&user, job.UserID).Error; err == nil {
+		if err := s.workerRepo.DB().First(&user, job.UserID).Error; err == nil {
 			if job.Status == "completed" {
 				frontendURL := os.Getenv("FRONTEND_URL")
 				if frontendURL == "" {
 					frontendURL = "http://localhost:3000"
 				}
-				go NewEmailService().SendTemplateEmail(user.Email, "job_completed", map[string]string{
+				go NewEmailService(repo.NewSystemRepo()).SendTemplateEmail(user.Email, "job_completed", map[string]string{
 					"name":          user.Name,
 					"job_id":         job.JobID,
 					"download_link": fmt.Sprintf("%s/dashboard/jobs/%s/download", frontendURL, job.JobID),
@@ -837,103 +784,30 @@ func (s *workerService) BroadcastJobUpdate(jobID string) {
 }
 
 func (s *workerService) CompleteTask(taskID uint, status string) error {
-	// Load task details
-	var task model.JobTask
-	if err := config.DB.Where("id = ?", taskID).First(&task).Error; err != nil {
-		return fmt.Errorf("task not found")
+	err := s.workerRepo.CompleteTask(taskID, status)
+	if err == nil {
+		// Reconcile job status
+		var task model.JobTask
+		if rErr := s.workerRepo.DB().Where("id = ?", taskID).First(&task).Error; rErr == nil {
+			s.ReconcileJobStatus(task.JobID)
+			s.BroadcastJobUpdate(task.JobID)
+		}
 	}
-
-	// Calculate expected vs pushed (fields are int in model)
-	expectedCount := int64(task.EndIndex - task.StartIndex + 1)
-	pushedCount := int64(task.PushedCount)
-
-	// Check if job is fully processed (allow completing even if task count short)
-	var job model.Job
-	config.DB.Where("job_id = ?", task.JobID).Select("processed_count, total_emails").First(&job)
-	jobFullyProcessed := job.TotalEmails > 0 && int64(job.ProcessedCount) >= int64(job.TotalEmails)
-
-	if status == "completed" && pushedCount < expectedCount && !jobFullyProcessed {
-		// Requeue the task - incomplete
-		config.DB.Model(&model.JobTask{}).
-			Where("id = ? AND status = 'processing'", taskID).
-			Updates(map[string]interface{}{
-				"status":        "queued",
-				"worker_server": "",
-				"updated_at":    time.Now(),
-			})
-		return fmt.Errorf("task results incomplete (%d/%d); task requeued", pushedCount, expectedCount)
-	}
-
-	// Backfill pushed_count if job is fully done but task count short
-	if status == "completed" && pushedCount < expectedCount && jobFullyProcessed {
-		config.DB.Model(&model.JobTask{}).Where("id = ?", taskID).Update("pushed_count", expectedCount)
-	}
-
-	// Update task status - only if currently in processing state
-	result := config.DB.Model(&model.JobTask{}).
-		Where("id = ? AND status = 'processing'", taskID).
-		Updates(map[string]interface{}{"status": status, "updated_at": time.Now()})
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("task %d is not in processing state", taskID)
-	}
-
-	// Reconcile job status
-	s.ReconcileJobStatus(task.JobID)
-
-	// Broadcast update
-	s.BroadcastJobUpdate(task.JobID)
-
-	return nil
+	return err
 }
 
 func (s *workerService) ResetWorkerTasks(serverName string) (int64, error) {
-	res := config.DB.Model(&model.JobTask{}).
-		Where("worker_server = ? AND status = ?", serverName, "processing").
-		Update("status", "queued")
-	return res.RowsAffected, res.Error
+	return s.workerRepo.ResetWorkerTasks(serverName)
 }
 
 func (s *workerService) GetWorkerDomains() ([]model.Domain, error) {
-	var domains []model.Domain
-	err := config.DB.Where("excluded = ?", false).Find(&domains).Error
-	return domains, err
+	return s.workerRepo.GetWorkerDomains()
 }
 
 func (s *workerService) UpdateResultFilePath(jobID string, filePath string) error {
-	return config.DB.Model(&model.Job{}).Where("job_id = ?", jobID).Update("result_file_path", filePath).Error
+	return s.workerRepo.UpdateResultFilePath(jobID, filePath)
 }
 
 func (s *workerService) checkDomainPolicy(domain string) (isFree, isDisposable, isSpamTrap, isBlacklisted bool) {
-	parts := strings.Split(domain, ".")
-	if len(parts) < 2 {
-		return
-	}
-
-	for i := 0; i <= len(parts)-2; i++ {
-		candidate := strings.Join(parts[i:], ".")
-
-		var domainPolicy struct {
-			Type string
-		}
-
-		err := config.DB.Table("domains").
-			Select("type").
-			Where("domain = ? AND excluded = ?", candidate, false).
-			First(&domainPolicy).Error
-
-		if err == nil {
-			switch domainPolicy.Type {
-			case "free":
-				isFree = true
-			case "disposable":
-				isDisposable = true
-			case "spam-trap", "spam_trap":
-				isSpamTrap = true
-			case "blacklist":
-				isBlacklisted = true
-			}
-			return
-		}
-	}
-	return
+	return s.workerRepo.CheckDomainPolicy(domain)
 }

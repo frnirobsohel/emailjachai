@@ -6,7 +6,7 @@ import (
 
 type Transaction struct {
 	ID            uint      `gorm:"primaryKey" json:"id"`
-	UserID        uint      `gorm:"column:user_id;not null" json:"user_id"`
+	UserID        uint      `gorm:"column:user_id;index;not null" json:"user_id"`
 	TransactionID string    `gorm:"column:transaction_id;type:varchar(100);uniqueIndex;not null" json:"transaction_id"`
 	Amount        float64   `gorm:"column:amount;type:decimal(10,2);not null" json:"amount"`
 	CreditsAdded  int       `gorm:"column:credits_added;not null" json:"credits_added"`
@@ -16,7 +16,7 @@ type Transaction struct {
 	Provider      string    `gorm:"type:varchar(50);default:'system'" json:"provider"`
 	Package       string    `gorm:"column:package;type:varchar(100)" json:"package"`
 	Description   string    `gorm:"type:text" json:"description"`
-	CreatedAt     time.Time `gorm:"column:created_at;type:timestamp;default:CURRENT_TIMESTAMP" json:"created_at"`
+	CreatedAt     time.Time `gorm:"column:created_at;type:timestamp;default:CURRENT_TIMESTAMP;index" json:"created_at"`
 
 	// Relationships
 	User User `gorm:"foreignKey:UserID" json:"-"`

@@ -1,145 +1,206 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
-import { Button } from "@/components/common/button"
-import { Input } from "@/components/common/input"
-import { Badge } from "@/components/common/badge"
+import { useState } from "react"
+import { useForm, useFieldArray } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
+import { toast } from "react-hot-toast"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow
-} from "@/components/common/table"
+} from "@/components/ui/table"
 import {
-    Package as PackageIcon, Plus, Edit, Trash2, ToggleLeft, ToggleRight, Check, X, Zap
+    Package as PackageIcon, Plus, Edit, Trash2, ToggleLeft, ToggleRight, Check, X, Zap, Loader2
 } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
+import { cn } from "@/lib/utils"
 
-export function PackagesClient({ initialData }: { initialData: any[] }) {
-    const [plans, setPlans] = useState<any[]>(initialData)
-    const [isLoading, setIsLoading] = useState(false)
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+type PackageRow = {
+    id: number
+    name: string
+    tagline: string
+    price: number
+    credits_amount: number
+    features: string[]
+    status: string
+    popular: boolean
+}
+
+// ─── Zod Schema ─────────────────────────────────────────────────────────────
+
+const packageSchema = z.object({
+    name: z.string().min(1, "Package name is required"),
+    tagline: z.string(),
+    price: z.number({ message: "Price must be a number" }).min(0, "Price must be ≥ 0"),
+    credits_amount: z.number({ message: "Credits must be a number" }).min(1, "Credits must be ≥ 1"),
+    features: z.array(z.object({ value: z.string() })).min(1, "At least one feature is required"),
+    enabled: z.boolean(),
+    popular: z.boolean(),
+})
+
+type PackageFormValues = z.infer<typeof packageSchema>
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
+    const [plans, setPlans] = useState<PackageRow[]>(initialData)
     const [showModal, setShowModal] = useState(false)
-    const [editingPlan, setEditingPlan] = useState<any | null>(null)
-    const [form, setForm] = useState<any>({ name: "", tagline: "", price: 0, credits_amount: 0, features: [""], enabled: true, popular: false })
+    const [editingId, setEditingId] = useState<number | null>(null)
     const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
+    const [isDeleting, setIsDeleting] = useState(false)
+
+    const form = useForm<PackageFormValues>({
+        resolver: zodResolver(packageSchema),
+        defaultValues: {
+            name: "",
+            tagline: "",
+            price: 0,
+            credits_amount: 0,
+            features: [{ value: "" }],
+            enabled: true,
+            popular: false,
+        }
+    })
+
+    const { fields, append, remove } = useFieldArray({
+        control: form.control,
+        name: "features"
+    })
 
     const fetchPackages = async () => {
         try {
-            const result = await ApiClient.get('/admin/packages');
-            if (result.status === 'success') {
-                setPlans(result.data as any[]);
+            const result = await ApiClient.get<PackageRow[]>('/admin/packages')
+            if (result.status === 'success' && result.data) {
+                setPlans(result.data)
             }
         } catch (error) {
-            console.error("Failed to fetch packages:", error);
-        } finally {
-            setIsLoading(false);
+            toast.error("Failed to refresh packages")
         }
     }
 
-    useEffect(() => {
-        // fetchPackages(); // Handled by SSR initialData
-    }, []);
-
     const openAdd = () => {
-        setEditingPlan(null)
-        setForm({ name: "", tagline: "", price: 0, credits_amount: 0, features: [""], enabled: true, popular: false })
-        setShowModal(true)
-    }
-
-    const openEdit = (plan: any) => {
-        setEditingPlan(plan)
-        setForm({
-            id: plan.id,
-            name: plan.name,
-            tagline: plan.tagline || "",
-            price: plan.price,
-            credits_amount: plan.credits_amount,
-            features: plan.features || [""],
-            enabled: plan.status === 'active',
-            popular: plan.popular || false
+        setEditingId(null)
+        form.reset({
+            name: "",
+            tagline: "",
+            price: 0,
+            credits_amount: 0,
+            features: [{ value: "" }],
+            enabled: true,
+            popular: false,
         })
         setShowModal(true)
     }
 
-    const saveForm = async () => {
-        if (!form.name.trim()) return
-        setIsLoading(true);
+    const openEdit = (plan: PackageRow) => {
+        setEditingId(plan.id)
+        form.reset({
+            name: plan.name,
+            tagline: plan.tagline || "",
+            price: plan.price,
+            credits_amount: plan.credits_amount,
+            features: (plan.features || [""]).map(f => ({ value: f })),
+            enabled: plan.status === 'active',
+            popular: plan.popular || false,
+        })
+        setShowModal(true)
+    }
+
+    const onSubmit = async (values: PackageFormValues) => {
+        const endpoint = editingId ? '/admin/packages/update' : '/admin/packages/create'
+        const payload = {
+            ...(editingId ? { id: editingId } : {}),
+            name: values.name,
+            tagline: values.tagline,
+            price: values.price,
+            credits_amount: values.credits_amount,
+            features: values.features.map(f => f.value).filter(Boolean),
+            enabled: values.enabled,
+            popular: values.popular,
+        }
+
         try {
-            const endpoint = form.id ? '/admin/packages/update' : '/admin/packages/create';
-
-            const payload = {
-                ...form,
-                enabled: form.enabled
-            };
-
-            const result = await ApiClient.post(endpoint, payload);
-
-            if (result.status === 'success') {
-                setShowModal(false);
-                fetchPackages();
+            const result = await ApiClient.post<PackageRow>(endpoint, payload)
+            if (result.status === 'success' && result.data) {
+                const updatedPkg = result.data
+                if (editingId) {
+                    setPlans(prev => prev.map(p => p.id === editingId ? updatedPkg : p))
+                    toast.success("Package updated successfully")
+                } else {
+                    setPlans(prev => [updatedPkg, ...prev])
+                    toast.success("Package created successfully")
+                }
+                setShowModal(false)
             } else {
-                alert(result.message || "Error saving package");
+                toast.error(result.message || "Error saving package")
             }
-        } catch (error) {
-            alert("Error saving package");
-        } finally {
-            setIsLoading(false);
+        } catch (error: any) {
+            toast.error(error.message || "Error saving package")
         }
     }
 
-    const toggleEnabled = async (plan: any) => {
+    const toggleEnabled = async (plan: PackageRow) => {
+        const isActive = plan.status?.toLowerCase() === 'active'
+        const toastId = toast.loading(`${isActive ? 'Deactivating' : 'Activating'} package...`)
         try {
-            const isActive = plan.status && plan.status.toLowerCase() === 'active';
-
-            const result = await ApiClient.post('/admin/packages/update', {
+            const result = await ApiClient.post<PackageRow>('/admin/packages/update', {
                 ...plan,
-                enabled: !isActive
-            });
-
-            if (result.status === 'success') {
-                fetchPackages();
+                features: plan.features,
+                enabled: !isActive,
+            })
+            if (result.status === 'success' && result.data) {
+                setPlans(prev => prev.map(p => p.id === plan.id ? result.data! : p))
+                toast.success(`Package ${!isActive ? 'activated' : 'deactivated'}`, { id: toastId })
             } else {
-                alert(result.message || "Failed to toggle status");
+                toast.error(result.message || "Failed to toggle status", { id: toastId })
             }
-        } catch (error) {
-            console.error("Toggle error:", error);
-            alert("Connection error occurred while toggling status.");
+        } catch (error: any) {
+            toast.error(error.message || "Connection error occurred", { id: toastId })
         }
     }
 
-    const togglePopular = async (plan: any) => {
+    const togglePopular = async (plan: PackageRow) => {
+        const toastId = toast.loading("Updating popular status...")
         try {
-            const result = await ApiClient.post('/admin/packages/update', {
+            const result = await ApiClient.post<PackageRow>('/admin/packages/update', {
                 ...plan,
+                features: plan.features,
                 popular: !plan.popular,
-                enabled: plan.status && plan.status.toLowerCase() === 'active'
-            });
-
-            if (result.status === 'success') {
-                fetchPackages();
+                enabled: plan.status?.toLowerCase() === 'active',
+            })
+            if (result.status === 'success' && result.data) {
+                setPlans(prev => prev.map(p => p.id === plan.id ? result.data! : p))
+                toast.success(!plan.popular ? "Marked as popular" : "Removed popular badge", { id: toastId })
+            } else {
+                toast.error(result.message || "Failed to update", { id: toastId })
             }
-        } catch (error) {
-            console.error("Toggle error:", error);
+        } catch (error: any) {
+            toast.error(error.message || "Connection error", { id: toastId })
         }
     }
 
     const deletePlan = async (id: number) => {
+        setIsDeleting(true)
         try {
-            const result = await ApiClient.post('/admin/packages/delete', { id });
-
+            const result = await ApiClient.post('/admin/packages/delete', { id })
             if (result.status === 'success') {
-                fetchPackages();
-                setDeleteConfirm(null);
+                setPlans(prev => prev.filter(p => p.id !== id))
+                setDeleteConfirm(null)
+                toast.success("Package deleted successfully")
+            } else {
+                toast.error(result.message || "Failed to delete package")
             }
-        } catch (error) {
-            console.error("Delete error:", error);
+        } catch (error: any) {
+            toast.error(error.message || "Delete failed")
+        } finally {
+            setIsDeleting(false)
         }
     }
-
-    const updateFeature = (idx: number, val: string) => {
-        setForm((f: any) => ({ ...f, features: f.features.map((ft: any, i: any) => i === idx ? val : ft) }))
-    }
-
-    const addFeature = () => setForm((f: any) => ({ ...f, features: [...f.features, ""] }))
-    const removeFeature = (idx: number) => setForm((f: any) => ({ ...f, features: f.features.filter((_: any, i: any) => i !== idx) }))
 
     return (
         <div className="flex-1 space-y-4">
@@ -158,9 +219,9 @@ export function PackagesClient({ initialData }: { initialData: any[] }) {
             <div className="grid grid-cols-3 gap-4">
                 {[
                     { label: "Total Packages", value: plans.length, icon: PackageIcon, color: "text-indigo-600 bg-indigo-50" },
-                    { label: "Active Packages", value: plans.filter((p: any) => p.status === 'active').length, icon: ToggleRight, color: "text-green-600 bg-green-50" },
-                    { label: "Total Credits Range", value: plans.length > 0 ? `${Math.min(...plans.map((p: any) => p.credits_amount)).toLocaleString()} – ${Math.max(...plans.map((p: any) => p.credits_amount)).toLocaleString()}` : '0', icon: Zap, color: "text-amber-600 bg-amber-50" },
-                ].map((stat: any) => (
+                    { label: "Active Packages", value: plans.filter(p => p.status === 'active').length, icon: ToggleRight, color: "text-green-600 bg-green-50" },
+                    { label: "Total Credits Range", value: plans.length > 0 ? `${Math.min(...plans.map(p => p.credits_amount)).toLocaleString()} – ${Math.max(...plans.map(p => p.credits_amount)).toLocaleString()}` : '0', icon: Zap, color: "text-amber-600 bg-amber-50" },
+                ].map(stat => (
                     <Card key={stat.label} className="shadow-sm border-indigo-50">
                         <CardContent className="p-4 flex items-center gap-4">
                             <div className={`p-2.5 rounded-lg ${stat.color}`}>
@@ -195,7 +256,13 @@ export function PackagesClient({ initialData }: { initialData: any[] }) {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {plans.map(plan => (
+                            {plans.length === 0 ? (
+                                <TableRow>
+                                    <TableCell colSpan={7} className="h-24 text-center text-slate-400">
+                                        No packages found. Add one to get started.
+                                    </TableCell>
+                                </TableRow>
+                            ) : plans.map(plan => (
                                 <TableRow key={plan.id} className="border-b border-slate-50 hover:bg-slate-50/50">
                                     <TableCell>
                                         <div className="font-semibold text-slate-900">{plan.name}</div>
@@ -205,7 +272,7 @@ export function PackagesClient({ initialData }: { initialData: any[] }) {
                                     <TableCell className="text-slate-700">{(plan.credits_amount || 0).toLocaleString()}</TableCell>
                                     <TableCell>
                                         <div className="flex flex-wrap gap-1">
-                                            {plan.features?.slice(0, 2).map((f: any) => (
+                                            {plan.features?.slice(0, 2).map(f => (
                                                 <span key={f} className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{f}</span>
                                             ))}
                                             {(plan.features?.length || 0) > 2 && (
@@ -257,76 +324,95 @@ export function PackagesClient({ initialData }: { initialData: any[] }) {
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
                     <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md mx-4 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-bold text-slate-900 text-lg">{editingPlan ? "Edit Package" : "Add Package"}</h3>
+                            <h3 className="font-bold text-slate-900 text-lg">{editingId ? "Edit Package" : "Add Package"}</h3>
                             <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600">
                                 <X className="h-5 w-5" />
                             </button>
                         </div>
 
-                        <div className="space-y-3">
+                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+                            {/* Name */}
                             <div>
-                                <label htmlFor="package-name" className="text-xs font-medium text-slate-600 mb-1 block">Package Name</label>
-                                <Input id="package-name" name="packageName" value={form.name} onChange={(e: any) => setForm((f: any) => ({ ...f, name: e.target.value }))} placeholder="e.g. Professional" />
+                                <label htmlFor="pkg-name" className="text-xs font-medium text-slate-600 mb-1 block">Package Name</label>
+                                <Input id="pkg-name" {...form.register("name")} placeholder="e.g. Professional" className={cn(form.formState.errors.name && "border-red-400")} />
+                                {form.formState.errors.name && <p className="text-[10px] text-red-500 mt-0.5">{form.formState.errors.name.message}</p>}
                             </div>
+
+                            {/* Tagline */}
                             <div>
-                                <label htmlFor="package-tagline" className="text-xs font-medium text-slate-600 mb-1 block">Tagline</label>
-                                <Input id="package-tagline" name="tagline" value={form.tagline} onChange={(e: any) => setForm((f: any) => ({ ...f, tagline: e.target.value }))} placeholder="e.g. Perfect for growing businesses" />
+                                <label htmlFor="pkg-tagline" className="text-xs font-medium text-slate-600 mb-1 block">Tagline</label>
+                                <Input id="pkg-tagline" {...form.register("tagline")} placeholder="e.g. Perfect for growing businesses" />
                             </div>
+
+                            {/* Price + Credits */}
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1">
-                                    <label htmlFor="package-price" className="text-xs font-medium text-slate-600 mb-1 block">Price (USD)</label>
-                                    <Input id="package-price" name="price" type="number" value={form.price} onChange={(e: any) => setForm((f: any) => ({ ...f, price: Number(e.target.value) }))} placeholder="49" />
+                                    <label htmlFor="pkg-price" className="text-xs font-medium text-slate-600 block">Price (USD)</label>
+                                    <Input id="pkg-price" type="number" step="0.01" {...form.register("price", { valueAsNumber: true })} placeholder="49" className={cn(form.formState.errors.price && "border-red-400")} />
+                                    {form.formState.errors.price && <p className="text-[10px] text-red-500">{form.formState.errors.price.message}</p>}
                                 </div>
                                 <div className="space-y-1">
-                                    <label htmlFor="package-credits" className="text-xs font-medium text-slate-600 mb-1 block">Credits</label>
-                                    <Input id="package-credits" name="creditsAmount" type="number" value={form.credits_amount} onChange={(e: any) => setForm((f: any) => ({ ...f, credits_amount: Number(e.target.value) }))} placeholder="5000" />
+                                    <label htmlFor="pkg-credits" className="text-xs font-medium text-slate-600 block">Credits</label>
+                                    <Input id="pkg-credits" type="number" {...form.register("credits_amount", { valueAsNumber: true })} placeholder="5000" className={cn(form.formState.errors.credits_amount && "border-red-400")} />
+                                    {form.formState.errors.credits_amount && <p className="text-[10px] text-red-500">{form.formState.errors.credits_amount.message}</p>}
                                 </div>
                             </div>
 
+                            {/* Features */}
                             <div>
                                 <div className="flex items-center justify-between mb-1">
                                     <label className="text-xs font-medium text-slate-600">Features</label>
-                                    <button onClick={addFeature} className="text-xs text-indigo-600 hover:underline">+ Add feature</button>
+                                    <button type="button" onClick={() => append({ value: "" })} className="text-xs text-indigo-600 hover:underline">+ Add feature</button>
                                 </div>
                                 <div className="space-y-2">
-                                    {form.features?.map((ft: any, idx: number) => (
-                                        <div key={idx} className="flex gap-2">
+                                    {fields.map((field, idx) => (
+                                        <div key={field.id} className="flex gap-2">
                                             <Input
                                                 id={`feature-${idx}`}
-                                                name={`feature-${idx}`}
-                                                value={ft}
-                                                onChange={(e: any) => updateFeature(idx, e.target.value)}
+                                                {...form.register(`features.${idx}.value`)}
                                                 placeholder={`Feature ${idx + 1}`}
                                                 className="h-8 text-sm"
                                             />
-                                            <button onClick={() => removeFeature(idx)} className="text-slate-400 hover:text-red-500">
+                                            <button type="button" onClick={() => remove(idx)} className="text-slate-400 hover:text-red-500">
                                                 <X className="h-4 w-4" />
                                             </button>
                                         </div>
                                     ))}
                                 </div>
+                                {form.formState.errors.features && <p className="text-[10px] text-red-500 mt-1">At least one feature is required</p>}
                             </div>
 
+                            {/* Checkboxes */}
                             <div className="flex items-center gap-6 pt-1">
-                                <label htmlFor="package-enabled" className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
-                                    <input id="package-enabled" name="enabled" type="checkbox" checked={form.enabled} onChange={(e: any) => setForm((f: any) => ({ ...f, enabled: e.target.checked }))} className="rounded" />
+                                <label htmlFor="pkg-enabled" className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                                    <input id="pkg-enabled" type="checkbox" {...form.register("enabled")} className="rounded" />
                                     Active
                                 </label>
-                                <label htmlFor="package-popular" className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
-                                    <input id="package-popular" name="popular" type="checkbox" checked={form.popular || false} onChange={(e: any) => setForm((f: any) => ({ ...f, popular: e.target.checked }))} className="rounded" />
+                                <label htmlFor="pkg-popular" className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                                    <input id="pkg-popular" type="checkbox" {...form.register("popular")} className="rounded" />
                                     Mark as Popular
                                 </label>
                             </div>
-                        </div>
 
-                        <div className="flex gap-2 pt-2">
-                            <button onClick={() => setShowModal(false)} className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
-                                Cancel
-                            </button>
-                            <button onClick={saveForm} className="flex-1 py-2 text-sm font-medium rounded-lg bg-[#0f172b] hover:bg-[#0f172b]/90 text-white transition-colors flex items-center justify-center gap-2">
-                                <Check className="h-4 w-4" /> {editingPlan ? "Save Changes" : "Create Package"}
-                            </button>
-                        </div>
+                            {/* Actions */}
+                            <div className="flex gap-2 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowModal(false)}
+                                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={form.formState.isSubmitting}
+                                    className="flex-1 py-2 text-sm font-medium rounded-lg bg-[#0f172b] hover:bg-[#0f172b]/90 text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                                >
+                                    {form.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                                    {form.formState.isSubmitting ? "Saving..." : editingId ? "Save Changes" : "Create Package"}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
@@ -346,11 +432,20 @@ export function PackagesClient({ initialData }: { initialData: any[] }) {
                             Are you sure you want to delete <strong>{plans.find(p => p.id === deleteConfirm)?.name}</strong>? Users will no longer see it.
                         </p>
                         <div className="flex gap-2">
-                            <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+                            <button
+                                onClick={() => setDeleteConfirm(null)}
+                                disabled={isDeleting}
+                                className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-60"
+                            >
                                 Cancel
                             </button>
-                            <button onClick={() => deletePlan(deleteConfirm)} className="flex-1 py-2 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors">
-                                Delete
+                            <button
+                                onClick={() => deletePlan(deleteConfirm)}
+                                disabled={isDeleting}
+                                className="flex-1 py-2 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                            >
+                                {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                                {isDeleting ? "Deleting..." : "Delete"}
                             </button>
                         </div>
                     </div>

@@ -2,7 +2,7 @@
 
 import { useSocket } from "@/hooks/use-socket";
 import { useEffect, useState } from "react";
-import { useCreditStore } from "@/lib/store/credit-state";
+import { useCreditStore } from "@/stores/credit-state";
 import { logger } from "@/lib/logger";
 
 export function AppShell({ children }: { children: React.ReactNode }) {

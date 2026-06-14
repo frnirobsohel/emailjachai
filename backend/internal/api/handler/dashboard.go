@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"ejp-backend/pkg/config"
@@ -15,33 +16,13 @@ import (
 
 // Cache is now managed in internal/config/cache.go to avoid circular dependencies
 
-func DashboardStats(c *gin.Context) {
-	userID, _ := c.Get("userID")
-	uID := userID.(uint)
-
-	// Legacy Parity: 60s Cache
-	if data, ok := config.GetCachedStats(uID); ok {
-		helper.SendSuccess(c, "Dashboard stats retrieved (cached)", data)
-		return
-	}
-
-	// 1. User & Transaction Summary
+func ComputeAndCacheDashboardStats(uID uint) gin.H {
+	var wg sync.WaitGroup
 	var user model.User
-	config.DB.Select("credits").First(&user, userID)
-
 	var transSummary struct {
 		TotalPurchased int64 `gorm:"total_purchased"`
 		TotalRefunds   int64 `gorm:"total_refunds"`
 	}
-	config.DB.Model(&model.Transaction{}).
-		Select(`
-			SUM(CASE WHEN type = 'purchase' AND status = 'completed' THEN credits_added ELSE 0 END) as total_purchased,
-			ABS(SUM(CASE WHEN type = 'refund' AND status = 'completed' THEN credits_added ELSE 0 END)) as total_refunds
-		`).
-		Where("user_id = ?", userID).
-		Scan(&transSummary)
-
-	// 2. Job Statistics Summary
 	var jobSummary struct {
 		TotalVerifications int64 `gorm:"total_verifications"`
 		TotalJobs          int64 `gorm:"total_jobs"`
@@ -55,35 +36,95 @@ func DashboardStats(c *gin.Context) {
 		InvalidSyntaxTotal int64 `gorm:"invalid_syntax_total"`
 		RoleAccountsTotal  int64 `gorm:"role_accounts_total"`
 	}
-
-	// Use 'type' column (mapped from JobType model)
-	config.DB.Model(&model.Job{}).
-		Select(`
-			SUM(processed_count) as total_verifications,
-			COUNT(CASE WHEN type = 'bulk' THEN 1 END) as total_jobs,
-			COUNT(CASE WHEN type = 'bulk' AND status IN ('pending', 'processing') THEN 1 END) as active_jobs,
-			SUM(CASE WHEN DATE(created_at) = CURRENT_DATE THEN processed_count ELSE 0 END) as today_verifications,
-			SUM(deliverable) as deliverable_total,
-			SUM(risky) as risky_total,
-			SUM(undeliverable) as undeliverable_total,
-			SUM(catch_all) as catch_all_total,
-			SUM(disposable) as disposable_total,
-			SUM(invalid_syntax) as invalid_syntax_total,
-			SUM(role_accounts) as role_accounts_total
-		`).
-		Where("user_id = ?", userID).
-		Scan(&jobSummary)
-
-	// 3. Deleted Job Summary
 	var deletedSummary model.DeletedJobStats
-	config.DB.Where("user_id = ?", userID).First(&deletedSummary)
+	var todayDeleted int64
+	type dailyAgg struct {
+		Day    string `gorm:"column:day"`
+		Emails int64  `gorm:"column:emails"`
+		Jobs   int64  `gorm:"column:jobs"`
+	}
+	jobsDaily := make([]dailyAgg, 0, 7)
+	deletedDaily := make([]dailyAgg, 0, 7)
+	var dbToday time.Time
 
+	wg.Add(4)
+
+	// Goroutine 1: User Credits & Transaction Summary
+	go func() {
+		defer wg.Done()
+		config.DB.Select("credits").First(&user, uID)
+		config.DB.Model(&model.Transaction{}).
+			Select(`
+				SUM(CASE WHEN type = 'purchase' AND status = 'completed' THEN credits_added ELSE 0 END) as total_purchased,
+				ABS(SUM(CASE WHEN type = 'refund' AND status = 'completed' THEN credits_added ELSE 0 END)) as total_refunds
+			`).
+			Where("user_id = ?", uID).
+			Scan(&transSummary)
+	}()
+
+	// Goroutine 2: Job Summary & Today's Verifications
+	go func() {
+		defer wg.Done()
+		config.DB.Model(&model.Job{}).
+			Select(`
+				SUM(processed_count) as total_verifications,
+				COUNT(CASE WHEN type = 'bulk' THEN 1 END) as total_jobs,
+				COUNT(CASE WHEN type = 'bulk' AND status IN ('pending', 'processing') THEN 1 END) as active_jobs,
+				SUM(CASE WHEN created_at >= CURRENT_DATE THEN processed_count ELSE 0 END) as today_verifications,
+				SUM(deliverable) as deliverable_total,
+				SUM(risky) as risky_total,
+				SUM(undeliverable) as undeliverable_total,
+				SUM(catch_all) as catch_all_total,
+				SUM(disposable) as disposable_total,
+				SUM(invalid_syntax) as invalid_syntax_total,
+				SUM(role_accounts) as role_accounts_total
+			`).
+			Where("user_id = ?", uID).
+			Scan(&jobSummary)
+	}()
+
+	// Goroutine 3: Deleted Job Summary & Today's Deleted Verifications
+	go func() {
+		defer wg.Done()
+		config.DB.Where("user_id = ?", uID).First(&deletedSummary)
+		config.DB.Raw(`SELECT COALESCE(SUM(emails), 0) FROM deleted_job_daily_stats WHERE user_id = ? AND activity_date = CURRENT_DATE`, uID).Scan(&todayDeleted)
+	}()
+
+	// Goroutine 4: Weekly Activity & DB Time
+	go func() {
+		defer wg.Done()
+		config.DB.Raw("SELECT CURRENT_DATE").Scan(&dbToday)
+		if dbToday.IsZero() {
+			dbToday = time.Now()
+		}
+
+		config.DB.Raw(`
+			SELECT
+				TO_CHAR(created_at, 'YYYY-MM-DD') as day,
+				COALESCE(SUM(processed_count), 0) as emails,
+				COALESCE(COUNT(*), 0) as jobs
+			FROM jobs
+			WHERE user_id = ? AND created_at >= CURRENT_DATE - INTERVAL '6 days'
+			GROUP BY TO_CHAR(created_at, 'YYYY-MM-DD')
+		`, uID).Scan(&jobsDaily)
+
+		config.DB.Raw(`
+			SELECT
+				TO_CHAR(activity_date, 'YYYY-MM-DD') as day,
+				COALESCE(SUM(emails), 0) as emails,
+				COALESCE(SUM(jobs), 0) as jobs
+			FROM deleted_job_daily_stats
+			WHERE user_id = ? AND activity_date >= CURRENT_DATE - INTERVAL '6 days'
+			GROUP BY activity_date
+		`, uID).Scan(&deletedDaily)
+	}()
+
+	// Wait for all database queries to complete in parallel
+	wg.Wait()
+
+	// Post-processing
 	totalVerifications := jobSummary.TotalVerifications + deletedSummary.TotalVerifications
 	totalJobs := jobSummary.TotalJobs + deletedSummary.TotalJobs
-	
-	// Calculate Today's Verifications accurately using DB CURRENT_DATE
-	var todayDeleted int64
-	config.DB.Raw(`SELECT COALESCE(SUM(emails), 0) FROM deleted_job_daily_stats WHERE user_id = ? AND activity_date = CURRENT_DATE`, userID).Scan(&todayDeleted)
 	todayVerifications := jobSummary.TodayVerifications + todayDeleted
 
 	breakdown := gin.H{
@@ -96,7 +137,6 @@ func DashboardStats(c *gin.Context) {
 		"role_accounts":  jobSummary.RoleAccountsTotal + deletedSummary.RoleAccounts,
 	}
 
-	// Usage Breakdown for Pie Chart (Legacy Colors)
 	usageBreakdown := []gin.H{
 		{"name": "Valid", "value": breakdown["deliverable"], "color": "#22c55e"},
 		{"name": "Unknown", "value": breakdown["risky"], "color": "#f59e0b"},
@@ -104,35 +144,6 @@ func DashboardStats(c *gin.Context) {
 		{"name": "Catch-All", "value": breakdown["catch_all"], "color": "#cbd5e1"},
 		{"name": "Disposable", "value": breakdown["disposable"], "color": "#3b82f6"},
 	}
-
-	// 4. Weekly Activity (Last 7 days)
-	type dailyAgg struct {
-		Day    string `gorm:"column:day"`
-		Emails int64  `gorm:"column:emails"`
-		Jobs   int64  `gorm:"column:jobs"`
-	}
-
-	jobsDaily := make([]dailyAgg, 0, 7)
-	config.DB.Raw(`
-		SELECT
-			TO_CHAR(DATE(created_at), 'YYYY-MM-DD') as day,
-			COALESCE(SUM(processed_count), 0) as emails,
-			COALESCE(COUNT(*), 0) as jobs
-		FROM jobs
-		WHERE user_id = ? AND DATE(created_at) >= CURRENT_DATE - INTERVAL '6 days'
-		GROUP BY DATE(created_at)
-	`, userID).Scan(&jobsDaily)
-
-	deletedDaily := make([]dailyAgg, 0, 7)
-	config.DB.Raw(`
-		SELECT
-			TO_CHAR(activity_date, 'YYYY-MM-DD') as day,
-			COALESCE(SUM(emails), 0) as emails,
-			COALESCE(SUM(jobs), 0) as jobs
-		FROM deleted_job_daily_stats
-		WHERE user_id = ? AND activity_date >= CURRENT_DATE - INTERVAL '6 days'
-		GROUP BY activity_date
-	`, userID).Scan(&deletedDaily)
 
 	dailyMap := make(map[string]dailyAgg, 7)
 	for _, row := range jobsDaily {
@@ -144,13 +155,6 @@ func DashboardStats(c *gin.Context) {
 		current.Emails += row.Emails
 		current.Jobs += row.Jobs
 		dailyMap[row.Day] = current
-	}
-
-	// Get DB's current date to ensure timezone alignment
-	var dbToday time.Time
-	config.DB.Raw("SELECT CURRENT_DATE").Scan(&dbToday)
-	if dbToday.IsZero() {
-		dbToday = time.Now()
 	}
 
 	var weeklyActivity []gin.H
@@ -179,14 +183,30 @@ func DashboardStats(c *gin.Context) {
 		"weekly_activity":        weeklyActivity,
 	}
 
-	// Update Cache
-	config.SetCachedStats(uID, finalData, 60*time.Second)
+	// Update Cache with extended TTL (5 minutes) since we proactively refresh it
+	config.SetCachedStats(uID, finalData, 5*time.Minute)
+	return finalData
+}
 
+func DashboardStats(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	uID := userID.(uint)
+
+	// Try fetching from cache
+	if data, ok := config.GetCachedStats(uID); ok {
+		helper.SendSuccess(c, "Dashboard stats retrieved (cached)", data)
+		return
+	}
+
+	// If missing, compute synchronously
+	finalData := ComputeAndCacheDashboardStats(uID)
 	helper.SendSuccess(c, "Dashboard stats retrieved", finalData)
 }
 
 func ClearDashboardCache(userID uint) {
-	config.ClearDashboardCache(userID)
+	// Instead of deleting the cache and forcing the next user request to block,
+	// we update it asynchronously in the background. This provides a <50ms response time guarantee.
+	go ComputeAndCacheDashboardStats(userID)
 }
 
 func DashboardHistory(c *gin.Context) {

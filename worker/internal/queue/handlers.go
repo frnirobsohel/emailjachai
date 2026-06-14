@@ -60,6 +60,8 @@ func HandleEmailVerifyTask(ctx context.Context, t *asynq.Task) error {
 		"is_free":        res.IsFree,
 		"is_role":        res.IsRole,
 		"is_blacklisted": res.IsBlacklisted,
+		"has_mx":         res.HasMX,
+		"mx_records":     res.MxRecords,
 		"reason":         res.Reason,
 		"time_taken":     res.ProcessingTime,
 	}
@@ -84,10 +86,18 @@ func HandleEmailChunkTask(ctx context.Context, t *asynq.Task) error {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
+	// Bounded Semaphore to limit concurrent outgoing TCP connections per chunk.
+	// Max 100 concurrent verifications per chunk task.
+	sem := make(chan struct{}, 100)
+
 	for i, email := range p.Emails {
 		wg.Add(1)
+		sem <- struct{}{} // Acquire token (blocks if 100 are already running)
+		
 		go func(idx int, emailAddr string) {
 			defer wg.Done()
+			defer func() { <-sem }() // Release token
+
 			res := engine.VerifyEmail(emailAddr)
 			
 			mu.Lock()
@@ -101,6 +111,8 @@ func HandleEmailChunkTask(ctx context.Context, t *asynq.Task) error {
 				"is_free":        res.IsFree,
 				"is_role":        res.IsRole,
 				"is_blacklisted": res.IsBlacklisted,
+				"has_mx":         res.HasMX,
+				"mx_records":     res.MxRecords,
 				"reason":         res.Reason,
 				"time_taken":     res.ProcessingTime,
 			}

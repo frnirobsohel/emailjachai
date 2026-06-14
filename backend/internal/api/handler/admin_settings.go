@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"ejp-backend/pkg/config"
-	"ejp-backend/internal/model"
 	"ejp-backend/internal/helper"
 
 	"github.com/gin-gonic/gin"
@@ -16,8 +15,8 @@ import (
 
 // GetSettings fetches all settings
 func (h *AdminHandler) GetSettings(c *gin.Context) {
-	var settings []model.Setting
-	if err := config.DB.Find(&settings).Error; err != nil {
+	settings, err := h.settingsService.GetAllSettings()
+	if err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch settings", err.Error())
 		return
 	}
@@ -92,6 +91,7 @@ func (h *AdminHandler) UpdateSettings(c *gin.Context) {
 		return
 	}
 
+	logAction(adminID.(uint), "INFO", "Admin", "System settings updated")
 	config.ClearPublicSettingsCache()
 	helper.SendSuccess(c, "Settings updated successfully", nil)
 }
@@ -119,8 +119,8 @@ func (h *AdminHandler) GetPublicSettings(c *gin.Context) {
 		"paypal_enabled",
 	}
 
-	var settings []model.Setting
-	if err := config.DB.Where("setting_key IN ?", publicKeys).Find(&settings).Error; err != nil {
+	settings, err := h.settingsService.GetSettingsByKeys(publicKeys)
+	if err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to load public settings", "")
 		return
 	}

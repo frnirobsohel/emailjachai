@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
-	"ejp-backend/pkg/config"
+	"ejp-backend/internal/helper"
 
 	"gorm.io/gorm"
 )
@@ -31,7 +31,7 @@ func (s *resellerService) TransferCredits(resellerID uint, recipientEmail string
 		return errors.New("transfer amount must be greater than zero")
 	}
 
-	return config.DB.Transaction(func(tx *gorm.DB) error {
+	return s.txRepo.DB().Transaction(func(tx *gorm.DB) error {
 		// 1. Get Reseller (Sender)
 		var reseller model.User
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&reseller, resellerID).Error; err != nil {
@@ -69,12 +69,14 @@ func (s *resellerService) TransferCredits(resellerID uint, recipientEmail string
 		// 5. Log Transactions (Legacy Parity)
 		// Outbound (Reseller)
 		txOut := &model.Transaction{
-			UserID:       resellerID,
-			Amount:       0,
-			CreditsAdded: -amount,
-			Type:         "transfer_out",
-			Status:       "completed",
-			Description:  fmt.Sprintf("Transferred %d credits to %s", amount, recipientEmail),
+			UserID:        resellerID,
+			TransactionID: "TRF_OUT_" + helper.GenerateRandomHex(10),
+			Amount:        0,
+			CreditsAdded:  -amount,
+			Type:          "transfer_out",
+			Status:        "completed",
+			Provider:      "system",
+			Description:   fmt.Sprintf("Transferred %d credits to %s", amount, recipientEmail),
 		}
 		if err := tx.Create(txOut).Error; err != nil {
 			return err
@@ -82,12 +84,14 @@ func (s *resellerService) TransferCredits(resellerID uint, recipientEmail string
 
 		// Inbound (Recipient)
 		txIn := &model.Transaction{
-			UserID:       recipient.ID,
-			Amount:       0,
-			CreditsAdded: amount,
-			Type:         "transfer_in",
-			Status:       "completed",
-			Description:  fmt.Sprintf("Received %d credits from %s", amount, reseller.Email),
+			UserID:        recipient.ID,
+			TransactionID: "TRF_IN_" + helper.GenerateRandomHex(10),
+			Amount:        0,
+			CreditsAdded:  amount,
+			Type:          "transfer_in",
+			Status:        "completed",
+			Provider:      "system",
+			Description:   fmt.Sprintf("Received %d credits from %s", amount, reseller.Email),
 		}
 		if err := tx.Create(txIn).Error; err != nil {
 			return err

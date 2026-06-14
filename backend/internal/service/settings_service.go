@@ -9,6 +9,7 @@ import (
 
 type SettingsService interface {
 	GetAllSettings() ([]model.Setting, error)
+	GetSettingsByKeys(keys []string) ([]model.Setting, error)
 	UpdateSettings(updates map[string]string, adminID uint) error
 }
 
@@ -23,6 +24,10 @@ func NewSettingsService(repo repo.SettingsRepo, logRepo repo.LogRepo) SettingsSe
 
 func (s *settingsService) GetAllSettings() ([]model.Setting, error) {
 	return s.repo.GetAll()
+}
+
+func (s *settingsService) GetSettingsByKeys(keys []string) ([]model.Setting, error) {
+	return s.repo.GetByKeys(keys)
 }
 
 func (s *settingsService) UpdateSettings(updates map[string]string, adminID uint) error {

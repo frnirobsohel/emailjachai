@@ -1,10 +1,10 @@
-import { WeeklyActivityChart } from "@/app/(dashboard)/_components/weekly-activity-chart"
-import { LifetimeUsageChart } from "@/app/(dashboard)/_components/lifetime-usage-chart"
-import { RecentActivity } from "@/app/(dashboard)/_components/recent-activity"
-import { QuickActions } from "@/app/(dashboard)/_components/quick-actions"
-import { StatsCards } from "@/app/(dashboard)/_components/stats-cards"
+import { WeeklyActivityChart } from "@/features/dashboard/components/weekly-activity-chart"
+import { LifetimeUsageChart } from "@/features/dashboard/components/lifetime-usage-chart"
+import { RecentActivity } from "@/features/dashboard/components/recent-activity"
+import { QuickActions } from "@/features/dashboard/components/quick-actions"
+import { StatsCards } from "@/features/dashboard/components/stats-cards"
 import { fetchServer } from "@/lib/fetch-server"
-import type { DashboardStats } from "@/lib/store/dashboard-store"
+import type { DashboardStats } from "@/stores/dashboard-store"
 
 const EMPTY_STATS: DashboardStats = {
     credits_remaining: "0",

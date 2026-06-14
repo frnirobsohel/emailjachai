@@ -33,8 +33,8 @@ type JobService interface {
 	GetJobs(userID uint, jobType string, limit, offset int) ([]model.Job, int64, error)
 	GetJobStatus(userID uint, jobID string) (*model.Job, *model.JobResult, error)
 	DeleteJob(userID uint, jobID string) error
-	VerifySingle(userID uint, email string) (*model.Job, *model.JobResult, error)
-	SubmitBulkJob(userID uint, filename string, emails []string, idempotencyKey string) (*model.Job, []model.JobTask, error)
+	VerifySingle(userID uint, email string, apiKeyID *uint) (*model.Job, *model.JobResult, error)
+	SubmitBulkJob(userID uint, filename string, emails []string, idempotencyKey string, apiKeyID *uint) (*model.Job, []model.JobTask, error)
 	RefundJob(userID uint, jobID string, credits int, reason string) error
 	CountActiveJobs(userID uint) (int64, error)
 	GetMaxEmailsPerJobLimit() int
@@ -106,7 +106,7 @@ func (s *jobService) DeleteJob(userID uint, jobID string) error {
 }
 
 
-func (s *jobService) VerifySingle(userID uint, email string) (*model.Job, *model.JobResult, error) {
+func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*model.Job, *model.JobResult, error) {
 	// 1. Get user
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
@@ -114,7 +114,7 @@ func (s *jobService) VerifySingle(userID uint, email string) (*model.Job, *model
 	}
 
 	// 2. Atomic credit deduction BEFORE expensive verification (Prevents Resource Exhaustion / DoS)
-	err = config.DB.Transaction(func(tx *gorm.DB) error {
+	err = s.jobRepo.DB().Transaction(func(tx *gorm.DB) error {
 		// Atomic credit deduction
 		creditResult := tx.Model(&model.User{}).
 			Where("id = ? AND credits >= ?", user.ID, 1).
@@ -163,6 +163,7 @@ func (s *jobService) VerifySingle(userID uint, email string) (*model.Job, *model
 				SyntaxValid:    hit.IsSyntaxValid,
 				SMTPConnect:    hit.SmtpConnect,
 				HasMX:          hit.HasMx,
+				MxRecords:      hit.MxRecords,
 				IsFree:         hit.IsFree,
 				IsRole:         hit.IsRole,
 				IsSpamTrap:     hit.IsSpamTrap,
@@ -188,6 +189,7 @@ func (s *jobService) VerifySingle(userID uint, email string) (*model.Job, *model
 				IsFree:         r.IsFree,
 				IsRole:         r.IsRole,
 				HasMx:          r.HasMX,
+				MxRecords:      r.MxRecords,
 				SmtpConnect:    r.SMTPConnect,
 				UserExists:     r.Deliverable,
 				IsSyntaxValid:  r.SyntaxValid,
@@ -206,7 +208,7 @@ func (s *jobService) VerifySingle(userID uint, email string) (*model.Job, *model
 	var job *model.Job
 	var resultRecord *model.JobResult
 
-	err = config.DB.Transaction(func(tx *gorm.DB) error {
+	err = s.jobRepo.DB().Transaction(func(tx *gorm.DB) error {
 		// Create Job for tracking
 		jobID := "single_" + helper.GenerateRandomHex(5)
 		job = &model.Job{
@@ -218,6 +220,7 @@ func (s *jobService) VerifySingle(userID uint, email string) (*model.Job, *model
 			JobType:        "single",
 			TotalEmails:    1,
 			ProcessedCount: 1,
+			APIKeyID:       apiKeyID,
 		}
 
 		switch res.Status {
@@ -253,6 +256,7 @@ func (s *jobService) VerifySingle(userID uint, email string) (*model.Job, *model
 			IsBlacklisted:  res.IsBlacklisted,
 			ProcessingTime: res.ProcessingTime,
 			Reason:         res.Reason,
+			MxRecords:      res.MxRecords,
 		}
 		return tx.Create(resultRecord).Error
 	})
@@ -331,7 +335,7 @@ func (e *IdempotencyError) Error() string {
 	return "job already submitted (idempotent)"
 }
 
-func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string, idempotencyKey string) (*model.Job, []model.JobTask, error) {
+func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string, idempotencyKey string, apiKeyID *uint) (*model.Job, []model.JobTask, error) {
 	// Deduplicate
 	uniqueEmails := make([]string, 0)
 	seen := make(map[string]bool)
@@ -440,7 +444,7 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 		taskRecords = append(taskRecords, taskRecord)
 	}
 
-	job, savedTasks, err := s.jobRepo.CreateBulkJob(userID, legacyJobID, filename, totalEmails, invalidSyntax, queuedCount, taskRecords)
+	job, savedTasks, err := s.jobRepo.CreateBulkJob(userID, legacyJobID, filename, totalEmails, invalidSyntax, queuedCount, taskRecords, apiKeyID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -632,6 +636,7 @@ func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID u
 			IsFree:         hit.IsFree,
 			IsRole:         hit.IsRole,
 			HasMx:          hit.HasMx,
+			MxRecords:      hit.MxRecords,
 			SmtpConnect:    hit.SmtpConnect,
 			UserExists:     hit.UserExists,
 			IsCatchAll:     hit.IsCatchAll,
@@ -646,7 +651,7 @@ func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID u
 
 	processedCount := len(hits)
 
-	err := config.DB.Transaction(func(tx *gorm.DB) error {
+	err := s.jobRepo.DB().Transaction(func(tx *gorm.DB) error {
 		if err := tx.CreateInBatches(&newRows, 500).Error; err != nil {
 			return err
 		}
@@ -722,7 +727,7 @@ func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID u
 	}()
 
 	var updatedJob model.Job
-	if err := config.DB.Where("job_id = ?", jobID).First(&updatedJob).Error; err == nil {
+	if err := s.jobRepo.DB().Where("job_id = ?", jobID).First(&updatedJob).Error; err == nil {
 		ws.GlobalHub.Broadcast <- ws.Message{
 			UserID: updatedJob.UserID,
 			JobID:  updatedJob.JobID,

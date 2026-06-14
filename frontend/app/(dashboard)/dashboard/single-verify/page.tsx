@@ -1,4 +1,4 @@
-import { SingleVerifyClient } from "./single-verify-client"
+import { SingleVerifyClient } from "@/features/single-verify/components/single-verify-client"
 
 export default function SingleVerifyPage() {
     return <SingleVerifyClient />

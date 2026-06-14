@@ -6,8 +6,7 @@ import (
 	"strings"
 
 	"ejp-backend/internal/helper"
-	"ejp-backend/internal/model"
-	"ejp-backend/pkg/config"
+	"ejp-backend/internal/repo"
 	"ejp-backend/pkg/logger"
 
 	"gopkg.in/gomail.v2"
@@ -17,15 +16,17 @@ type EmailService interface {
 	SendTemplateEmail(to string, templateKey string, placeholders map[string]string) error
 }
 
-type emailService struct{}
+type emailService struct {
+	systemRepo repo.SystemRepo
+}
 
-func NewEmailService() EmailService {
-	return &emailService{}
+func NewEmailService(systemRepo repo.SystemRepo) EmailService {
+	return &emailService{systemRepo: systemRepo}
 }
 
 func (s *emailService) SendTemplateEmail(to string, templateKey string, placeholders map[string]string) error {
-	var smtpConfig model.SmtpConfig
-	if err := config.DB.First(&smtpConfig).Error; err != nil {
+	smtpConfig, err := s.systemRepo.GetSmtpSettings()
+	if err != nil {
 		logger.Warn("Failed to load SMTP config, skipping email", "error", err)
 		return nil
 	}
@@ -40,8 +41,8 @@ func (s *emailService) SendTemplateEmail(to string, templateKey string, placehol
 		return nil
 	}
 
-	var emailTpl model.EmailTemplate
-	if err := config.DB.Where("template_name = ?", templateKey).First(&emailTpl).Error; err != nil {
+	emailTpl, err := s.systemRepo.GetTemplate(templateKey)
+	if err != nil {
 		logger.Warn("Failed to load email template", "template", templateKey, "error", err)
 		return nil
 	}

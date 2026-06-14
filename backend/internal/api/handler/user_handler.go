@@ -47,11 +47,21 @@ func (h *UserHandler) DashboardStats(c *gin.Context) {
 	}
 
 	// Fetch jobs for stats
+	// Fetch jobs for stats
 	jobs, _, _ := h.jobService.GetJobs(userID, "", 10000, 0)
 	totalJobs := len(jobs)
 	activeJobs := 0
 	lifetimeVerifications := 0
 	todayVerifications := 0
+	apiVerifications := 0
+
+	// Get user's legitimate API keys (not Login/Impersonation keys)
+	var validAPIKeyIDs []uint
+	config.DB.Table("api_keys").Where("user_id = ? AND name NOT IN ('Login Key', 'Impersonation Key')", userID).Pluck("id", &validAPIKeyIDs)
+	apiKeySet := make(map[uint]bool)
+	for _, id := range validAPIKeyIDs {
+		apiKeySet[id] = true
+	}
 
 	var deliverable, risky, undeliverable, catchAll, disposable, invalid int
 
@@ -73,6 +83,11 @@ func (h *UserHandler) DashboardStats(c *gin.Context) {
 			activeJobs++
 		}
 		lifetimeVerifications += j.TotalEmails
+
+		if j.APIKeyID != nil && apiKeySet[*j.APIKeyID] {
+			apiVerifications += j.TotalEmails
+		}
+
 		deliverable += j.Deliverable
 		risky += j.Risky
 		undeliverable += j.Undeliverable
@@ -122,6 +137,7 @@ func (h *UserHandler) DashboardStats(c *gin.Context) {
 		"total_refunds":          helper.FormatNumber(totalRefunds),
 		"today_verifications":    helper.FormatNumber(int64(todayVerifications)),
 		"lifetime_verifications": helper.FormatNumber(int64(lifetimeVerifications)),
+		"api_verifications":      helper.FormatNumber(int64(apiVerifications)),
 		"total_jobs":             totalJobs,
 		"active_jobs":            activeJobs,
 		"weekly_activity":        weeklyActivity,
@@ -139,7 +155,11 @@ func (h *UserHandler) DashboardHistory(c *gin.Context) {
 	limit := 10
 	if limitStr := c.Query("limit"); limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
-			limit = parsedLimit
+			if parsedLimit > 100 {
+				limit = 100 // Hard cap to prevent DoS via massive payload request
+			} else {
+				limit = parsedLimit
+			}
 		}
 	}
 

@@ -6,6 +6,18 @@ import { Trash2, Search, Terminal, Circle, Loader2, RefreshCcw, Filter, Activity
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ApiClient } from "@/lib/api-client"
+import { toast } from "react-hot-toast"
+
+export type LogEntry = {
+    id?: number
+    user_id?: number | null
+    level: "INFO" | "WARN" | "ERROR" | string
+    source: string
+    message: string
+    ip?: string | null
+    created_at?: string
+    time?: string
+}
 
 const PAGE_SIZE = 50
 
@@ -28,8 +40,8 @@ const sourceColor = (source: string) => {
     return "text-sky-400"
 }
 
-export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { initialLogs: any[], initialTotal: number, initialHasMore: boolean }) {
-    const [logs, setLogs] = useState<any[]>(initialLogs)
+export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { initialLogs: LogEntry[], initialTotal: number, initialHasMore: boolean }) {
+    const [logs, setLogs] = useState<LogEntry[]>(initialLogs)
     const [total, setTotal] = useState(initialTotal)
     const [hasMore, setHasMore] = useState(initialHasMore)
     const [offset, setOffset] = useState(initialLogs.length)
@@ -37,6 +49,8 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
     const [isInitial, setIsInitial] = useState(false)
     const [searchTerm, setSearchTerm] = useState("")
     const [levelFilter, setLevelFilter] = useState<string | null>(null)
+    const [confirmingClear, setConfirmingClear] = useState(false)
+    const clearTimerRef = useRef<NodeJS.Timeout | null>(null)
 
     const sentinelRef = useRef<HTMLDivElement>(null)
 
@@ -44,7 +58,7 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
         if (isLoading) return
         setIsLoading(true)
         try {
-            const result = await ApiClient.get<any>(`/admin/logs/list?limit=${PAGE_SIZE}&offset=${currentOffset}`);
+            const result = await ApiClient.get<{ logs: LogEntry[], total: number, has_more: boolean }>(`/admin/logs/list?limit=${PAGE_SIZE}&offset=${currentOffset}`);
 
             if (result.status === 'success' && result.data) {
                 const newLogs = result.data.logs || [];
@@ -54,6 +68,7 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
                 setOffset(currentOffset + newLogs.length);
             }
         } catch (error) {
+            toast.error("Failed to load log entries");
             console.error("Failed to fetch logs:", error);
         } finally {
             setIsLoading(false);
@@ -87,8 +102,22 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
         loadPage(0)
     }
 
-    const handleClearLogs = async () => {
-        if (!window.confirm("Are you sure you want to permanently clear all log history?")) return;
+    const handleClearLogsClick = () => {
+        if (!confirmingClear) {
+            setConfirmingClear(true);
+            if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+            clearTimerRef.current = setTimeout(() => {
+                setConfirmingClear(false);
+            }, 3000);
+            return;
+        }
+
+        doClearLogs();
+    }
+
+    const doClearLogs = async () => {
+        if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+        setConfirmingClear(false);
 
         try {
             const result = await ApiClient.delete('/admin/logs/clear');
@@ -98,14 +127,21 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
                 setTotal(0);
                 setHasMore(false);
                 setOffset(0);
+                toast.success("Activity logs cleared successfully");
             } else {
-                alert("Failed to clear logs: " + result.message);
+                toast.error(result.message || "Failed to clear logs");
             }
-        } catch (error) {
+        } catch (error: any) {
+            toast.error(error.message || "An error occurred while clearing logs.");
             console.error("Failed to clear logs:", error);
-            alert("An error occurred while clearing logs.");
         }
     }
+
+    useEffect(() => {
+        return () => {
+            if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+        }
+    }, []);
 
     const filtered = logs.filter(log => {
         const matchSearch =
@@ -137,10 +173,10 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
                         Refresh
                     </Button>
                     <Button 
-                        className="bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-100 transition-all active:scale-95" 
-                        onClick={handleClearLogs}
+                        className={`text-white shadow-md transition-all active:scale-95 ${confirmingClear ? 'bg-red-600 hover:bg-red-700 shadow-red-100' : 'bg-rose-600 hover:bg-rose-700 shadow-rose-100'}`} 
+                        onClick={handleClearLogsClick}
                     >
-                        <Trash2 className="mr-2 h-4 w-4" /> Clear Logs
+                        <Trash2 className="mr-2 h-4 w-4" /> {confirmingClear ? "Confirm Clear" : "Clear Logs"}
                     </Button>
                 </div>
             </div>

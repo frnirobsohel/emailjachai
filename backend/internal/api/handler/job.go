@@ -28,7 +28,11 @@ func (h *JobHandler) GetJobs(c *gin.Context) {
 	limit := 100
 	if limitStr := c.Query("limit"); limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
-			limit = parsedLimit
+			if parsedLimit > 100 {
+				limit = 100 // Hard cap to prevent DoS via massive payload request
+			} else {
+				limit = parsedLimit
+			}
 		}
 	}
 
@@ -76,7 +80,14 @@ func (h *JobHandler) SubmitSingleVerify(c *gin.Context) {
 		return
 	}
 
-	job, result, err := h.jobService.VerifySingle(userID.(uint), req.Email)
+	var apiKeyID *uint
+	if kID, exists := c.Get("apiKeyID"); exists {
+		if id, ok := kID.(uint); ok {
+			apiKeyID = &id
+		}
+	}
+
+	job, result, err := h.jobService.VerifySingle(userID.(uint), req.Email, apiKeyID)
 	if err != nil {
 		// Return 402 for insufficient credits (matches legacy PHP parity)
 		if err.Error() == "insufficient credits" {

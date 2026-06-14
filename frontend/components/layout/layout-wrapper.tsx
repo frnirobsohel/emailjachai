@@ -1,6 +1,6 @@
 "use client"
 
-import { useUIStore } from "@/lib/store/ui-state"
+import { useUIStore } from "@/stores/ui-state"
 import { cn } from "@/lib/utils"
 
 export function LayoutWrapper({ children, sidebar }: { children: React.ReactNode, sidebar: React.ReactNode }) {

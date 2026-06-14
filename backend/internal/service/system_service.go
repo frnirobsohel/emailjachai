@@ -3,12 +3,9 @@ package service
 import (
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
-	"ejp-backend/pkg/config"
+	"ejp-backend/internal/repo"
 	"errors"
 	"strings"
-
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 type SystemService interface {
@@ -21,10 +18,12 @@ type SystemService interface {
 	SaveTemplate(template *model.EmailTemplate) error
 }
 
-type systemService struct{}
+type systemService struct{
+	systemRepo repo.SystemRepo
+}
 
-func NewSystemService() SystemService {
-	return &systemService{}
+func NewSystemService(systemRepo repo.SystemRepo) SystemService {
+	return &systemService{systemRepo: systemRepo}
 }
 
 func (s *systemService) GetStatus() (interface{}, error) {
@@ -40,21 +39,12 @@ func (s *systemService) CreateBackup() error {
 }
 
 func (s *systemService) GetSmtpSettings() (*model.SmtpConfig, error) {
-	var cfg model.SmtpConfig
-	err := config.DB.First(&cfg).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return &model.SmtpConfig{}, nil
-		}
-		return nil, err
-	}
-	return &cfg, nil
+	return s.systemRepo.GetSmtpSettings()
 }
 
 func (s *systemService) SaveSmtpSettings(inputCfg *model.SmtpConfig, passwordInput string, shouldPreservePassword bool) error {
-	var cfg model.SmtpConfig
-	err := config.DB.First(&cfg).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
+	cfg, err := s.systemRepo.GetSmtpSettings()
+	if err != nil {
 		return err
 	}
 
@@ -69,33 +59,21 @@ func (s *systemService) SaveSmtpSettings(inputCfg *model.SmtpConfig, passwordInp
 
 	inputCfg.Password = finalPassword
 
-	if err == gorm.ErrRecordNotFound {
-		if err := config.DB.Create(inputCfg).Error; err != nil {
-			return err
-		}
-	} else {
-		inputCfg.ID = cfg.ID
-		if err := config.DB.Save(inputCfg).Error; err != nil {
-			return err
-		}
+	if cfg.ID == 0 {
+		return s.systemRepo.CreateSmtpSettings(inputCfg)
 	}
-	return nil
+
+	inputCfg.ID = cfg.ID
+	return s.systemRepo.UpdateSmtpSettings(inputCfg)
 }
 
 func (s *systemService) GetTemplates() ([]model.EmailTemplate, error) {
-	var templates []model.EmailTemplate
-	if err := config.DB.Find(&templates).Error; err != nil {
-		return nil, err
-	}
-	return templates, nil
+	return s.systemRepo.GetTemplates()
 }
 
 func (s *systemService) SaveTemplate(template *model.EmailTemplate) error {
 	if strings.TrimSpace(template.TemplateName) == "" {
 		return errors.New("template name is required")
 	}
-	return config.DB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "template_name"}},
-		DoUpdates: clause.AssignmentColumns([]string{"subject", "body", "is_active", "updated_at"}),
-	}).Create(template).Error
+	return s.systemRepo.SaveTemplate(template)
 }

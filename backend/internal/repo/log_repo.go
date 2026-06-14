@@ -3,6 +3,7 @@ package repo
 import (
 	"ejp-backend/internal/model"
 	"ejp-backend/pkg/config"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -11,6 +12,8 @@ type LogRepo interface {
 	Create(log *model.ActivityLog) error
 	List(limit, offset int) ([]model.ActivityLog, int64, error)
 	Clear() error
+	CountFailedLogins(ip, email string, since time.Time) (int64, error)
+	DB() *gorm.DB
 }
 
 type logRepo struct {
@@ -19,6 +22,18 @@ type logRepo struct {
 
 func NewLogRepo() LogRepo {
 	return &logRepo{db: config.DB}
+}
+
+func (r *logRepo) DB() *gorm.DB {
+	return r.db
+}
+
+func (r *logRepo) CountFailedLogins(ip, email string, since time.Time) (int64, error) {
+	var failedCount int64
+	err := r.db.Model(&model.ActivityLog{}).
+		Where("source = 'Auth' AND event = 'Login Failed' AND (ip = ? OR identifier = ?) AND created_at >= ?", ip, email, since).
+		Count(&failedCount).Error
+	return failedCount, err
 }
 
 func (r *logRepo) Create(log *model.ActivityLog) error {

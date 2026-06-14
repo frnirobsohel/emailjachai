@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Button } from "@/components/common/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ArrowLeft, Download, Trash2, Loader2 } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
 

@@ -1,11 +1,15 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/common/card"
-import { Button } from "@/components/common/button"
-import { Input } from "@/components/common/input"
-import { Label } from "@/components/common/label"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { ApiClient } from "@/lib/api-client"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
+import { toast } from "react-hot-toast"
 import {
     Save,
     Settings2,
@@ -25,16 +29,26 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
+const settingsSchema = z.object({
+    chunk_size: z.string().min(1, "Required").regex(/^\d+$/, "Must be a number"),
+    task_timeout: z.string().min(1, "Required").regex(/^\d+$/, "Must be a number"),
+    max_emails_per_job: z.string().min(1, "Required").regex(/^\d+$/, "Must be a number"),
+    max_active_jobs_per_user: z.string().min(1, "Required").regex(/^\d+$/, "Must be a number")
+})
+
 export function JobControlClient({ initialSettings, initialStats }: { initialSettings: Record<string, string>, initialStats: any }) {
-    const [settings, setSettings] = useState({
-        chunk_size: initialSettings.chunk_size || "1000",
-        task_timeout: initialSettings.task_timeout || "60",
-        max_emails_per_job: initialSettings.max_emails_per_job || "100000",
-        max_active_jobs_per_user: initialSettings.max_active_jobs_per_user || "0"
+    const settingsForm = useForm<z.infer<typeof settingsSchema>>({
+        resolver: zodResolver(settingsSchema),
+        defaultValues: {
+            chunk_size: initialSettings.chunk_size || "1000",
+            task_timeout: initialSettings.task_timeout || "60",
+            max_emails_per_job: initialSettings.max_emails_per_job || "100000",
+            max_active_jobs_per_user: initialSettings.max_active_jobs_per_user || "0"
+        }
     })
+
     const [stats, setStats] = useState<any>(initialStats)
     const [isLoading, setIsLoading] = useState(false)
-    const [isSaving, setIsSaving] = useState(false)
     const [isSaved, setIsSaved] = useState(false)
     const [isCleaning, setIsCleaning] = useState(false)
     const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date())
@@ -59,7 +73,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                     mappedSettings[s.setting_key] = s.setting_value;
                 });
 
-                setSettings({
+                settingsForm.reset({
                     chunk_size: mappedSettings.chunk_size || "1000",
                     task_timeout: mappedSettings.task_timeout || "60",
                     max_emails_per_job: mappedSettings.max_emails_per_job || "100000",
@@ -76,35 +90,28 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [settingsForm]);
 
     useEffect(() => {
         // fetchData(); // Handled by SSR initialData
     }, [fetchData]);
 
-    const handleSave = async () => {
-        setIsSaving(true);
+    const onSaveSettings = async (values: z.infer<typeof settingsSchema>) => {
         setIsSaved(false);
         try {
             const result = await ApiClient.post('/admin/settings/update', {
-                settings: {
-                    chunk_size: settings.chunk_size,
-                    task_timeout: settings.task_timeout,
-                    max_emails_per_job: settings.max_emails_per_job,
-                    max_active_jobs_per_user: settings.max_active_jobs_per_user
-                }
+                settings: values
             });
             if (result.status === 'success') {
                 setIsSaved(true);
                 setTimeout(() => setIsSaved(false), 2000);
+                toast.success("Settings updated successfully");
                 fetchData();
             } else {
-                alert("Failed to save settings: " + result.message);
+                toast.error(result.message || "Failed to save settings");
             }
-        } catch (error) {
-            console.error("Error saving settings:", error);
-        } finally {
-            setIsSaving(false);
+        } catch (error: any) {
+            toast.error(error.message || "Error saving settings");
         }
     };
 
@@ -117,14 +124,14 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
             if (result.status === 'success') {
                 setDeletedCount(result.data?.deleted_count || 0);
                 setCleanupStep('success');
+                toast.success("Cleanup completed successfully");
                 fetchData();
             } else {
-                alert("Cleanup failed: " + result.message);
+                toast.error(result.message || "Cleanup failed");
                 setShowCleanupModal(false);
             }
-        } catch (error) {
-            console.error("Cleanup error:", error);
-            alert("An error occurred during cleanup.");
+        } catch (error: any) {
+            toast.error(error.message || "An error occurred during cleanup");
             setShowCleanupModal(false);
         } finally {
             setIsCleaning(false);
@@ -167,7 +174,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                     <h2 className="text-2xl font-bold tracking-tight text-slate-900">Job Control & Verification Management</h2>
                     <p className="text-slate-500 text-sm flex items-center gap-2">
                         System health and data management controls.
-                        <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-2">
+                        <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-2" suppressHydrationWarning>
                             Last Refreshed: {lastRefreshed.toLocaleTimeString()}
                         </span>
                     </p>
@@ -187,15 +194,15 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
                     title="Total Emails Verified"
-                    value={parseInt(overview.processed_emails).toLocaleString()}
-                    subvalue={`${parseInt(overview.total_emails).toLocaleString()} requested`}
+                    value={parseInt(overview.processed_emails || "0").toLocaleString()}
+                    subvalue={`${parseInt(overview.total_emails || "0").toLocaleString()} requested`}
                     icon={ShieldCheck}
                     color="text-emerald-600"
                     bg="bg-emerald-50"
                 />
                 <StatCard
                     title="Total Jobs"
-                    value={overview.total_jobs}
+                    value={overview.total_jobs || 0}
                     subvalue="Across all users"
                     icon={Layers}
                     color="text-indigo-600"
@@ -203,16 +210,16 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 />
                 <StatCard
                     title="Processed Today"
-                    value={parseInt(overview.processed_today).toLocaleString()}
-                    subvalue={`${overview.jobs_today} jobs submitted`}
+                    value={parseInt(overview.processed_today || "0").toLocaleString()}
+                    subvalue={`${overview.jobs_today || 0} jobs submitted`}
                     icon={Calendar}
                     color="text-amber-600"
                     bg="bg-amber-50"
                 />
                 <StatCard
                     title="Last 30 Days"
-                    value={parseInt(overview.processed_30d).toLocaleString()}
-                    subvalue={`${overview.jobs_30d} jobs completed`}
+                    value={parseInt(overview.processed_30d || "0").toLocaleString()}
+                    subvalue={`${overview.jobs_30d || 0} jobs completed`}
                     icon={Clock}
                     color="text-blue-600"
                     bg="bg-blue-50"
@@ -228,87 +235,85 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                         </CardTitle>
                         <CardDescription>Adjust how large lists are split and handled.</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-5 pt-6">
-                        <div className="space-y-1.5">
-                            <Label htmlFor="chunk_size" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Chunk Size</Label>
-                            <Input
-                                id="chunk_size"
-                                name="chunk_size"
-                                type="number"
-                                value={settings.chunk_size}
-                                onChange={(e) => setSettings({ ...settings, chunk_size: e.target.value })}
-                                className="h-9 focus-visible:ring-indigo-500 text-sm"
-                            />
-                            <p className="text-[11px] text-slate-500 leading-relaxed italic">Emails per task. Smaller means better distribution, larger means less overhead.</p>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <form onSubmit={settingsForm.handleSubmit(onSaveSettings)}>
+                        <CardContent className="space-y-5 pt-6">
                             <div className="space-y-1.5">
-                                <Label htmlFor="task_timeout" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Timeout (Min)</Label>
+                                <Label htmlFor="chunk_size" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Chunk Size</Label>
                                 <Input
-                                    id="task_timeout"
-                                    name="task_timeout"
+                                    id="chunk_size"
                                     type="number"
-                                    value={settings.task_timeout}
-                                    onChange={(e) => setSettings({ ...settings, task_timeout: e.target.value })}
-                                    className="h-9 focus-visible:ring-indigo-500 text-sm"
+                                    className={`h-9 focus-visible:ring-indigo-500 text-sm ${settingsForm.formState.errors.chunk_size ? 'border-red-400' : ''}`}
+                                    {...settingsForm.register("chunk_size")}
                                 />
+                                {settingsForm.formState.errors.chunk_size && <p className="text-xs text-red-500">{settingsForm.formState.errors.chunk_size.message}</p>}
+                                <p className="text-[11px] text-slate-500 leading-relaxed italic">Emails per task. Smaller means better distribution, larger means less overhead.</p>
                             </div>
-                            <div className="space-y-1.5">
-                                <Label htmlFor="max_emails" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Max Per Job</Label>
-                                <Input
-                                    id="max_emails"
-                                    name="max_emails"
-                                    type="number"
-                                    value={settings.max_emails_per_job}
-                                    onChange={(e) => setSettings({ ...settings, max_emails_per_job: e.target.value })}
-                                    className="h-9 focus-visible:ring-indigo-500 text-sm"
-                                />
-                            </div>
-                        </div>
 
-                        <div className="space-y-1.5">
-                            <Label htmlFor="max_active" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Max Active Jobs Per User</Label>
-                            <Input
-                                id="max_active"
-                                name="max_active"
-                                type="number"
-                                value={settings.max_active_jobs_per_user}
-                                onChange={(e) => setSettings({ ...settings, max_active_jobs_per_user: e.target.value })}
-                                className="h-9 focus-visible:ring-indigo-500 text-sm"
-                            />
-                            <p className="text-[11px] text-slate-500 italic">Limit concurrent jobs to prevent resource hogging (0 = infinite).</p>
-                        </div>
-                    </CardContent>
-                    <CardFooter className="bg-slate-50/50 border-t border-slate-100 p-4">
-                        <Button
-                            onClick={handleSave}
-                            disabled={isSaving || isSaved}
-                            className={cn(
-                                "shadow-md transition-all active:scale-[0.98] h-9 w-full sm:min-w-[180px]",
-                                isSaved 
-                                    ? "bg-emerald-600 hover:bg-emerald-700 text-white" 
-                                    : "bg-indigo-600 hover:bg-indigo-700 text-white"
-                            )}
-                        >
-                            {isSaving ? (
-                                <>
-                                    <RefreshCcw className="mr-2 h-4 w-4 animate-spin" />
-                                    Saving...
-                                </>
-                            ) : isSaved ? (
-                                <>
-                                    <CheckCircle2 className="mr-2 h-4 w-4" />
-                                    Configuration Saved!
-                                </>
-                            ) : (
-                                <>
-                                    <Save className="mr-2 h-4 w-4" />
-                                    Apply Configuration
-                                </>
-                            )}
-                        </Button>
-                    </CardFooter>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="task_timeout" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Timeout (Min)</Label>
+                                    <Input
+                                        id="task_timeout"
+                                        type="number"
+                                        className={`h-9 focus-visible:ring-indigo-500 text-sm ${settingsForm.formState.errors.task_timeout ? 'border-red-400' : ''}`}
+                                        {...settingsForm.register("task_timeout")}
+                                    />
+                                    {settingsForm.formState.errors.task_timeout && <p className="text-xs text-red-500">{settingsForm.formState.errors.task_timeout.message}</p>}
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="max_emails" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Max Per Job</Label>
+                                    <Input
+                                        id="max_emails"
+                                        type="number"
+                                        className={`h-9 focus-visible:ring-indigo-500 text-sm ${settingsForm.formState.errors.max_emails_per_job ? 'border-red-400' : ''}`}
+                                        {...settingsForm.register("max_emails_per_job")}
+                                    />
+                                    {settingsForm.formState.errors.max_emails_per_job && <p className="text-xs text-red-500">{settingsForm.formState.errors.max_emails_per_job.message}</p>}
+                                </div>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <Label htmlFor="max_active" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Max Active Jobs Per User</Label>
+                                <Input
+                                    id="max_active"
+                                    type="number"
+                                    className={`h-9 focus-visible:ring-indigo-500 text-sm ${settingsForm.formState.errors.max_active_jobs_per_user ? 'border-red-400' : ''}`}
+                                    {...settingsForm.register("max_active_jobs_per_user")}
+                                />
+                                {settingsForm.formState.errors.max_active_jobs_per_user && <p className="text-xs text-red-500">{settingsForm.formState.errors.max_active_jobs_per_user.message}</p>}
+                                <p className="text-[11px] text-slate-500 italic">Limit concurrent jobs to prevent resource hogging (0 = infinite).</p>
+                            </div>
+                        </CardContent>
+                        <CardFooter className="bg-slate-50/50 border-t border-slate-100 p-4">
+                            <Button
+                                type="submit"
+                                disabled={settingsForm.formState.isSubmitting || isSaved}
+                                className={cn(
+                                    "shadow-md transition-all active:scale-[0.98] h-9 w-full sm:min-w-[180px]",
+                                    isSaved 
+                                        ? "bg-emerald-600 hover:bg-emerald-700 text-white" 
+                                        : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                                )}
+                            >
+                                {settingsForm.formState.isSubmitting ? (
+                                    <>
+                                        <RefreshCcw className="mr-2 h-4 w-4 animate-spin" />
+                                        Saving...
+                                    </>
+                                ) : isSaved ? (
+                                    <>
+                                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                                        Configuration Saved!
+                                    </>
+                                ) : (
+                                    <>
+                                        <Save className="mr-2 h-4 w-4" />
+                                        Apply Configuration
+                                    </>
+                                )}
+                            </Button>
+                        </CardFooter>
+                    </form>
                 </Card>
 
                 <div className="space-y-6">
@@ -381,9 +386,10 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                                 <Button variant="outline" onClick={() => setShowCleanupModal(false)} className="px-6 h-9">Cancel</Button>
                                                 <Button 
                                                     onClick={handleCleanup}
+                                                    disabled={isCleaning}
                                                     className="bg-rose-600 hover:bg-rose-700 text-white px-6 h-9 font-bold"
                                                 >
-                                                    Yes, Delete
+                                                    {isCleaning ? "Deleting..." : "Yes, Delete"}
                                                 </Button>
                                             </CardFooter>
                                         </>
@@ -499,20 +505,5 @@ function StatCard({ title, value, subvalue, icon: Icon, color, bg }: any) {
                 </div>
             </CardContent>
         </Card>
-    )
-}
-
-function CleanupButton({ days, onClick, disabled }: { days: number, onClick: (d: number) => void, disabled: boolean }) {
-    return (
-        <Button
-            variant="outline"
-            size="sm"
-            disabled={disabled}
-            onClick={() => onClick(days)}
-            className="border-slate-200 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 transition-colors group flex-col h-auto py-3 gap-1"
-        >
-            <span className="text-xs font-bold text-slate-700 group-hover:text-rose-600">Older than {days} Days</span>
-            <span className="text-[9px] text-slate-400 group-hover:text-rose-400 font-medium uppercase">Permanently Delete</span>
-        </Button>
     )
 }

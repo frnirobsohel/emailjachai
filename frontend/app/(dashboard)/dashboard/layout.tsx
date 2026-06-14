@@ -1,5 +1,6 @@
+export const dynamic = 'force-dynamic';
 import { Sidebar } from "@/components/layout/sidebar"
-import { StoreInitializer } from "@/lib/store/store-initializer"
+import { StoreInitializer } from "@/stores/store-initializer"
 import { LayoutWrapper } from "@/components/layout/layout-wrapper"
 
 export default function DashboardLayout({

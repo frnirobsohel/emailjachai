@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { ResellerTransferClient } from "./reseller-transfer-client"
 

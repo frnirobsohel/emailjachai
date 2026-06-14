@@ -1,14 +1,21 @@
 package verifier
 
 import (
+	"encoding/json"
 	"math/rand"
 	"net"
 	"os"
 	"strings"
 	"time"
 
+	"ejp-backend/pkg/config"
 	"github.com/miekg/dns"
 )
+
+type MXCacheEntry struct {
+	Host string `json:"host"`
+	Pref uint16 `json:"pref"`
+}
 
 // resolvers is the list of DNS servers loaded from DNS_RESOLVERS env var.
 // Defaults to Cloudflare + Google public DNS.
@@ -43,6 +50,22 @@ func lookupMX(domain string) ([]*net.MX, error) {
 	// Ensure FQDN
 	if !strings.HasSuffix(domain, ".") {
 		domain = domain + "."
+	}
+	domainClean := strings.TrimSuffix(domain, ".")
+
+	// 1. Check Redis Cache
+	if config.Redis != nil {
+		redisKey := "domain_cache:mx:" + domainClean
+		if cachedData, err := config.Redis.Get(config.Ctx, redisKey).Result(); err == nil && cachedData != "" {
+			var cachedRecords []MXCacheEntry
+			if json.Unmarshal([]byte(cachedData), &cachedRecords) == nil && len(cachedRecords) > 0 {
+				var mxRecords []*net.MX
+				for _, r := range cachedRecords {
+					mxRecords = append(mxRecords, &net.MX{Host: r.Host, Pref: r.Pref})
+				}
+				return mxRecords, nil
+			}
+		}
 	}
 
 	client := &dns.Client{
@@ -90,6 +113,15 @@ func lookupMX(domain string) ([]*net.MX, error) {
 		}
 
 		if len(mxRecords) > 0 {
+			if config.Redis != nil {
+				var toCache []MXCacheEntry
+				for _, mx := range mxRecords {
+					toCache = append(toCache, MXCacheEntry{Host: mx.Host, Pref: mx.Pref})
+				}
+				if b, err := json.Marshal(toCache); err == nil {
+					config.Redis.Set(config.Ctx, "domain_cache:mx:"+domainClean, string(b), 24*time.Hour)
+				}
+			}
 			return mxRecords, nil
 		}
 
@@ -109,8 +141,14 @@ func lookupMX(domain string) ([]*net.MX, error) {
 		}
 		if resp != nil && len(resp.Answer) > 0 {
 			// Domain has an A record — treat it as its own MX (RFC 5321 §5.1)
-			domainClean := strings.TrimSuffix(domain, ".")
-			return []*net.MX{{Host: domainClean, Pref: 10}}, nil
+			mxRecords := []*net.MX{{Host: domainClean, Pref: 10}}
+			if config.Redis != nil {
+				toCache := []MXCacheEntry{{Host: domainClean, Pref: 10}}
+				if b, err := json.Marshal(toCache); err == nil {
+					config.Redis.Set(config.Ctx, "domain_cache:mx:"+domainClean, string(b), 24*time.Hour)
+				}
+			}
+			return mxRecords, nil
 		}
 	}
 

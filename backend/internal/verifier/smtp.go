@@ -21,6 +21,7 @@ type VerifyResult struct {
 	SyntaxValid    bool
 	SMTPConnect    bool
 	HasMX          bool
+	MxRecords      []string
 	IsFree         bool
 	IsRole         bool
 	IsSpamTrap     bool
@@ -160,6 +161,12 @@ func VerifyEmail(email string) VerifyResult {
 		}
 		return mxRecords[i].Pref < mxRecords[j].Pref
 	})
+
+	var mxList []string
+	for _, mx := range mxRecords {
+		mxList = append(mxList, strings.TrimSuffix(mx.Host, "."))
+	}
+	result.MxRecords = mxList
 
 	// Try the best MX records (Limit to top 5)
 	for i, mx := range mxRecords {

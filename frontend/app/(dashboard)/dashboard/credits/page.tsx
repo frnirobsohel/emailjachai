@@ -1,6 +1,7 @@
+export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
-import { BuyCreditsClient } from "./credits-client"
-import type { Package } from "./credits-client"
+import { BuyCreditsClient } from "@/features/credits/components/credits-client"
+import type { Package } from "@/features/credits/components/credits-client"
 
 export default async function BuyCreditsPage() {
     let initialPackages: Package[] = [];

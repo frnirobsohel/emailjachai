@@ -1,6 +1,7 @@
+export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
-import { ApiKeysClient } from "./api-keys-client"
-import type { ApiKey } from "./api-keys-client"
+import { ApiKeysClient } from "@/features/api-keys/components/api-keys-client"
+import type { ApiKey } from "@/features/api-keys/components/api-keys-client"
 
 export default async function ApiKeysPage() {
     let initialKeys: ApiKey[] = [];

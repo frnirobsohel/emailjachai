@@ -1,93 +1,87 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Button } from "@/components/common/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
-import { Input } from "@/components/common/input"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Palette, Globe, Mail, Share2, Save, CheckCircle, XCircle, Loader2 } from "lucide-react"
-import { Label } from "@/components/common/label"
-import { Alert, AlertDescription } from "@/components/common/alert"
+import { Label } from "@/components/ui/label"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ApiClient } from "@/lib/api-client"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
+import { toast } from "react-hot-toast"
+import { cn } from "@/lib/utils"
+
+const brandSettingsSchema = z.object({
+    site_title: z.string().min(1, "Site title is required").optional().or(z.literal("")),
+    site_tagline: z.string().optional().or(z.literal("")),
+    logo_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
+    favicon_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
+    primary_color: z.string().regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, "Must be a valid HEX color code").optional().or(z.literal("")),
+    nav_style: z.enum(['dark', 'light']).optional().or(z.literal("")),
+    support_email: z.string().email("Must be a valid email address").optional().or(z.literal("")),
+    help_center_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
+    twitter_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
+    linkedin_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
+    github_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
+})
+
+type BrandSettingsValues = z.infer<typeof brandSettingsSchema>
 
 export function BrandBuildClient({ initialData }: { initialData: Record<string, string> }) {
-    const [settings, setSettings] = useState<Record<string, string>>(initialData)
     const [isLoading, setIsLoading] = useState(false)
-    const [isSaving, setIsSaving] = useState(false)
-    const [alert, setAlert] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-    const fetchSettings = async () => {
-        try {
-            const result = await ApiClient.get('/admin/settings');
-
-            if (result.status === 'success') {
-                const payload = result.data;
-                if (Array.isArray(payload)) {
-                    const mapped: Record<string, string> = {};
-                    for (const item of payload) {
-                        const row = item as { setting_key?: string; setting_value?: string };
-                        if (row.setting_key) mapped[row.setting_key] = row.setting_value ?? "";
-                    }
-                    setSettings(mapped);
-                } else if (payload && typeof payload === "object") {
-                    setSettings(payload as Record<string, string>);
-                }
-            }
-        } catch (error) {
-            console.error("Failed to fetch settings:", error);
-        } finally {
-            setIsLoading(false);
+    const form = useForm<BrandSettingsValues>({
+        resolver: zodResolver(brandSettingsSchema),
+        defaultValues: {
+            site_title: initialData.site_title || "",
+            site_tagline: initialData.site_tagline || "",
+            logo_url: initialData.logo_url || "",
+            favicon_url: initialData.favicon_url || "",
+            primary_color: initialData.primary_color || "#0F172B",
+            nav_style: (initialData.nav_style as 'dark' | 'light') || "dark",
+            support_email: initialData.support_email || "",
+            help_center_url: initialData.help_center_url || "",
+            twitter_url: initialData.twitter_url || "",
+            linkedin_url: initialData.linkedin_url || "",
+            github_url: initialData.github_url || "",
         }
-    }
+    })
 
-    useEffect(() => {
-        // fetchSettings(); // Handled by SSR initialData
-    }, []);
-
-    const handleSave = async () => {
-        setIsSaving(true);
+    const handleSaveSubmit = async (values: BrandSettingsValues) => {
         try {
-            const result = await ApiClient.post('/admin/settings/update', { settings });
+            // Clean up empty strings to not fail backend logic or keep them if intended.
+            // Our backend accepts string maps, so we send the values directly
+            const result = await ApiClient.post('/admin/settings/update', { settings: values });
 
             if (result.status === 'success') {
-                setAlert({ type: 'success', text: "Brand settings updated successfully." });
+                toast.success("Brand settings updated successfully.");
             } else {
-                setAlert({ type: 'error', text: result.message || "Failed to save settings." });
+                toast.error(result.message || "Failed to save settings.");
             }
-        } catch (error) {
-            setAlert({ type: 'error', text: "Server error occurred." });
-        } finally {
-            setIsSaving(false);
-            setTimeout(() => setAlert(null), 3000);
+        } catch (error: any) {
+            toast.error(error.message || "Server error occurred.");
         }
-    }
-
-    const updateValue = (key: string, value: string) => {
-        setSettings(prev => ({ ...prev, [key]: value }));
     }
 
     return (
-        <div className="flex-1 space-y-4">
+        <form onSubmit={form.handleSubmit(handleSaveSubmit)} className="flex-1 space-y-4">
             <div className="flex items-center justify-between space-y-2">
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight">Brand Settings</h2>
                     <p className="text-slate-500 text-sm">Customize the identity and look of your platform.</p>
                 </div>
                 <Button
-                    onClick={handleSave}
-                    disabled={isSaving || isLoading}
+                    type="submit"
+                    disabled={form.formState.isSubmitting || isLoading}
                     className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white min-w-[140px]"
                 >
-                    {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                    {isSaving ? 'Saving...' : 'Save Changes'}
+                    {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    {form.formState.isSubmitting ? 'Saving...' : 'Save Changes'}
                 </Button>
             </div>
-
-            {alert && (
-                <Alert className={alert.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}>
-                    {alert.type === 'success' ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                    <AlertDescription className="ml-2 font-medium">{alert.text}</AlertDescription>
-                </Alert>
-            )}
 
             <div className="grid gap-6 md:grid-cols-2">
                 {/* General Branding */}
@@ -104,33 +98,33 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                             <Label htmlFor="site-title" className="text-sm font-medium">Site Title</Label>
                             <Input
                                 id="site-title"
-                                name="siteTitle"
                                 placeholder="EmailVerifier Pro"
-                                value={settings.site_title || ""}
-                                onChange={(e) => updateValue('site_title', e.target.value)}
+                                className={cn(form.formState.errors.site_title && "border-red-500")}
+                                {...form.register("site_title")}
                             />
+                            {form.formState.errors.site_title && <p className="text-[10px] text-red-500">{form.formState.errors.site_title.message}</p>}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="site-tagline" className="text-sm font-medium">Tagline / Motto</Label>
                             <Input
                                 id="site-tagline"
-                                name="siteTagline"
                                 placeholder="Verify with confidence"
-                                value={settings.site_tagline || ""}
-                                onChange={(e) => updateValue('site_tagline', e.target.value)}
+                                className={cn(form.formState.errors.site_tagline && "border-red-500")}
+                                {...form.register("site_tagline")}
                             />
+                            {form.formState.errors.site_tagline && <p className="text-[10px] text-red-500">{form.formState.errors.site_tagline.message}</p>}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="logo-url" className="text-sm font-medium">Logo URL</Label>
                             <div className="flex items-center gap-4">
                                 <Input
                                     id="logo-url"
-                                    name="logoUrl"
                                     placeholder="https://example.com/logo.png"
-                                    value={settings.logo_url || ""}
-                                    onChange={(e) => updateValue('logo_url', e.target.value)}
+                                    className={cn(form.formState.errors.logo_url && "border-red-500")}
+                                    {...form.register("logo_url")}
                                 />
                             </div>
+                            {form.formState.errors.logo_url && <p className="text-[10px] text-red-500">{form.formState.errors.logo_url.message}</p>}
                             <p className="text-[10px] text-slate-400">Direct link to your brand logo image.</p>
                         </div>
                         <div className="space-y-2">
@@ -138,12 +132,12 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                             <div className="flex items-center gap-4">
                                 <Input
                                     id="favicon-url"
-                                    name="faviconUrl"
                                     placeholder="https://example.com/favicon.ico"
-                                    value={settings.favicon_url || ""}
-                                    onChange={(e) => updateValue('favicon_url', e.target.value)}
+                                    className={cn(form.formState.errors.favicon_url && "border-red-500")}
+                                    {...form.register("favicon_url")}
                                 />
                             </div>
+                            {form.formState.errors.favicon_url && <p className="text-[10px] text-red-500">{form.formState.errors.favicon_url.message}</p>}
                             <p className="text-[10px] text-slate-400">Direct link to your website favicon.</p>
                         </div>
                     </CardContent>
@@ -164,31 +158,32 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                             <div className="flex gap-3 items-center">
                                 <div
                                     className="h-10 w-10 rounded-md border border-slate-200"
-                                    style={{ backgroundColor: settings.primary_color || '#0F172B' }}
+                                    style={{ backgroundColor: form.watch('primary_color') || '#0F172B' }}
                                 ></div>
                                 <Input
                                     id="primary-color"
-                                    name="primaryColor"
-                                    className="w-32 font-mono text-center uppercase"
-                                    value={settings.primary_color || ""}
-                                    onChange={(e) => updateValue('primary_color', e.target.value)}
+                                    className={cn("w-32 font-mono text-center uppercase", form.formState.errors.primary_color && "border-red-500")}
                                     placeholder="#0F172B"
+                                    {...form.register("primary_color")}
                                 />
                                 <p className="text-xs text-slate-400">HEX color code</p>
                             </div>
+                            {form.formState.errors.primary_color && <p className="text-[10px] text-red-500">{form.formState.errors.primary_color.message}</p>}
                         </div>
                         <div className="space-y-2 pt-2">
                             <label className="text-sm font-medium">Navigation Style</label>
                             <div className="grid grid-cols-2 gap-3">
                                 <button
-                                    onClick={() => updateValue('nav_style', 'dark')}
-                                    className={`border rounded-md p-3 transition-all ${settings.nav_style === 'dark' ? "bg-slate-100 border-indigo-200 ring-1 ring-indigo-500" : "hover:bg-slate-50"}`}
+                                    type="button"
+                                    onClick={() => form.setValue('nav_style', 'dark')}
+                                    className={`border rounded-md p-3 transition-all ${form.watch('nav_style') === 'dark' ? "bg-slate-100 border-indigo-200 ring-1 ring-indigo-500" : "hover:bg-slate-50"}`}
                                 >
                                     <p className="text-xs font-bold text-center">Dark Sidebar</p>
                                 </button>
                                 <button
-                                    onClick={() => updateValue('nav_style', 'light')}
-                                    className={`border rounded-md p-3 transition-all ${settings.nav_style === 'light' ? "bg-slate-100 border-indigo-200 ring-1 ring-indigo-500" : "hover:bg-slate-50"}`}
+                                    type="button"
+                                    onClick={() => form.setValue('nav_style', 'light')}
+                                    className={`border rounded-md p-3 transition-all ${form.watch('nav_style') === 'light' ? "bg-slate-100 border-indigo-200 ring-1 ring-indigo-500" : "hover:bg-slate-50"}`}
                                 >
                                     <p className="text-xs font-bold text-center">Light Sidebar</p>
                                 </button>
@@ -211,21 +206,21 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                             <Label htmlFor="support-email" className="text-sm font-medium">Support Email Address</Label>
                             <Input
                                 id="support-email"
-                                name="supportEmail"
                                 placeholder="support@yourdomain.com"
-                                value={settings.support_email || ""}
-                                onChange={(e) => updateValue('support_email', e.target.value)}
+                                className={cn(form.formState.errors.support_email && "border-red-500")}
+                                {...form.register("support_email")}
                             />
+                            {form.formState.errors.support_email && <p className="text-[10px] text-red-500">{form.formState.errors.support_email.message}</p>}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="help-center-url" className="text-sm font-medium">Help Center URL</Label>
                             <Input
                                 id="help-center-url"
-                                name="helpCenterUrl"
                                 placeholder="https://docs.yourdomain.com"
-                                value={settings.help_center_url || ""}
-                                onChange={(e) => updateValue('help_center_url', e.target.value)}
+                                className={cn(form.formState.errors.help_center_url && "border-red-500")}
+                                {...form.register("help_center_url")}
                             />
+                            {form.formState.errors.help_center_url && <p className="text-[10px] text-red-500">{form.formState.errors.help_center_url.message}</p>}
                         </div>
                     </CardContent>
                 </Card>
@@ -244,35 +239,35 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                             <Label htmlFor="twitter-url" className="text-sm font-medium">Twitter / X URL</Label>
                             <Input
                                 id="twitter-url"
-                                name="twitterUrl"
                                 placeholder="https://twitter.com/yourhandle"
-                                value={settings.twitter_url || ""}
-                                onChange={(e) => updateValue('twitter_url', e.target.value)}
+                                className={cn(form.formState.errors.twitter_url && "border-red-500")}
+                                {...form.register("twitter_url")}
                             />
+                            {form.formState.errors.twitter_url && <p className="text-[10px] text-red-500">{form.formState.errors.twitter_url.message}</p>}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="linkedin-url" className="text-sm font-medium">LinkedIn URL</Label>
                             <Input
                                 id="linkedin-url"
-                                name="linkedinUrl"
                                 placeholder="https://linkedin.com/company/yourbrand"
-                                value={settings.linkedin_url || ""}
-                                onChange={(e) => updateValue('linkedin_url', e.target.value)}
+                                className={cn(form.formState.errors.linkedin_url && "border-red-500")}
+                                {...form.register("linkedin_url")}
                             />
+                            {form.formState.errors.linkedin_url && <p className="text-[10px] text-red-500">{form.formState.errors.linkedin_url.message}</p>}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="github-url" className="text-sm font-medium">GitHub URL</Label>
                             <Input
                                 id="github-url"
-                                name="githubUrl"
                                 placeholder="https://github.com/yourbrand"
-                                value={settings.github_url || ""}
-                                onChange={(e) => updateValue('github_url', e.target.value)}
+                                className={cn(form.formState.errors.github_url && "border-red-500")}
+                                {...form.register("github_url")}
                             />
+                            {form.formState.errors.github_url && <p className="text-[10px] text-red-500">{form.formState.errors.github_url.message}</p>}
                         </div>
                     </CardContent>
                 </Card>
             </div>
-        </div>
+        </form>
     )
 }

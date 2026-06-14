@@ -29,11 +29,14 @@ func SetupRoutes(router *gin.Engine) {
 	settingsRepo := repo.NewSettingsRepo()
 	txRepo := repo.NewTransactionRepo()
 	cacheRepo := repo.NewCacheRepository(config.DB)
+	adminRepo := repo.NewAdminRepo()
+	systemRepo := repo.NewSystemRepo()
+	workerRepo := repo.NewWorkerRepo()
 
 	// Initialize Services
-	emailService := service.NewEmailService()
+	emailService := service.NewEmailService(systemRepo)
 	apiKeyService := service.NewAPIKeyService(apiKeyRepo)
-	authService := service.NewAuthService(userRepo, apiKeyService, logRepo, emailService)
+	authService := service.NewAuthService(userRepo, apiKeyService, logRepo, emailService, systemRepo, settingsRepo)
 	userService := service.NewUserService(userRepo)
 	jobService := service.NewJobService(jobRepo, jobResultRepo, userRepo, txRepo, settingsRepo, cacheRepo)
 	logService := service.NewLogService(logRepo)
@@ -41,10 +44,10 @@ func SetupRoutes(router *gin.Engine) {
 	serverService := service.NewServerService(serverRepo)
 	packageService := service.NewPackageService(packageRepo)
 	settingsService := service.NewSettingsService(settingsRepo, logRepo)
-	paymentService := service.NewPaymentService(txRepo, packageRepo, userRepo, emailService)
-	workerService := service.NewWorkerService(jobRepo, serverRepo, settingsRepo)
-	adminService := service.NewAdminService(userRepo, jobRepo, logRepo, emailService)
-	systemService := service.NewSystemService()
+	paymentService := service.NewPaymentService(txRepo, packageRepo, userRepo, emailService, settingsRepo)
+	workerService := service.NewWorkerService(workerRepo, jobRepo, serverRepo, settingsRepo)
+	adminService := service.NewAdminService(adminRepo, userRepo, jobRepo, logRepo, txRepo, emailService)
+	systemService := service.NewSystemService(systemRepo)
 	resellerService := service.NewResellerService(userRepo, txRepo)
 
 	// Initialize Handlers

@@ -6,6 +6,7 @@ import (
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/service"
+	"ejp-backend/pkg/config"
 
 	"github.com/gin-gonic/gin"
 )
@@ -26,6 +27,26 @@ func (h *APIKeyHandler) GetAPIKeys(c *gin.Context) {
 		return
 	}
 
+	// Fetch real usage statistics per API key
+	var stats []struct {
+		APIKeyID       uint
+		SingleJobs     int
+		BulkJobs       int
+		CreditsUsed    int
+	}
+	
+	config.DB.Table("jobs").
+		Select("api_key_id, sum(case when type = 'single' then 1 else 0 end) as single_jobs, sum(case when type = 'bulk' then 1 else 0 end) as bulk_jobs, sum(total_emails) as credits_used").
+		Where("user_id = ? AND api_key_id IS NOT NULL", userID).
+		Group("api_key_id").
+		Scan(&stats)
+
+	// Create a map for O(1) lookup
+	statsMap := make(map[uint]struct{SingleJobs, BulkJobs, CreditsUsed int})
+	for _, s := range stats {
+		statsMap[s.APIKeyID] = struct{SingleJobs, BulkJobs, CreditsUsed int}{s.SingleJobs, s.BulkJobs, s.CreditsUsed}
+	}
+	
 	formattedKeys := make([]map[string]interface{}, 0)
 	for _, k := range keys {
 		// Filter out Login and Impersonation keys from the list (Legacy Parity)
@@ -38,13 +59,18 @@ func (h *APIKeyHandler) GetAPIKeys(c *gin.Context) {
 			lastUsed = k.LastUsedAt.Format("2006-01-02 15:04")
 		}
 
+		keyStats := statsMap[k.ID]
+
 		formattedKeys = append(formattedKeys, map[string]interface{}{
-			"id":         k.ID,
-			"name":       k.Name,
-			"key_masked": k.KeyPrefix + strings.Repeat("*", 20),
-			"created":    k.CreatedAt.Format("2006-01-02"),
-			"status":     k.Status,
-			"last_used":  lastUsed,
+			"id":            k.ID,
+			"name":          k.Name,
+			"key_masked":    k.KeyPrefix + strings.Repeat("*", 20),
+			"created":       k.CreatedAt.Format("2006-01-02"),
+			"status":        k.Status,
+			"last_used":     lastUsed,
+			"single_jobs":   keyStats.SingleJobs,
+			"bulk_jobs":     keyStats.BulkJobs,
+			"credits_used":  keyStats.CreditsUsed,
 		})
 	}
 
@@ -63,6 +89,10 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 
 	key, err := h.apiKeyService.Create(userID.(uint), input.Name)
 	if err != nil {
+		if err.Error() == "maximum 5 active API keys allowed per user" {
+			helper.SendError(c, http.StatusBadRequest, err.Error(), "ERR_LIMIT_EXCEEDED")
+			return
+		}
 		helper.SendError(c, http.StatusInternalServerError, "Failed to create key", err.Error())
 		return
 	}

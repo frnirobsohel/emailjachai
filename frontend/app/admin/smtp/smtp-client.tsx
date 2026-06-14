@@ -1,15 +1,36 @@
 "use client"
 
 import { useState, useMemo, useEffect } from "react"
-import { Button } from "@/components/common/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/common/card"
-import { Input } from "@/components/common/input"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Settings, Save, Beaker, FileText, CheckCircle, XCircle, Loader2 } from "lucide-react"
-import { Textarea } from "@/components/common/textarea"
-import { SimpleSelect } from "@/components/common/simple-select"
-import { Alert, AlertDescription } from "@/components/common/alert"
-import { Switch } from "@/components/common/switch"
+import { Textarea } from "@/components/ui/textarea"
+import { SimpleSelect } from "@/components/ui/simple-select"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Switch } from "@/components/ui/switch"
 import { ApiClient } from "@/lib/api-client"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
+import { toast } from "react-hot-toast"
+import { cn } from "@/lib/utils"
+
+export const smtpSettingsSchema = z.object({
+    host: z.string().optional().or(z.literal("")),
+    port: z.string().optional().or(z.literal("")),
+    encryption: z.enum(['none', 'ssl', 'tls']).optional(),
+    username: z.string().optional().or(z.literal("")),
+    password: z.string().optional().or(z.literal("")),
+    daily_limit: z.string().optional().or(z.literal("")),
+    is_active: z.boolean().optional(),
+})
+
+export const templateSchema = z.object({
+    subject: z.string().min(1, "Subject is required"),
+    body: z.string().min(1, "Body is required"),
+    is_active: z.boolean().optional(),
+})
 
 export type TemplatesKey = 'register' | 'forgot' | 'buy_credits' | 'job_completed' | 'transaction' | 'credit_assigned' | 'account_banned'
 
@@ -76,142 +97,106 @@ export function SmtpClient({
     initialHasStoredPassword: boolean,
     initialIsConnectionVerified: boolean
 }) {
-    const [settings, setSettings] = useState<SmtpSettings>(initialSettings)
-
     const [selectedTpl, setSelectedTpl] = useState<TemplatesKey>('register')
     const [templates, setTemplates] = useState<Record<TemplatesKey, Template>>(initialTemplates)
-    const [alert, setAlert] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
-    const [isFetching, setIsFetching] = useState(false)
-    const [isSavingSettings, setIsSavingSettings] = useState(false)
-    const [isSavingTemplate, setIsSavingTemplate] = useState(false)
     const [hasStoredPassword, setHasStoredPassword] = useState(initialHasStoredPassword)
     const [isConnectionVerified, setIsConnectionVerified] = useState(initialIsConnectionVerified)
 
-    const fetchData = async () => {
-        setIsFetching(true);
-        try {
-            // Fetch SMTP Settings
-            const smtpData = await ApiClient.get('/admin/smtp/settings');
-            if (smtpData.status === 'success' && smtpData.data) {
-                const smtpResponse = smtpData.data as SmtpSettings;
-                setSettings({
-                    host: smtpResponse.host || "",
-                    port: smtpResponse.port || "587",
-                    encryption: smtpResponse.encryption || "tls",
-                    username: smtpResponse.username || "",
-                    password: "",
-                    daily_limit: smtpResponse.daily_limit || "5000",
-                    is_active: smtpResponse.is_active ?? true
-                });
-                setHasStoredPassword(Boolean(smtpResponse.has_password));
-                setIsConnectionVerified(Boolean(smtpResponse.is_active));
-            }
-
-            // Fetch Templates
-            const tplData = await ApiClient.get('/admin/smtp/templates');
-            if (tplData.status === 'success' && tplData.data) {
-                const rows = tplData.data as ApiTemplateRow[];
-                if (Array.isArray(rows)) {
-                    const mapped = { ...DEFAULT_TEMPLATES };
-                    for (const row of rows) {
-                        const key = row.template_name as TemplatesKey;
-                        if (mapped[key]) {
-                            mapped[key] = {
-                                subject: row.subject || mapped[key].subject,
-                                body: row.body || mapped[key].body,
-                                is_active: row.is_active ?? true
-                            };
-                        }
-                    }
-                    setTemplates(mapped);
-                }
-            }
-        } catch (error) {
-            console.error("Failed to fetch data:", error);
-        } finally {
-            setIsFetching(false);
+    const smtpForm = useForm<z.infer<typeof smtpSettingsSchema>>({
+        resolver: zodResolver(smtpSettingsSchema),
+        defaultValues: {
+            host: initialSettings.host || "",
+            port: initialSettings.port || "587",
+            encryption: initialSettings.encryption || "tls",
+            username: initialSettings.username || "",
+            password: "",
+            daily_limit: initialSettings.daily_limit || "5000",
+            is_active: initialSettings.is_active ?? true
         }
-    }
+    })
+
+    const templateForm = useForm<z.infer<typeof templateSchema>>({
+        resolver: zodResolver(templateSchema),
+        defaultValues: {
+            subject: templates[selectedTpl]?.subject || "",
+            body: templates[selectedTpl]?.body || "",
+            is_active: templates[selectedTpl]?.is_active ?? true
+        }
+    })
 
     useEffect(() => {
-        // fetchData(); // Handled by SSR initialData
-    }, []);
-
-    const currentTemplate = useMemo(() => templates[selectedTpl] || { subject: "", body: "" }, [templates, selectedTpl])
-
-    function onChange<K extends keyof SmtpSettings>(key: K, value: SmtpSettings[K]) {
-        setSettings(prev => {
-            const next = { ...prev, [key]: value };
-            if (['host', 'port', 'encryption', 'username', 'password'].includes(key)) {
-                setIsConnectionVerified(false);
-                next.is_active = false;
-            }
-            return next;
+        templateForm.reset({
+            subject: templates[selectedTpl]?.subject || "",
+            body: templates[selectedTpl]?.body || "",
+            is_active: templates[selectedTpl]?.is_active ?? true
         })
-    }
+    }, [selectedTpl, templates, templateForm])
 
-    const handleSaveSettings = async () => {
-        setIsSavingSettings(true);
+    // Clean up forms when fields change
+    useEffect(() => {
+        const subscription = smtpForm.watch((value, { name }) => {
+            if (name && ['host', 'port', 'encryption', 'username', 'password'].includes(name)) {
+                setIsConnectionVerified(false);
+                smtpForm.setValue('is_active', false);
+            }
+        });
+        return () => subscription.unsubscribe();
+    }, [smtpForm.watch]);
+
+    const handleSaveSettings = async (values: z.infer<typeof smtpSettingsSchema>) => {
         try {
-            const payload = { ...settings };
-            if (!(payload.host.trim() !== '' && payload.username.trim() !== '' && (payload.password.trim() !== '' || hasStoredPassword))) {
+            const payload = { ...values };
+            if (!(payload.host && payload.host.trim() !== '' && payload.username && payload.username.trim() !== '' && (payload.password?.trim() !== '' || hasStoredPassword))) {
                 payload.is_active = false;
+                smtpForm.setValue('is_active', false);
             }
             const result = await ApiClient.post('/admin/smtp/settings', payload);
 
             if (result.status === 'success') {
-                setHasStoredPassword(hasStoredPassword || settings.password.trim() !== "");
-                setSettings(prev => ({ ...prev, password: "", is_active: payload.is_active }));
-                setAlert({ type: 'success', text: "SMTP settings saved successfully." });
+                setHasStoredPassword(hasStoredPassword || (payload.password?.trim() !== ""));
+                smtpForm.setValue('password', "");
+                toast.success("SMTP settings saved successfully.");
             } else {
-                setAlert({ type: 'error', text: result.message || "Failed to save settings." });
+                toast.error(result.message || "Failed to save settings.");
             }
-        } catch (error) {
-            setAlert({ type: 'error', text: "Server error occurred." });
-        } finally {
-            setIsSavingSettings(false);
-            setTimeout(() => setAlert(null), 3000);
+        } catch (error: any) {
+            toast.error(error.message || "Server error occurred.");
         }
     }
 
     const handleTestConnection = async () => {
-        setAlert({ type: 'info', text: "Testing SMTP connection..." })
+        const toastId = toast.loading("Testing SMTP connection...");
         try {
-            const payload = { ...settings };
-            const result = await ApiClient.post('/admin/smtp/test', payload);
+            const values = smtpForm.getValues();
+            const result = await ApiClient.post('/admin/smtp/test', values);
             if (result.status === 'success') {
                 setIsConnectionVerified(true);
-                setAlert({ type: 'success', text: "Connection successful." })
+                toast.success("Connection successful.", { id: toastId });
             } else {
-                setAlert({ type: 'error', text: result.message || "Connection failed." })
+                toast.error(result.message || "Connection failed.", { id: toastId });
             }
         } catch (error: any) {
-            setAlert({ type: 'error', text: error.message || "Server error occurred." })
-        } finally {
-            setTimeout(() => setAlert(null), 3000)
+            toast.error(error.message || "Server error occurred.", { id: toastId });
         }
     }
 
-    const handleSaveTemplate = async () => {
-        setIsSavingTemplate(true);
+    const handleSaveTemplate = async (values: z.infer<typeof templateSchema>) => {
         try {
             const result = await ApiClient.post('/admin/smtp/templates', {
-                template_name: selectedTpl, // Use template_name as per DB schema, though backend handles both
-                subject: templates[selectedTpl].subject,
-                body: templates[selectedTpl].body,
-                is_active: templates[selectedTpl].is_active ?? true
+                template_name: selectedTpl,
+                subject: values.subject,
+                body: values.body,
+                is_active: values.is_active ?? true
             });
 
             if (result.status === 'success') {
-                setAlert({ type: 'success', text: "Template saved successfully." });
+                setTemplates(prev => ({ ...prev, [selectedTpl]: { subject: values.subject, body: values.body, is_active: values.is_active } }));
+                toast.success("Template saved successfully.");
             } else {
-                setAlert({ type: 'error', text: result.message || "Failed to save template." });
+                toast.error(result.message || "Failed to save template.");
             }
-        } catch (error) {
-            setAlert({ type: 'error', text: "Server error occurred." });
-        } finally {
-            setIsSavingTemplate(false);
-            setTimeout(() => setAlert(null), 3000);
+        } catch (error: any) {
+            toast.error(error.message || "Server error occurred.");
         }
     }
 
@@ -225,8 +210,8 @@ export function SmtpClient({
         account_banned: 'Account Banned/Suspended'
     }
 
-    const hasValidCredentials = settings.host.trim() !== '' && settings.username.trim() !== '' && (settings.password.trim() !== '' || hasStoredPassword);
-    const isGlobalSmtpActive = settings.is_active && hasValidCredentials;
+    const hasValidCredentials = (smtpForm.watch('host') || "").trim() !== '' && (smtpForm.watch('username') || "").trim() !== '' && ((smtpForm.watch('password') || "").trim() !== '' || hasStoredPassword);
+    const isGlobalSmtpActive = smtpForm.watch('is_active') && hasValidCredentials;
 
     return (
         <div className="flex-1 space-y-6">
@@ -236,15 +221,6 @@ export function SmtpClient({
                     <p className="text-muted-foreground">Configure email delivery and edit templates for user and system events.</p>
                 </div>
             </div>
-
-            {alert && (
-                <Alert variant={alert.type === 'error' ? 'destructive' : 'default'} className={alert.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : ''}>
-                    {alert.type === 'success' && <CheckCircle className="h-4 w-4" />}
-                    {alert.type === 'error' && <XCircle className="h-4 w-4" />}
-                    {alert.type === 'info' && <Beaker className="h-4 w-4" />}
-                    <AlertDescription className="ml-2">{alert.text}</AlertDescription>
-                </Alert>
-            )}
 
 
 
@@ -260,35 +236,36 @@ export function SmtpClient({
                                 SMTP Configuration
                             </div>
                             <div className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
-                                <span>{settings.is_active && hasValidCredentials ? 'Active' : 'Disabled'}</span>
+                                <span>{smtpForm.watch('is_active') && hasValidCredentials ? 'Active' : 'Disabled'}</span>
                                 <Switch
-                                    checked={Boolean(settings.is_active && hasValidCredentials)}
-                                    onCheckedChange={(checked) => onChange('is_active', checked)}
+                                    checked={Boolean(smtpForm.watch('is_active') && hasValidCredentials)}
+                                    onCheckedChange={(checked) => smtpForm.setValue('is_active', checked)}
                                     disabled={!isConnectionVerified || !hasValidCredentials}
                                 />
                             </div>
                         </CardTitle>
                         <CardDescription>Set your mailer credentials and sender identity</CardDescription>
                     </CardHeader>
+                    <form onSubmit={smtpForm.handleSubmit(handleSaveSettings)}>
                     <CardContent className="space-y-4 pt-6">
                         <div className="grid gap-4 sm:grid-cols-2">
                             <div className="space-y-2">
                                 <label htmlFor="daily_limit" className="text-sm font-medium">Daily Send Limit</label>
-                                <Input id="daily_limit" name="daily_limit" type="number" value={settings.daily_limit} onChange={(e) => onChange('daily_limit', e.target.value)} />
+                                <Input id="daily_limit" type="number" {...smtpForm.register("daily_limit")} />
                             </div>
                             <div className="space-y-2">
                                 <label htmlFor="host" className="text-sm font-medium">Host</label>
-                                <Input id="host" name="host" value={settings.host} onChange={(e) => onChange('host', e.target.value)} />
+                                <Input id="host" {...smtpForm.register("host")} />
                             </div>
                             <div className="space-y-2">
                                 <label htmlFor="port" className="text-sm font-medium">Port</label>
-                                <Input id="port" name="port" value={settings.port} onChange={(e) => onChange('port', e.target.value)} />
+                                <Input id="port" {...smtpForm.register("port")} />
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Encryption</label>
                                 <SimpleSelect
-                                    value={settings.encryption}
-                                    onChange={(e) => onChange('encryption', e.target.value as SmtpSettings['encryption'])}
+                                    value={smtpForm.watch('encryption')}
+                                    onChange={(e) => smtpForm.setValue('encryption', e.target.value as any)}
                                     options={[
                                         { label: 'None', value: 'none' },
                                         { label: 'SSL', value: 'ssl' },
@@ -298,11 +275,11 @@ export function SmtpClient({
                             </div>
                             <div className="space-y-2">
                                 <label htmlFor="username" className="text-sm font-medium">Username</label>
-                                <Input id="username" name="username" value={settings.username} autoComplete="off" onChange={(e) => onChange('username', e.target.value)} />
+                                <Input id="username" autoComplete="off" {...smtpForm.register("username")} />
                             </div>
                             <div className="space-y-2">
                                 <label htmlFor="password" className="text-sm font-medium">Password</label>
-                                <Input id="password" name="password" type="password" value={settings.password} onChange={(e) => onChange('password', e.target.value)} autoComplete="new-password" />
+                                <Input id="password" type="password" autoComplete="new-password" {...smtpForm.register("password")} />
                                 <p className="text-xs text-slate-500">
                                     {hasStoredPassword ? 'Leave blank to keep the existing SMTP password.' : 'Enter the SMTP password to store it securely.'}
                                 </p>
@@ -310,23 +287,25 @@ export function SmtpClient({
                         </div>
                         <div className="pt-4 flex items-center gap-2">
                             <Button
-                                onClick={handleSaveSettings}
-                                disabled={isFetching || isSavingSettings}
+                                type="submit"
+                                disabled={smtpForm.formState.isSubmitting}
                                 className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white shadow-sm min-w-[140px]"
                             >
-                                {isSavingSettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                                {isSavingSettings ? 'Saving...' : 'Save Settings'}
+                                {smtpForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                                {smtpForm.formState.isSubmitting ? 'Saving...' : 'Save Settings'}
                             </Button>
                             <Button
+                                type="button"
                                 variant="outline"
                                 onClick={handleTestConnection}
-                                disabled={isSavingSettings}
+                                disabled={smtpForm.formState.isSubmitting}
                                 className="text-slate-700 hover:bg-slate-50 border-slate-200 min-w-[150px]"
                             >
                                 <Settings className="mr-2 h-4 w-4" /> Test Connection
                             </Button>
                         </div>
                     </CardContent>
+                    </form>
                 </Card>
 
                 {/* Templates */}
@@ -340,10 +319,10 @@ export function SmtpClient({
                                 Templates
                             </div>
                             <div className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
-                                <span>{currentTemplate.is_active !== false && isGlobalSmtpActive ? 'Active' : 'Disabled'}</span>
+                                <span>{templateForm.watch('is_active') !== false && isGlobalSmtpActive ? 'Active' : 'Disabled'}</span>
                                 <Switch
-                                    checked={Boolean(currentTemplate.is_active !== false && isGlobalSmtpActive)}
-                                    onCheckedChange={(checked) => setTemplates(prev => ({ ...prev, [selectedTpl]: { ...prev[selectedTpl], is_active: checked } }))}
+                                    checked={Boolean(templateForm.watch('is_active') !== false && isGlobalSmtpActive)}
+                                    onCheckedChange={(checked) => templateForm.setValue('is_active', checked)}
                                     disabled={!isGlobalSmtpActive}
                                 />
                             </div>
@@ -352,6 +331,7 @@ export function SmtpClient({
                             Use placeholders like {'{{name}}'}, {'{{verification_link}}'}, {'{{credits}}'}.
                         </CardDescription>
                     </CardHeader>
+                    <form onSubmit={templateForm.handleSubmit(handleSaveTemplate)}>
                     <CardContent className="space-y-4 pt-6">
                         <div className="grid gap-4">
                             <div className="grid md:grid-cols-[1fr_2fr] gap-4">
@@ -369,32 +349,34 @@ export function SmtpClient({
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">Subject</label>
                                     <Input
-                                        value={currentTemplate.subject}
-                                        onChange={(e) => setTemplates(prev => ({ ...prev, [selectedTpl]: { ...prev[selectedTpl], subject: e.target.value } }))}
+                                        className={cn(templateForm.formState.errors.subject && "border-red-500")}
+                                        {...templateForm.register("subject")}
                                     />
+                                    {templateForm.formState.errors.subject && <p className="text-[10px] text-red-500">{templateForm.formState.errors.subject.message}</p>}
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Body</label>
                                 <Textarea
                                     rows={12}
-                                    value={currentTemplate.body}
-                                    onChange={(e) => setTemplates(prev => ({ ...prev, [selectedTpl]: { ...prev[selectedTpl], body: e.target.value } }))}
-                                    className="font-mono text-xs"
+                                    className={cn("font-mono text-xs", templateForm.formState.errors.body && "border-red-500")}
+                                    {...templateForm.register("body")}
                                 />
+                                {templateForm.formState.errors.body && <p className="text-[10px] text-red-500">{templateForm.formState.errors.body.message}</p>}
                             </div>
                             <div className="flex gap-2 pt-2">
                                 <Button
-                                    onClick={handleSaveTemplate}
-                                    disabled={isSavingTemplate}
+                                    type="submit"
+                                    disabled={templateForm.formState.isSubmitting}
                                     className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white min-w-[140px]"
                                 >
-                                    {isSavingTemplate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                                    {isSavingTemplate ? "Saving..." : "Save Template"}
+                                    {templateForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                                    {templateForm.formState.isSubmitting ? "Saving..." : "Save Template"}
                                 </Button>
                             </div>
                         </div>
                     </CardContent>
+                    </form>
                 </Card>
             </div>
         </div >

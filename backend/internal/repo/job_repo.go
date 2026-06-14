@@ -22,11 +22,13 @@ type JobRepository interface {
 	Delete(jobID string, userID uint) error
 	GetStats(userID uint) (map[string]interface{}, error)
 	CountActiveJobs(userID uint) (int64, error)
-	CreateBulkJob(userID uint, jobID string, filename string, totalEmails int, invalidSyntaxCount int, queuedCount int, taskRecords []model.JobTask) (*model.Job, []model.JobTask, error)
+	CreateBulkJob(userID uint, jobID string, filename string, totalEmails int, invalidSyntaxCount int, queuedCount int, taskRecords []model.JobTask, apiKeyID *uint) (*model.Job, []model.JobTask, error)
 	RefundBulkJob(userID uint, jobID string, refundCredits int, description string) error
 	ClaimTask(serverName string, taskTimeoutMinutes int) (*model.JobTask, error)
 	GetJobForUser(userID uint, jobID string) (*model.Job, error)
 	GetJobResultsRows(jobInternalID uint) (*sql.Rows, error)
+	CountAllActiveJobs() (int64, error)
+	DB() *gorm.DB
 }
 
 type DownloadResultRow struct {
@@ -44,6 +46,10 @@ type jobRepository struct {
 
 func NewJobRepository() JobRepository {
 	return &jobRepository{db: config.DB}
+}
+
+func (r *jobRepository) DB() *gorm.DB {
+	return r.db
 }
 
 func (r *jobRepository) Create(job *model.Job) error {
@@ -142,7 +148,7 @@ func (r *jobRepository) CountActiveJobs(userID uint) (int64, error) {
 	return count, err
 }
 
-func (r *jobRepository) CreateBulkJob(userID uint, jobID string, filename string, totalEmails int, invalidSyntaxCount int, queuedCount int, taskRecords []model.JobTask) (*model.Job, []model.JobTask, error) {
+func (r *jobRepository) CreateBulkJob(userID uint, jobID string, filename string, totalEmails int, invalidSyntaxCount int, queuedCount int, taskRecords []model.JobTask, apiKeyID *uint) (*model.Job, []model.JobTask, error) {
 	var job model.Job
 	var savedTasks []model.JobTask
 
@@ -189,6 +195,7 @@ func (r *jobRepository) CreateBulkJob(userID uint, jobID string, filename string
 			ProcessedCount: invalidSyntaxCount,
 			InvalidSyntax:  invalidSyntaxCount,
 			Undeliverable:  invalidSyntaxCount,
+			APIKeyID:       apiKeyID,
 		}
 		if err := tx.Create(&job).Error; err != nil {
 			return err
@@ -287,4 +294,10 @@ func (r *jobRepository) GetJobForUser(userID uint, jobID string) (*model.Job, er
 
 func (r *jobRepository) GetJobResultsRows(jobInternalID uint) (*sql.Rows, error) {
 	return r.db.Model(&model.JobResult{}).Select("email, status, reason, is_catch_all, score, created_at").Where("job_internal_id = ?", jobInternalID).Rows()
+}
+
+func (r *jobRepository) CountAllActiveJobs() (int64, error) {
+	var count int64
+	err := r.db.Model(&model.Job{}).Where("status IN ?", []string{"pending", "processing"}).Count(&count).Error
+	return count, err
 }

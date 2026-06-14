@@ -24,7 +24,12 @@ if (isProd) {
 const nextConfig: NextConfig = {
   // Optimize heavy packages so Turbopack doesn't re-analyze them on every compile
   experimental: {
-    optimizePackageImports: ['lucide-react', 'recharts', '@radix-ui/react-dropdown-menu', '@radix-ui/react-tabs'],
+    optimizePackageImports: ['lucide-react', 'recharts', '@radix-ui/react-dropdown-menu'],
+    // Client-side Router Cache: ভিজিট করা পেজ instant load করবে
+    staleTimes: {
+      dynamic: 30,        // dynamic page: ৩০ সেকেন্ড cache
+      static: 5 * 60,    // static page: ৫ মিনিট cache
+    },
   },
   async headers() {
     return [
