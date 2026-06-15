@@ -46,8 +46,9 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 	jobsDaily := make([]dailyAgg, 0, 7)
 	deletedDaily := make([]dailyAgg, 0, 7)
 	var dbToday time.Time
+	var apiVerifications int64
 
-	wg.Add(4)
+	wg.Add(5)
 
 	// Goroutine 1: User Credits & Transaction Summary
 	go func() {
@@ -119,6 +120,20 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 		`, uID).Scan(&deletedDaily)
 	}()
 
+	// Goroutine 5: API Verifications count
+	go func() {
+		defer wg.Done()
+		var validAPIKeyIDs []uint
+		config.DB.Table("api_keys").Where("user_id = ? AND name NOT IN ('Login Key', 'Impersonation Key')", uID).Pluck("id", &validAPIKeyIDs)
+		
+		if len(validAPIKeyIDs) > 0 {
+			config.DB.Model(&model.Job{}).
+				Select("COALESCE(SUM(processed_count), 0)").
+				Where("user_id = ? AND api_key_id IN ?", uID, validAPIKeyIDs).
+				Scan(&apiVerifications)
+		}
+	}()
+
 	// Wait for all database queries to complete in parallel
 	wg.Wait()
 
@@ -176,6 +191,7 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 		"total_purchased":        helper.FormatNumber(transSummary.TotalPurchased),
 		"total_refunds":          helper.FormatNumber(transSummary.TotalRefunds),
 		"lifetime_verifications": helper.FormatNumber(totalVerifications),
+		"api_verifications":      helper.FormatNumber(apiVerifications),
 		"total_jobs":             totalJobs,
 		"active_jobs":            jobSummary.ActiveJobs,
 		"today_verifications":    helper.FormatNumber(todayVerifications),

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { logger } from '@/lib/logger';
+import { useUserStore } from '@/stores/user-state';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/api/v1/ws';
 
@@ -11,6 +12,7 @@ export interface WsMessage {
 }
 
 export function useSocket() {
+    const isAuthenticated = useUserStore(state => state.isAuthenticated);
     const [isConnected, setIsConnected] = useState(false);
     const socketRef = useRef<WebSocket | null>(null);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -33,6 +35,7 @@ export function useSocket() {
     }, []);
 
     const connect = useCallback(async () => {
+        if (!isAuthenticated) return;
         if (socketRef.current?.readyState === WebSocket.OPEN) return;
 
         // Get a fresh WS token
@@ -97,7 +100,7 @@ export function useSocket() {
             logger.error('Failed to initiate WebSocket connection', err);
             reconnectTimeoutRef.current = setTimeout(() => connectRef.current(), 5000);
         }
-    }, [fetchWsToken]);
+    }, [fetchWsToken, isAuthenticated]);
 
     // Keep connectRef in sync (must be inside useEffect, not during render)
     useEffect(() => {
@@ -105,7 +108,17 @@ export function useSocket() {
     }, [connect]);
 
     useEffect(() => {
-        connect();
+        if (isAuthenticated) {
+            connect();
+        } else {
+            if (socketRef.current) {
+                socketRef.current.onclose = null;
+                socketRef.current.close();
+                socketRef.current = null;
+            }
+            setIsConnected(false);
+        }
+        
         return () => {
             if (socketRef.current) {
                 socketRef.current.onclose = null; // Prevent reconnect on manual close
@@ -115,7 +128,7 @@ export function useSocket() {
                 clearTimeout(reconnectTimeoutRef.current);
             }
         };
-    }, [connect]);
+    }, [connect, isAuthenticated]);
 
     const sendMessage = useCallback((msg: any) => {
         if (socketRef.current?.readyState === WebSocket.OPEN) {

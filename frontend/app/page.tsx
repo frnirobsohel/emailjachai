@@ -1,6 +1,18 @@
 import Link from "next/link"
 import { Metadata } from "next"
 import { FAQAccordion } from "@/components/home/faq-accordion"
+import { HomeEmailVerifier } from "@/components/home/home-email-verifier"
+
+type PackageRow = {
+    id: number
+    name: string
+    tagline: string
+    price: number
+    credits_amount: number
+    features: string[]
+    status: string
+    popular: boolean
+}
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1'
 
@@ -28,6 +40,8 @@ export default async function Home() {
   let siteTagline = "Verify Emails with Precision"
   let logoUrl = ""
 
+  let packages: PackageRow[] = []
+
   try {
     const res = await fetch(`${API_BASE_URL}/settings/public`, { next: { revalidate: 60 } })
     const json = await res.json()
@@ -38,27 +52,61 @@ export default async function Home() {
     }
   } catch {}
 
+  try {
+    const res = await fetch(`${API_BASE_URL}/packages/list`, { 
+        headers: {
+            'Authorization': `Bearer ${process.env.ADMIN_API_KEY || ''}`
+        },
+        next: { revalidate: 60 } 
+    })
+    const json = await res.json()
+    if (json.status === 'success' && Array.isArray(json.data)) {
+        packages = json.data.filter((p: PackageRow) => p.status === 'active')
+    }
+  } catch {}
+
+  // Fallback packages if API fails or returns none
+  if (packages.length === 0) {
+    packages = [
+        {
+            id: 1, name: "Starter", tagline: "1,000 credits", price: 5, credits_amount: 1000,
+            features: ["Single & Bulk Verification", "CSV Export", "API Access"],
+            status: "active", popular: false
+        },
+        {
+            id: 2, name: "Professional", tagline: "10,000 credits", price: 25, credits_amount: 10000,
+            features: ["Everything in Starter", "Webhook Integration", "Real-time Dashboard"],
+            status: "active", popular: true
+        },
+        {
+            id: 3, name: "Enterprise", tagline: "100,000 credits", price: 99, credits_amount: 100000,
+            features: ["Everything in Pro", "White-label Option", "Dedicated Worker Nodes"],
+            status: "active", popular: false
+        }
+    ]
+  }
+
   return (
-    <div className="flex min-h-screen flex-col bg-[#030712] text-white overflow-x-hidden selection:bg-indigo-500/30">
+    <div className="flex min-h-screen flex-col bg-[#030712] text-slate-200 overflow-x-hidden selection:bg-indigo-500/30">
       {/* ─── NAVBAR ─── */}
       <header className="fixed top-0 left-0 right-0 z-50 border-b border-white/5 bg-[#030712]/80 backdrop-blur-xl">
         <div className="mx-auto max-w-7xl px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2.5 font-bold text-lg tracking-tight text-white">
+          <Link href="/" className="flex items-center gap-2.5 font-bold text-lg tracking-tight text-slate-200">
             {logoUrl ? (
               <img src={logoUrl} alt="Logo" className="h-7 w-7 object-contain" />
             ) : (
               <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
-                <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                <svg className="h-4 w-4 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
               </div>
             )}
             {siteTitle}
           </Link>
           <nav className="flex items-center gap-2">
-            <Link href="#features" className="hidden md:inline-flex px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors">Features</Link>
-            <Link href="#pricing" className="hidden md:inline-flex px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors">Pricing</Link>
-            <Link href="#support" className="hidden md:inline-flex px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors">Support</Link>
-            <Link href="/login" className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors">Login</Link>
-            <Link href="/register" className="px-5 py-2.5 text-sm font-semibold rounded-xl bg-white text-slate-900 shadow-lg shadow-white/5 transition-all hover:-translate-y-0.5 hover:bg-slate-100">
+            <Link href="#features" className="hidden md:inline-flex px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors">Features</Link>
+            <Link href="#pricing" className="hidden md:inline-flex px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors">Pricing</Link>
+            <Link href="#support" className="hidden md:inline-flex px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors">Support</Link>
+            <Link href="/login" className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-slate-200 transition-colors">Login</Link>
+            <Link href="/register" className="px-5 py-2.5 text-sm font-semibold rounded-xl bg-slate-200 text-slate-900 shadow-lg shadow-white/5 transition-all hover:-translate-y-0.5 hover:bg-slate-300">
               Get Started
             </Link>
           </nav>
@@ -84,7 +132,7 @@ export default async function Home() {
             </div>
 
             {/* Title */}
-            <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight leading-[1.1] mb-6 text-white">
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight leading-[1.1] mb-6 text-slate-200">
               {siteTagline}
             </h1>
 
@@ -94,30 +142,8 @@ export default async function Home() {
             </p>
 
             {/* Email Verify Input */}
-            <div className="max-w-xl mx-auto">
-              <div className="flex flex-col sm:flex-row gap-3 p-2 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl shadow-black/20">
-                <div className="relative flex-1">
-                  <svg className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
-                  </svg>
-                  <input
-                    type="email"
-                    placeholder="Enter email address to verify..."
-                    className="w-full pl-12 pr-4 py-4 rounded-xl bg-white/5 border-0 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-base"
-                    readOnly
-                  />
-                </div>
-                <Link
-                  href="/register"
-                  className="flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-indigo-600 text-white font-semibold text-base shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 transition-all hover:-translate-y-0.5 whitespace-nowrap"
-                >
-                  Verify Now
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
-                </Link>
-              </div>
-              <p className="text-xs text-slate-500 mt-4">
-                🔒 Free to try — No credit card required. Start with 100 free credits.
-              </p>
+            <div className="mt-8">
+                <HomeEmailVerifier />
             </div>
 
             {/* Stats */}
@@ -139,7 +165,7 @@ export default async function Home() {
         </section>
 
         {/* ─── HOW IT WORKS / FEATURES ─── */}
-        <section id="features" className="relative py-20 md:py-32 border-t border-white/5">
+        <section id="features" className="relative py-20 md:py-32 border-t border-white/5 bg-gradient-to-b from-[#030712] via-indigo-950/20 to-[#030712]">
           <div className="relative z-10 mx-auto max-w-7xl px-6">
             <div className="text-center mb-20">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.03] text-slate-300 text-xs font-medium mb-6">
@@ -230,7 +256,7 @@ export default async function Home() {
         </section>
 
         {/* ─── PRICING SECTION ─── */}
-        <section id="pricing" className="relative py-20 md:py-32 border-t border-white/5">
+        <section id="pricing" className="relative py-20 md:py-32 border-t border-white/5 bg-slate-900/20">
           <div className="relative z-10 mx-auto max-w-5xl px-6">
             <div className="text-center mb-16">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.03] text-slate-300 text-xs font-medium mb-6">
@@ -245,92 +271,39 @@ export default async function Home() {
             </div>
 
             <div className="grid gap-6 md:grid-cols-3">
-              {/* Starter */}
-              <div className="relative p-8 rounded-2xl border border-white/5 bg-white/[0.01] hover:bg-white/[0.03] transition-colors">
-                <h3 className="text-base font-medium text-slate-300 mb-2">Starter</h3>
-                <div className="flex items-baseline gap-1 mb-1">
-                  <span className="text-4xl font-bold text-white">$5</span>
+              {packages.map(pkg => (
+                <div key={pkg.id} className={`relative p-8 rounded-2xl border transition-colors ${pkg.popular ? 'border-indigo-500/30 bg-indigo-500/[0.03]' : 'border-white/5 bg-white/[0.01] hover:bg-white/[0.03]'}`}>
+                  {pkg.popular && (
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-indigo-500 text-[10px] font-bold text-slate-200 tracking-wider uppercase">
+                      Most Popular
+                    </div>
+                  )}
+                  <h3 className={`text-base font-medium mb-2 ${pkg.popular ? 'text-indigo-300' : 'text-slate-300'}`}>{pkg.name}</h3>
+                  <div className="flex items-baseline gap-1 mb-1">
+                    <span className="text-4xl font-bold text-slate-200">${pkg.price}</span>
+                  </div>
+                  <p className="text-sm text-slate-500 mb-8">{pkg.credits_amount.toLocaleString()} credits</p>
+                  
+                  <ul className="space-y-4 mb-8">
+                    {pkg.features?.map((feature, idx) => (
+                      <li key={idx} className={`flex items-center gap-3 text-sm ${pkg.popular ? 'text-slate-300' : 'text-slate-400'}`}>
+                        <svg className="h-4 w-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                        {feature}
+                      </li>
+                    ))}
+                  </ul>
+                  
+                  <Link href="/register" className={`block w-full text-center py-2.5 rounded-xl text-sm font-medium transition-colors ${pkg.popular ? 'bg-indigo-600 hover:bg-indigo-500 text-slate-200' : 'border border-white/10 hover:bg-white/5 text-slate-200'}`}>
+                    Get Started
+                  </Link>
                 </div>
-                <p className="text-sm text-slate-500 mb-8">1,000 credits</p>
-                <ul className="space-y-4 mb-8">
-                  <li className="flex items-center gap-3 text-sm text-slate-400">
-                    <svg className="h-4 w-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                    Single & Bulk Verification
-                  </li>
-                  <li className="flex items-center gap-3 text-sm text-slate-400">
-                    <svg className="h-4 w-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                    CSV Export
-                  </li>
-                  <li className="flex items-center gap-3 text-sm text-slate-400">
-                    <svg className="h-4 w-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                    API Access
-                  </li>
-                </ul>
-                <Link href="/register" className="block w-full text-center py-2.5 rounded-xl border border-white/10 text-sm font-medium hover:bg-white/5 transition-colors">
-                  Get Started
-                </Link>
-              </div>
-
-              {/* Pro — Popular */}
-              <div className="relative p-8 rounded-2xl border border-indigo-500/30 bg-indigo-500/[0.03]">
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-indigo-500 text-[10px] font-bold text-white tracking-wider uppercase">
-                  Most Popular
-                </div>
-                <h3 className="text-base font-medium text-indigo-300 mb-2">Professional</h3>
-                <div className="flex items-baseline gap-1 mb-1">
-                  <span className="text-4xl font-bold text-white">$25</span>
-                </div>
-                <p className="text-sm text-slate-500 mb-8">10,000 credits</p>
-                <ul className="space-y-4 mb-8">
-                  <li className="flex items-center gap-3 text-sm text-slate-300">
-                    <svg className="h-4 w-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                    Everything in Starter
-                  </li>
-                  <li className="flex items-center gap-3 text-sm text-slate-300">
-                    <svg className="h-4 w-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                    Webhook Integration
-                  </li>
-                  <li className="flex items-center gap-3 text-sm text-slate-300">
-                    <svg className="h-4 w-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                    Real-time Dashboard
-                  </li>
-                </ul>
-                <Link href="/register" className="block w-full text-center py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-colors">
-                  Get Started
-                </Link>
-              </div>
-
-              {/* Enterprise */}
-              <div className="relative p-8 rounded-2xl border border-white/5 bg-white/[0.01] hover:bg-white/[0.03] transition-colors">
-                <h3 className="text-base font-medium text-slate-300 mb-2">Enterprise</h3>
-                <div className="flex items-baseline gap-1 mb-1">
-                  <span className="text-4xl font-bold text-white">$99</span>
-                </div>
-                <p className="text-sm text-slate-500 mb-8">100,000 credits</p>
-                <ul className="space-y-4 mb-8">
-                  <li className="flex items-center gap-3 text-sm text-slate-400">
-                    <svg className="h-4 w-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                    Everything in Pro
-                  </li>
-                  <li className="flex items-center gap-3 text-sm text-slate-400">
-                    <svg className="h-4 w-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                    White-label Option
-                  </li>
-                  <li className="flex items-center gap-3 text-sm text-slate-400">
-                    <svg className="h-4 w-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                    Dedicated Worker Nodes
-                  </li>
-                </ul>
-                <Link href="/register" className="block w-full text-center py-2.5 rounded-xl border border-white/10 text-sm font-medium hover:bg-white/5 transition-colors">
-                  Contact Sales
-                </Link>
-              </div>
+              ))}
             </div>
           </div>
         </section>
 
         {/* ─── FAQ & CONTACT SECTION ─── */}
-        <section id="support" className="relative py-20 md:py-32 border-t border-white/5">
+        <section id="support" className="relative py-20 md:py-32 border-t border-white/5 bg-gradient-to-b from-[#030712] via-purple-950/20 to-[#030712]">
           <div className="relative z-10 mx-auto max-w-7xl px-6">
             
             <div className="text-center mb-16">
@@ -363,7 +336,7 @@ export default async function Home() {
                           id="contact-name"
                           type="text"
                           placeholder="Your name"
-                          className="w-full px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 text-sm transition-colors"
+                          className="w-full px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 text-sm transition-colors"
                         />
                       </div>
                       <div>
@@ -372,7 +345,7 @@ export default async function Home() {
                           id="contact-email"
                           type="email"
                           placeholder="you@example.com"
-                          className="w-full px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 text-sm transition-colors"
+                          className="w-full px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 text-sm transition-colors"
                         />
                       </div>
                     </div>
@@ -382,7 +355,7 @@ export default async function Home() {
                         id="contact-subject"
                         type="text"
                         placeholder="How can we help?"
-                        className="w-full px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 text-sm transition-colors"
+                        className="w-full px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 text-sm transition-colors"
                       />
                     </div>
                     <div>
@@ -391,12 +364,12 @@ export default async function Home() {
                         id="contact-message"
                         rows={4}
                         placeholder="Tell us more..."
-                        className="w-full px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 text-sm transition-colors resize-none"
+                        className="w-full px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 text-sm transition-colors resize-none"
                       />
                     </div>
                     <button
                       type="submit"
-                      className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-colors"
+                      className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-slate-200 transition-colors"
                     >
                       Send Message
                     </button>
@@ -409,7 +382,7 @@ export default async function Home() {
         </section>
 
         {/* ─── CTA SECTION ─── */}
-        <section className="relative py-24 md:py-32 border-t border-white/5 bg-white/[0.01]">
+        <section className="relative py-24 md:py-32 border-t border-white/5 bg-gradient-to-br from-indigo-900/20 via-[#030712] to-purple-900/20">
           <div className="relative z-10 mx-auto max-w-2xl px-6 text-center">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.03] text-slate-300 text-xs font-medium mb-6">
               Get Started
@@ -421,10 +394,10 @@ export default async function Home() {
               Join thousands of marketers who trust our platform. Start verifying emails for free today.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link href="/register" className="px-6 py-3 rounded-xl bg-white text-slate-900 font-medium hover:bg-slate-100 transition-colors text-sm">
+              <Link href="/register" className="px-6 py-3 rounded-xl bg-slate-200 text-slate-900 font-medium hover:bg-slate-300 transition-colors text-sm">
                 Start Free — 100 Credits
               </Link>
-              <Link href="#features" className="px-6 py-3 rounded-xl border border-white/10 text-white font-medium hover:bg-white/5 transition-colors text-sm">
+              <Link href="#features" className="px-6 py-3 rounded-xl border border-white/10 text-slate-200 font-medium hover:bg-white/5 transition-colors text-sm">
                 Learn More
               </Link>
             </div>
@@ -438,12 +411,12 @@ export default async function Home() {
           <div className="grid gap-8 md:grid-cols-4">
             {/* Brand */}
             <div className="md:col-span-2">
-              <Link href="/" className="flex items-center gap-2.5 font-bold text-lg text-white mb-4">
+              <Link href="/" className="flex items-center gap-2.5 font-bold text-lg text-slate-200 mb-4">
                 {logoUrl ? (
                   <img src={logoUrl} alt="Logo" className="h-6 w-6 object-contain" />
                 ) : (
                   <div className="h-6 w-6 rounded-md bg-indigo-500 flex items-center justify-center">
-                    <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    <svg className="h-3 w-3 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                   </div>
                 )}
                 {siteTitle}
@@ -459,16 +432,16 @@ export default async function Home() {
               </div>
 
               <div className="flex items-center gap-4 mt-6">
-                <a href="#" className="text-slate-500 hover:text-white transition-colors" title="LinkedIn">
+                <a href="#" className="text-slate-500 hover:text-slate-200 transition-colors" title="LinkedIn">
                   <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
                 </a>
-                <a href="#" className="text-slate-500 hover:text-white transition-colors" title="X (Twitter)">
+                <a href="#" className="text-slate-500 hover:text-slate-200 transition-colors" title="X (Twitter)">
                   <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
                 </a>
-                <a href="#" className="text-slate-500 hover:text-white transition-colors" title="YouTube">
+                <a href="#" className="text-slate-500 hover:text-slate-200 transition-colors" title="YouTube">
                   <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
                 </a>
-                <a href="#" className="text-slate-500 hover:text-white transition-colors" title="Facebook">
+                <a href="#" className="text-slate-500 hover:text-slate-200 transition-colors" title="Facebook">
                   <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M9 8h-3v4h3v12h5v-12h3.642l.358-4h-4v-1.667c0-.955.192-1.333 1.115-1.333h2.885v-5h-3.808c-3.596 0-5.192 1.583-5.192 4.615v3.385z"/></svg>
                 </a>
               </div>
@@ -476,21 +449,21 @@ export default async function Home() {
 
             {/* Links */}
             <div>
-              <h4 className="text-sm font-medium text-white mb-4">Product</h4>
+              <h4 className="text-sm font-medium text-slate-200 mb-4">Product</h4>
               <ul className="space-y-3">
-                <li><Link href="#features" className="text-sm text-slate-500 hover:text-white transition-colors">Features</Link></li>
-                <li><Link href="#pricing" className="text-sm text-slate-500 hover:text-white transition-colors">Pricing</Link></li>
-                <li><Link href="#support" className="text-sm text-slate-500 hover:text-white transition-colors">FAQ</Link></li>
-                <li><Link href="/register" className="text-sm text-slate-500 hover:text-white transition-colors">Get Started</Link></li>
+                <li><Link href="#features" className="text-sm text-slate-500 hover:text-slate-200 transition-colors">Features</Link></li>
+                <li><Link href="#pricing" className="text-sm text-slate-500 hover:text-slate-200 transition-colors">Pricing</Link></li>
+                <li><Link href="#support" className="text-sm text-slate-500 hover:text-slate-200 transition-colors">FAQ</Link></li>
+                <li><Link href="/register" className="text-sm text-slate-500 hover:text-slate-200 transition-colors">Get Started</Link></li>
               </ul>
             </div>
 
             <div>
-              <h4 className="text-sm font-medium text-white mb-4">Legal</h4>
+              <h4 className="text-sm font-medium text-slate-200 mb-4">Legal</h4>
               <ul className="space-y-3">
-                <li><Link href="#" className="text-sm text-slate-500 hover:text-white transition-colors">Terms of Service</Link></li>
-                <li><Link href="#" className="text-sm text-slate-500 hover:text-white transition-colors">Privacy Policy</Link></li>
-                <li><Link href="#support" className="text-sm text-slate-500 hover:text-white transition-colors">Contact</Link></li>
+                <li><Link href="#" className="text-sm text-slate-500 hover:text-slate-200 transition-colors">Terms of Service</Link></li>
+                <li><Link href="#" className="text-sm text-slate-500 hover:text-slate-200 transition-colors">Privacy Policy</Link></li>
+                <li><Link href="#support" className="text-sm text-slate-500 hover:text-slate-200 transition-colors">Contact</Link></li>
               </ul>
             </div>
           </div>
