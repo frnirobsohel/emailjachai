@@ -278,6 +278,12 @@ export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
             href: "/admin/cache-control",
             active: pathname === "/admin/cache-control",
         },
+        {
+            label: "Security Shield",
+            icon: ShieldCheck,
+            href: "/admin/security",
+            active: pathname === "/admin/security",
+        },
     ]
 
     const resellerRoutes = [

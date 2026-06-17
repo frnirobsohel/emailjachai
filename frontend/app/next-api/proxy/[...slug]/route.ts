@@ -3,7 +3,7 @@ import { verifyUser } from '@/lib/auth';
 import { cookies } from 'next/headers';
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
-const PUBLIC_PROXY_ROUTES = new Set(['settings/public', 'auth/login', 'auth/register', 'auth/forgot-password', 'auth/reset-password']);
+const PUBLIC_PROXY_ROUTES = new Set(['settings/public', 'auth/login', 'auth/register', 'auth/forgot-password', 'auth/reset-password', 'jobs/verify-public', 'jobs/verify-public/status']);
 
 /**
  * Proxy function to forward requests to the PHP backend

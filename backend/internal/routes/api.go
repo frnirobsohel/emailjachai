@@ -53,6 +53,7 @@ func SetupRoutes(router *gin.Engine) {
 	// Initialize Handlers
 	authHandler := handler.NewAuthHandler(authService, userService)
 	jobHandler := handler.NewJobHandler(jobService)
+	publicVerifyHandler := handler.NewPublicVerifyHandler()
 	userHandler := handler.NewUserHandler(userService, jobService, paymentService, resellerService)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	paymentHandler := handler.NewPaymentHandler(paymentService)
@@ -72,6 +73,10 @@ func SetupRoutes(router *gin.Engine) {
 		v1.GET("/health", systemHandler.HealthCheck)
 		v1.GET("/ping", systemHandler.Ping)
 		v1.GET("/settings/public", adminHandler.GetPublicSettings)
+		v1.GET("/packages/list", adminHandler.GetActivePackages)
+		// Public email verify (no auth, no credits, strict IP rate limit)
+		v1.POST("/jobs/verify-public", middleware.PublicRateLimiter(), publicVerifyHandler.VerifyPublic)
+		v1.GET("/jobs/verify-public/status", publicVerifyHandler.GetPublicStatus)
 		// WebSocket Route
 		v1.GET("/ws", middleware.WSAuthMiddleware(), systemHandler.ServeWS)
 
@@ -150,7 +155,6 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/dashboard/stats", handler.DashboardStats)
 			protected.GET("/dashboard/history", userHandler.DashboardHistory)
 			protected.GET("/user/transactions", userHandler.DashboardHistory) // Alias for frontend
-			protected.GET("/packages/list", adminHandler.GetActivePackages)
 			protected.GET("/auth/me", authHandler.GetMe)
 			protected.POST("/auth/profile/update", authHandler.UpdateProfile)
 
@@ -241,6 +245,14 @@ func SetupRoutes(router *gin.Engine) {
 			admin.GET("/smtp/templates", adminHandler.GetTemplates)
 			admin.POST("/smtp/templates", adminHandler.SaveTemplate)
 			admin.POST("/smtp/test", adminHandler.TestSmtpConnection)
+
+			// Security Shield & Public Verifier
+			admin.GET("/security/dashboard", adminHandler.SecurityDashboard)
+			admin.GET("/security/verify-logs", adminHandler.GetSecurityVerifyLogs)
+			admin.GET("/security/blocklist", adminHandler.GetSecurityBlocklist)
+			admin.POST("/security/unblock", adminHandler.SecurityUnblock)
+			admin.POST("/security/settings", adminHandler.UpdateSecuritySettings)
+			admin.POST("/packages/toggle-public", adminHandler.TogglePackagePublic)
 		}
 	}
 

@@ -54,9 +54,6 @@ export default async function Home() {
 
   try {
     const res = await fetch(`${API_BASE_URL}/packages/list`, { 
-        headers: {
-            'Authorization': `Bearer ${process.env.ADMIN_API_KEY || ''}`
-        },
         next: { revalidate: 60 } 
     })
     const json = await res.json()

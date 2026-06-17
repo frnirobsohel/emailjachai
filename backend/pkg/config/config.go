@@ -63,6 +63,8 @@ func ConnectDB() {
 			&model.SecurityLog{},
 			&model.WorkerServer{},
 			&model.EmailCache{},
+			&model.PublicVerifyLog{},
+			&model.BlockedClient{},
 		)
 		if err != nil {
 			logger.Error("Failed to run migrations", "error", err)

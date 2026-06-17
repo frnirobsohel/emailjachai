@@ -4,18 +4,14 @@ const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1'
 
 export async function verifyEmailPublic(email: string) {
     try {
-        const apiKey = process.env.ADMIN_API_KEY
-        
-        // We make the request to the backend. We pass the admin API key for auth if needed.
-        // Or if the backend relies on IP/Host, it's passed automatically.
-        const res = await fetch(`${API_BASE_URL}/jobs/verify-single`, {
+        // Uses the dedicated public endpoint — no API key required.
+        // Rate limited server-side (5 req/min per IP) by the backend.
+        const res = await fetch(`${API_BASE_URL}/jobs/verify-public`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
             },
             body: JSON.stringify({ email }),
-            // Prevent caching to ensure real-time verification
             cache: 'no-store'
         })
 

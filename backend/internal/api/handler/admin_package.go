@@ -21,6 +21,7 @@ type PackageResponse struct {
 	Features      interface{} `json:"features"`
 	Status        string      `json:"status"`
 	Popular       bool        `json:"popular"`
+	IsPublic      bool        `json:"is_public"`
 }
 
 func normalizePackage(p model.Package) PackageResponse {
@@ -39,6 +40,7 @@ func normalizePackage(p model.Package) PackageResponse {
 		Features:      features,
 		Status:        p.Status,
 		Popular:       p.Popular,
+		IsPublic:      p.IsPublic,
 	}
 }
 

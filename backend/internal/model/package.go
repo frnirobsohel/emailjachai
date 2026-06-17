@@ -16,6 +16,7 @@ type Package struct {
 	Features      string         `gorm:"type:text" json:"features"` // JSON string of features
 	Status        string         `gorm:"type:varchar(20);default:'active'" json:"status"`
 	Popular       bool           `gorm:"default:false" json:"popular"`
+	IsPublic      bool           `gorm:"default:true" json:"is_public"` // Controls frontend visibility
 	CreatedAt     time.Time      `json:"created_at"`
 	UpdatedAt     time.Time      `json:"updated_at"`
 	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`

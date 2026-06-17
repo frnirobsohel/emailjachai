@@ -2,22 +2,36 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { verifyEmailPublic } from "@/actions/public-verify"
 import { Loader2 } from "lucide-react"
+import { ApiClient } from "@/lib/api-client"
 
 export function HomeEmailVerifier() {
     const router = useRouter()
     const [email, setEmail] = useState("")
     const [isLoading, setIsLoading] = useState(false)
     const [status, setStatus] = useState<string | null>(null)
-    const [usageCount, setUsageCount] = useState<number>(0)
+    const [limit, setLimit] = useState<number>(15)
+    const [remaining, setRemaining] = useState<number>(15)
+    const [isInitializing, setIsInitializing] = useState(true)
+
+    const fetchStatus = async () => {
+        try {
+            const res = await ApiClient.get<any>('/jobs/verify-public/status', {
+                withCredentials: true // Axios setting to include cookies
+            })
+            if (res.status === 'success') {
+                setLimit(res.data.limit)
+                setRemaining(res.data.remaining)
+            }
+        } catch (e) {
+            console.error("Failed to load verifier status")
+        } finally {
+            setIsInitializing(false)
+        }
+    }
 
     useEffect(() => {
-        // Load the count from local storage on mount
-        const storedCount = localStorage.getItem("ejp_public_verify_count")
-        if (storedCount) {
-            setUsageCount(parseInt(storedCount, 10))
-        }
+        fetchStatus()
     }, [])
 
     const handleVerify = async (e: React.FormEvent) => {
@@ -25,7 +39,7 @@ export function HomeEmailVerifier() {
         if (!email.trim()) return
 
         // Check limit
-        if (usageCount >= 15) {
+        if (!isInitializing && remaining <= 0) {
             router.push("/register")
             return
         }
@@ -34,21 +48,19 @@ export function HomeEmailVerifier() {
         setStatus(null)
 
         try {
-            const res = await verifyEmailPublic(email)
+            const res = await ApiClient.post<any>('/jobs/verify-public', { email }, {
+                withCredentials: true
+            })
             
-            // We assume the backend returns something like { status: 'success', data: { result: 'Valid' } }
-            // Adjust this according to the actual backend response format
             if (res?.status === 'success' && res.data) {
-                setStatus(res.data.result || res.data.status || 'Verified')
+                setStatus(res.data.status || 'Verified')
                 
-                // Only increment usage count on a successful API request
-                const newCount = usageCount + 1
-                setUsageCount(newCount)
-                localStorage.setItem("ejp_public_verify_count", newCount.toString())
+                // Refresh the remaining count from server
+                fetchStatus()
             } else if (res?.status === 'error') {
                 setStatus(res.message || 'Error')
             } else {
-                setStatus(res?.result || 'Unknown')
+                setStatus(res?.message || 'Unknown')
             }
 
         } catch (error) {
@@ -117,7 +129,11 @@ export function HomeEmailVerifier() {
                     🔒 Free to try — No credit card required.
                 </p>
                 <p className="text-xs text-slate-500">
-                    {Math.max(0, 15 - usageCount)} free verifications left
+                    {isInitializing ? (
+                        <span className="animate-pulse">Loading credits...</span>
+                    ) : (
+                        <>{remaining} free verifications left</>
+                    )}
                 </p>
             </div>
         </form>
