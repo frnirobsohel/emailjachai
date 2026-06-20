@@ -12,7 +12,7 @@ export default async function SmtpSettingsPage() {
         daily_limit: "5000",
         is_active: true
     };
-    let initialTemplates: Record<TemplatesKey, Template> = { ...DEFAULT_TEMPLATES };
+    const initialTemplates: Record<TemplatesKey, Template> = { ...DEFAULT_TEMPLATES };
     let initialHasStoredPassword = false;
     let initialIsConnectionVerified = false;
 

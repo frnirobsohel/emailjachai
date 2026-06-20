@@ -144,19 +144,18 @@ func SelfHeal() {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Worker-Key", config.Cfg.WorkerAPIKey)
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err == nil && resp.StatusCode == http.StatusOK {
+	resp, err := httpClient.Do(req)
+	if err == nil {
+		defer resp.Body.Close()
 		var result struct {
 			Message string `json:"message"`
 		}
 		json.NewDecoder(resp.Body).Decode(&result)
+		// Drain remainder of body to enable connection reuse
+		_, _ = io.Copy(io.Discard, resp.Body)
 		logger.Info("Self-healing success", zap.String("message", result.Message))
-		resp.Body.Close()
-	} else if err != nil {
-		logger.Error("Self-healing failed", zap.Error(err))
 	} else {
-		logger.Error("Self-healing failed with status", zap.Int("status", resp.StatusCode))
+		logger.Error("Self-healing failed", zap.Error(err))
 	}
 }
 
@@ -175,20 +174,28 @@ func UpdateDomainCache() {
 		}
 		req.Header.Set("X-Worker-Key", config.Cfg.WorkerAPIKey)
 
-		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Do(req)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			var result struct {
-				Data []map[string]interface{} `json:"data"`
+		func() {
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				logger.Error("Failed to update domain cache", zap.Error(err))
+				return
 			}
-			if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
-				engine.Cache.Update(result.Data)
-				logger.Info("Domain cache updated", zap.Int("entries", len(result.Data)))
+			defer resp.Body.Close()
+
+			if resp.StatusCode == http.StatusOK {
+				var result struct {
+					Data []map[string]interface{} `json:"data"`
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
+					engine.Cache.Update(result.Data)
+					logger.Info("Domain cache updated", zap.Int("entries", len(result.Data)))
+				}
+			} else {
+				logger.Error("Failed to update domain cache with status", zap.Int("status", resp.StatusCode))
 			}
-			resp.Body.Close()
-		} else {
-			logger.Error("Failed to update domain cache", zap.Error(err))
-		}
+			// Drain remainder of body to enable connection reuse
+			_, _ = io.Copy(io.Discard, resp.Body)
+		}()
 
 		time.Sleep(1 * time.Hour)
 	}

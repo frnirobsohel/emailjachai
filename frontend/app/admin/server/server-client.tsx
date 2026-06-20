@@ -20,6 +20,8 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { toast } from "react-hot-toast"
 import { ApiClient } from "@/lib/api-client"
+import { useServerStore } from "@/stores/server-store"
+import { useServerWebSocket } from "@/hooks/useServerWebSocket"
 
 export interface ServerNode {
     id: number
@@ -59,7 +61,12 @@ const rotateKeySchema = z.object({
 })
 
 export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
-    const [servers, setServers] = useState<ServerNode[]>(initialData)
+    const servers = useServerStore(state => state.servers)
+    const setServers = useServerStore(state => state.setServers)
+    
+    // Connect to WebSocket to receive real-time server_list_update events
+    useServerWebSocket()
+    
     const [isLoading, setIsLoading] = useState(false)
     const [workerKey, setWorkerKey] = useState("")
     const [isKeyLoading, setIsKeyLoading] = useState(false)
@@ -87,6 +94,16 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
         resolver: zodResolver(rotateKeySchema),
         defaultValues: { password: "" }
     })
+
+    useEffect(() => {
+        if (initialData && initialData.length > 0) {
+            setServers(initialData)
+        }
+    }, [initialData])
+
+    useEffect(() => {
+        fetchServers();
+    }, []);
 
     useEffect(() => {
         if (manageServer) {

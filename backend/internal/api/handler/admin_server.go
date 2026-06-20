@@ -118,12 +118,10 @@ type serverNode struct {
 	} `json:"config"`
 }
 
-// ListServers returns all worker servers (legacy-compatible UI shape)
-func (h *AdminHandler) ListServers(c *gin.Context) {
+func (h *AdminHandler) getServerNodes() ([]serverNode, error) {
 	servers, err := h.serverService.ListServers()
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch servers", err.Error())
-		return
+		return nil, err
 	}
 
 	procRows, err := h.serverService.GetActiveTasksCountByWorker()
@@ -212,7 +210,38 @@ func (h *AdminHandler) ListServers(c *gin.Context) {
 		out = append(out, n)
 	}
 
+	return out, nil
+}
+
+// ListServers returns all worker servers (legacy-compatible UI shape)
+func (h *AdminHandler) ListServers(c *gin.Context) {
+	out, err := h.getServerNodes()
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch servers", err.Error())
+		return
+	}
+
 	helper.SendSuccess(c, "Servers retrieved", out)
+}
+
+// StartServerListBroadcaster polls server list and broadcasts via WebSocket
+func (h *AdminHandler) StartServerListBroadcaster() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if ws.GlobalHub == nil || len(ws.GlobalHub.Clients) == 0 {
+				continue
+			}
+
+			servers, err := h.getServerNodes()
+			if err != nil {
+				continue
+			}
+
+			ws.GlobalHub.BroadcastToAdmins("server_list_update", servers)
+		}
+	}()
 }
 
 // GetWorkerKey returns the currently configured worker API key (masked or plain)
@@ -469,7 +498,7 @@ func WorkerHeartbeat(c *gin.Context) {
 		First(&server).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			if strings.EqualFold(os.Getenv("ENVIRONMENT"), "production") {
+			if strings.EqualFold(os.Getenv("ENVIRONMENT"), "production") || strings.EqualFold(os.Getenv("GO_ENV"), "production") {
 				helper.SendError(c, http.StatusForbidden, "Unknown worker server", "ERR_WORKER_SERVER_FORBIDDEN")
 				return
 			}

@@ -6,6 +6,7 @@ import (
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/helper"
+	"ejp-backend/internal/ws"
 
 	"gorm.io/gorm"
 )
@@ -31,11 +32,42 @@ func (s *resellerService) TransferCredits(resellerID uint, recipientEmail string
 		return errors.New("transfer amount must be greater than zero")
 	}
 
-	return s.txRepo.DB().Transaction(func(tx *gorm.DB) error {
-		// 1. Get Reseller (Sender)
-		var reseller model.User
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&reseller, resellerID).Error; err != nil {
-			return errors.New("account not found")
+	err := s.txRepo.DB().Transaction(func(tx *gorm.DB) error {
+		// 1. Get Recipient first to verify role and ID without locking
+		var recipient model.User
+		if err := tx.Where("email = ?", recipientEmail).First(&recipient).Error; err != nil {
+			return errors.New("recipient user not found")
+		}
+
+		if recipient.ID == resellerID {
+			return errors.New("you cannot transfer credits to yourself")
+		}
+
+		if recipient.Role != "user" {
+			return errors.New("unauthorized: reseller can only transfer credits to regular users")
+		}
+
+		// 2. Lock rows in consistent numeric order of IDs to prevent circular locking deadlocks
+		firstID, secondID := resellerID, recipient.ID
+		if resellerID > recipient.ID {
+			firstID, secondID = recipient.ID, resellerID
+		}
+
+		var firstUser, secondUser model.User
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&firstUser, firstID).Error; err != nil {
+			return err
+		}
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&secondUser, secondID).Error; err != nil {
+			return err
+		}
+
+		var reseller, targetRecipient model.User
+		if firstID == resellerID {
+			reseller = firstUser
+			targetRecipient = secondUser
+		} else {
+			reseller = secondUser
+			targetRecipient = firstUser
 		}
 
 		if reseller.Role != "reseller" && reseller.Role != "admin" {
@@ -46,23 +78,13 @@ func (s *resellerService) TransferCredits(resellerID uint, recipientEmail string
 			return errors.New("insufficient credits for transfer")
 		}
 
-		// 2. Get Recipient
-		var recipient model.User
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("email = ?", recipientEmail).First(&recipient).Error; err != nil {
-			return errors.New("recipient user not found")
-		}
-
-		if recipient.ID == resellerID {
-			return errors.New("you cannot transfer credits to yourself")
-		}
-
 		// 3. Deduct from Reseller
 		if err := tx.Model(&reseller).Update("credits", gorm.Expr("credits - ?", amount)).Error; err != nil {
 			return err
 		}
 
 		// 4. Add to Recipient
-		if err := tx.Model(&recipient).Update("credits", gorm.Expr("credits + ?", amount)).Error; err != nil {
+		if err := tx.Model(&targetRecipient).Update("credits", gorm.Expr("credits + ?", amount)).Error; err != nil {
 			return err
 		}
 
@@ -84,7 +106,7 @@ func (s *resellerService) TransferCredits(resellerID uint, recipientEmail string
 
 		// Inbound (Recipient)
 		txIn := &model.Transaction{
-			UserID:        recipient.ID,
+			UserID:        targetRecipient.ID,
 			TransactionID: "TRF_IN_" + helper.GenerateRandomHex(10),
 			Amount:        0,
 			CreditsAdded:  amount,
@@ -99,4 +121,28 @@ func (s *resellerService) TransferCredits(resellerID uint, recipientEmail string
 
 		return nil
 	})
+
+	if err == nil {
+		// Broadcast updated credit balance for reseller (sender) and refresh stats
+		go func() {
+			if updatedReseller, getErr := s.userRepo.GetByID(resellerID); getErr == nil && updatedReseller != nil {
+				ws.GlobalHub.BroadcastToUser(updatedReseller.ID, "user_update", map[string]interface{}{
+					"credits": updatedReseller.Credits,
+				})
+			}
+			ComputeAndCacheDashboardStats(resellerID)
+		}()
+
+		// Broadcast updated credit balance for recipient and refresh stats
+		go func() {
+			if recipient, getErr := s.userRepo.GetByEmail(recipientEmail); getErr == nil && recipient != nil {
+				ws.GlobalHub.BroadcastToUser(recipient.ID, "user_update", map[string]interface{}{
+					"credits": recipient.Credits,
+				})
+				ComputeAndCacheDashboardStats(recipient.ID)
+			}
+		}()
+	}
+
+	return err
 }

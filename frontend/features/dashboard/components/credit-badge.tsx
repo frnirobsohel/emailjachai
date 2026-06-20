@@ -10,16 +10,6 @@ export function CreditBadge() {
 
     useEffect(() => {
         fetchStats();
-        const onVisibilityChange = () => {
-            if (document.visibilityState === "visible") {
-                fetchStats(); // This uses our 60s cache natively now unless forced
-            }
-        };
-
-        document.addEventListener("visibilitychange", onVisibilityChange);
-        return () => {
-            document.removeEventListener("visibilitychange", onVisibilityChange);
-        };
     }, [fetchStats]);
 
     if (!stats) return null;

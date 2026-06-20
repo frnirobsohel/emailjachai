@@ -1,18 +1,17 @@
+"use client"
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { ArrowRight, CheckCircle2, Clock, Mail, Zap, FileText } from "lucide-react"
+import { ArrowRight, Clock, FileText } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { fetchServer } from "@/lib/fetch-server"
+import { useDashboardStore } from "@/stores/dashboard-store"
 
-export async function RecentActivity() {
-    let jobs: any[] = [];
-    let isLoading = false;
-
-    const result = await fetchServer('/jobs/list?limit=4');
-    if (result.status === 'success' && result.data) {
-        jobs = result.data.jobs || [];
-    }
+export function RecentActivity() {
+    // Read from centralized store — no API call needed.
+    // Data is seeded by DashboardClient from SSR and kept fresh via WebSocket.
+    const recentJobs = useDashboardStore(state => state.recentJobs)
+    const isLoadingStats = useDashboardStore(state => state.isLoadingStats)
 
     return (
         <Card className="col-span-1 lg:col-span-4 shadow-sm border-indigo-100 overflow-hidden h-full flex flex-col">
@@ -22,13 +21,13 @@ export async function RecentActivity() {
             </CardHeader>
             <CardContent className="p-0 flex-1">
                 <div className="divide-y divide-slate-100">
-                    {jobs.length === 0 && !isLoading ? (
+                    {recentJobs.length === 0 && !isLoadingStats ? (
                         <div className="p-6 text-center text-slate-400 text-sm italic">
                             No recent activity found.
                         </div>
                     ) : (
-                        jobs.map((job, i) => (
-                            <div key={i} className="flex items-center justify-between p-3 hover:bg-slate-50/50 transition-colors group">
+                        recentJobs.map((job, i) => (
+                            <div key={job.job_id || i} className="flex items-center justify-between p-3 hover:bg-slate-50/50 transition-colors group">
                                 <div className="flex items-center gap-4">
                                     <div className={cn(
                                         "h-10 w-10 rounded-xl flex items-center justify-center border shadow-sm transition-colors",
@@ -43,7 +42,7 @@ export async function RecentActivity() {
                                             {job.job_type === 'single' ? 'Single Verification' : (job.filename || 'Bulk Job')}
                                         </p>
                                         <p className="text-xs text-slate-500 font-medium">
-                                            #{job.job_id} • {job.total_emails} {job.total_emails === 1 ? 'email' : 'emails'}
+                                            #{job.job_id.substring(0, 8)} • {job.total_emails} {job.total_emails === 1 ? 'email' : 'emails'}
                                         </p>
                                     </div>
                                 </div>
@@ -73,3 +72,4 @@ export async function RecentActivity() {
         </Card>
     )
 }
+

@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { logger } from '@/lib/logger';
-import { useUserStore } from '@/stores/user-state';
-
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/api/v1/ws';
 
 export interface WsMessage {
     type: string;
@@ -11,52 +8,92 @@ export interface WsMessage {
     user_id?: number;
 }
 
-export function useSocket() {
-    const isAuthenticated = useUserStore(state => state.isAuthenticated);
+function getWsUrl() {
+    if (process.env.NEXT_PUBLIC_WS_URL) {
+        return process.env.NEXT_PUBLIC_WS_URL;
+    }
+
+    const apiUrl =
+        process.env.NEXT_PUBLIC_API_URL ||
+        `${window.location.protocol}//${window.location.host}/api/v1`;
+
+    return apiUrl.replace(/^http/, 'ws').replace(/\/api\/v1\/?$/, '') + '/api/v1/ws';
+}
+
+export function useSocket(enabled = true) {
     const [isConnected, setIsConnected] = useState(false);
     const socketRef = useRef<WebSocket | null>(null);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const reconnectAttemptRef = useRef(0);
+    const isConnectingRef = useRef(false);
+    const enabledRef = useRef(enabled);
     const connectRef = useRef<() => void>(() => {});
-    const wsTokenRef = useRef<string | null>(null);
 
     // Fetch a short-lived WS token from the server (cookie-based auth)
     const fetchWsToken = useCallback(async (): Promise<string | null> => {
-        try {
-            const res = await fetch('/next-api/auth/ws-token');
-            const data = await res.json();
-            if (data.status === 'success' && data.data?.token) {
-                wsTokenRef.current = data.data.token;
-                return data.data.token;
-            }
-        } catch (err) {
-            logger.warn('Failed to fetch WS token', err);
+        const res = await fetch('/next-api/auth/ws-token', { cache: 'no-store' });
+        if (res.status === 401) {
+            return null;
         }
+
+        if (!res.ok) {
+            throw new Error(`WS token request failed with status ${res.status}`);
+        }
+
+        const data = await res.json();
+        if (data.status === 'success' && data.data?.token) {
+            return data.data.token;
+        }
+
         return null;
     }, []);
 
-    const connect = useCallback(async () => {
-        if (!isAuthenticated) return;
-        if (socketRef.current?.readyState === WebSocket.OPEN) return;
+    const clearReconnectTimer = useCallback(() => {
+        if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+        }
+    }, []);
 
-        // Get a fresh WS token
-        const token = await fetchWsToken();
-        if (!token) {
-            // Stop trying if token cannot be fetched, connection will re-trigger on next auth state change
+    const scheduleReconnect = useCallback(() => {
+        if (!enabledRef.current || reconnectTimeoutRef.current) return;
+
+        const delay = Math.min(30000, 1000 * 2 ** reconnectAttemptRef.current);
+        reconnectAttemptRef.current += 1;
+        reconnectTimeoutRef.current = setTimeout(() => {
+            reconnectTimeoutRef.current = null;
+            connectRef.current();
+        }, delay);
+    }, []);
+
+    const connect = useCallback(async () => {
+        if (!enabledRef.current || typeof window === 'undefined') return;
+        if (isConnectingRef.current) return;
+        if (
+            socketRef.current?.readyState === WebSocket.OPEN ||
+            socketRef.current?.readyState === WebSocket.CONNECTING
+        ) {
             return;
         }
 
-        const url = `${WS_URL}?token=${token}`;
-        
+        isConnectingRef.current = true;
+
         try {
+            const token = await fetchWsToken();
+            if (!enabledRef.current) return;
+            if (!token) {
+                setIsConnected(false);
+                return;
+            }
+
+            const url = `${getWsUrl()}?token=${encodeURIComponent(token)}`;
             const ws = new WebSocket(url);
 
             ws.onopen = () => {
                 logger.info('WebSocket Connected');
                 setIsConnected(true);
-                if (reconnectTimeoutRef.current) {
-                    clearTimeout(reconnectTimeoutRef.current);
-                    reconnectTimeoutRef.current = null;
-                }
+                reconnectAttemptRef.current = 0;
+                clearReconnectTimer();
             };
 
             ws.onmessage = (event) => {
@@ -81,8 +118,10 @@ export function useSocket() {
             ws.onclose = () => {
                 logger.warn('WebSocket Disconnected. Retrying in 3s...');
                 setIsConnected(false);
-                socketRef.current = null;
-                reconnectTimeoutRef.current = setTimeout(() => connectRef.current(), 3000);
+                if (socketRef.current === ws) {
+                    socketRef.current = null;
+                }
+                scheduleReconnect();
             };
 
             ws.onerror = (event) => {
@@ -98,9 +137,11 @@ export function useSocket() {
             socketRef.current = ws;
         } catch (err) {
             logger.error('Failed to initiate WebSocket connection', err);
-            reconnectTimeoutRef.current = setTimeout(() => connectRef.current(), 5000);
+            scheduleReconnect();
+        } finally {
+            isConnectingRef.current = false;
         }
-    }, [fetchWsToken, isAuthenticated]);
+    }, [clearReconnectTimer, fetchWsToken, scheduleReconnect]);
 
     // Keep connectRef in sync (must be inside useEffect, not during render)
     useEffect(() => {
@@ -108,27 +149,30 @@ export function useSocket() {
     }, [connect]);
 
     useEffect(() => {
-        if (isAuthenticated) {
+        enabledRef.current = enabled;
+
+        if (enabled) {
             connect();
         } else {
+            clearReconnectTimer();
             if (socketRef.current) {
                 socketRef.current.onclose = null;
-                socketRef.current.close();
+                socketRef.current.close(1000, 'Realtime disabled');
                 socketRef.current = null;
             }
             setIsConnected(false);
         }
         
         return () => {
+            enabledRef.current = false;
+            clearReconnectTimer();
             if (socketRef.current) {
                 socketRef.current.onclose = null; // Prevent reconnect on manual close
-                socketRef.current.close();
-            }
-            if (reconnectTimeoutRef.current) {
-                clearTimeout(reconnectTimeoutRef.current);
+                socketRef.current.close(1000, 'Component unmounted');
+                socketRef.current = null;
             }
         };
-    }, [connect, isAuthenticated]);
+    }, [clearReconnectTimer, connect, enabled]);
 
     const sendMessage = useCallback((msg: any) => {
         if (socketRef.current?.readyState === WebSocket.OPEN) {

@@ -132,7 +132,7 @@ func (r *userRepo) GetRecentUsers(limit int) ([]model.User, error) {
 func (r *userRepo) AdjustCredits(userID uint, amount int, amountPaid float64, desc string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		var user model.User
-		if err := tx.First(&user, userID).Error; err != nil {
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, userID).Error; err != nil {
 			return err
 		}
 

@@ -26,10 +26,10 @@ export const useUserStore = create<UserState>()(
             isAuthenticated: false,
             setUser: (user, token) => {
                 if (typeof window !== 'undefined') {
-                    localStorage.setItem('auth_token', token);
+                    if (token) localStorage.setItem('auth_token', token);
                     localStorage.setItem('sidebar_role', user.role);
                 }
-                set({ user, token, isAuthenticated: true });
+                set({ user, token: token || null, isAuthenticated: true });
             },
             clearUser: () => {
                 if (typeof window !== 'undefined') {

@@ -4,21 +4,22 @@ import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, CreditCard, Activity, DollarSign, ArrowUpRight, ArrowDownRight, RefreshCcw } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
+import { useAdminStore } from "@/stores/admin-store"
+import { useAdminWebSocket } from "@/hooks/useAdminWebSocket"
 
 export function AdminDashboardClient({ initialData }: { initialData: any }) {
-    const [data, setData] = useState<any>(initialData)
+    const store = useAdminStore()
+    const data = store.data || initialData
     const [isLoading, setIsLoading] = useState(false)
-    const dataRef = useRef<string>(initialData ? JSON.stringify(initialData) : "")
+
+    // Connect to WebSocket to receive real-time admin_stats_update events
+    useAdminWebSocket()
 
     const fetchStats = async () => {
         try {
             const result = await ApiClient.get('/admin/dashboard/stats');
             if (result.status === 'success') {
-                const newDataStr = JSON.stringify(result.data);
-                if (newDataStr !== dataRef.current) {
-                    dataRef.current = newDataStr;
-                    setData(result.data as any);
-                }
+                store.setData(result.data as any);
             }
         } catch (error) {
             console.error("Failed to fetch admin stats:", error);
@@ -28,18 +29,17 @@ export function AdminDashboardClient({ initialData }: { initialData: any }) {
     }
 
     useEffect(() => {
-        // Initial fetch handled by SSR, only fetch if visibility changes
-        const onVisibilityChange = () => {
-            if (document.visibilityState === "visible") {
-                fetchStats();
-            }
-        };
+        // Initialize store on mount ONLY if not yet initialized
+        if (initialData && !store.hasInitialized) {
+            store.setData(initialData);
+        }
+    }, [initialData]);
 
-        document.addEventListener("visibilitychange", onVisibilityChange);
-        return () => {
-            document.removeEventListener("visibilitychange", onVisibilityChange);
-        };
-    }, []);
+    useEffect(() => {
+        if (store.hasInitialized) {
+            fetchStats();
+        }
+    }, [store.hasInitialized]);
 
 
     const stats = [

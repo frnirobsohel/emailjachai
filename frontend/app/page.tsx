@@ -32,6 +32,41 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: `${title} — ${tagline}`,
     description: tagline,
+    keywords: ["email verification", "email verifier", "bounce rate reduction", "smtp check", "mx record lookup", "email list cleaning", "disposable email checker"],
+    openGraph: {
+      title: `${title} — ${tagline}`,
+      description: tagline,
+      type: "website",
+      url: "https://emailjachai.pro",
+      siteName: title,
+      images: [
+        {
+          url: "https://emailjachai.pro/dashboard-preview.png",
+          width: 1200,
+          height: 630,
+          alt: `${title} - ${tagline}`,
+        }
+      ]
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${title} — ${tagline}`,
+      description: tagline,
+      images: ["https://emailjachai.pro/dashboard-preview.png"],
+    },
+    robots: {
+      index: true,
+      follow: true,
+      nocache: true,
+      googleBot: {
+        index: true,
+        follow: true,
+        noimageindex: false,
+        'max-video-preview': -1,
+        'max-image-preview': 'large',
+        'max-snippet': -1,
+      },
+    },
   }
 }
 
@@ -83,14 +118,36 @@ export default async function Home() {
     ]
   }
 
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": siteTitle,
+    "operatingSystem": "All",
+    "applicationCategory": "BusinessApplication",
+    "description": siteTagline,
+    "offers": {
+      "@type": "AggregateOffer",
+      "priceCurrency": "USD",
+      "lowPrice": "5",
+      "highPrice": "99",
+      "offerCount": "3"
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-[#030712] text-slate-200 overflow-x-hidden selection:bg-indigo-500/30">
+      {/* JSON-LD Structured Data for AI & Search Engine Crawlers */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+
       {/* ─── NAVBAR ─── */}
       <header className="fixed top-0 left-0 right-0 z-50 border-b border-white/5 bg-[#030712]/80 backdrop-blur-xl">
         <div className="mx-auto max-w-7xl px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5 font-bold text-lg tracking-tight text-slate-200">
             {logoUrl ? (
-              <img src={logoUrl} alt="Logo" className="h-7 w-7 object-contain" />
+              <img src={logoUrl} alt="Logo" width={28} height={28} className="h-7 w-7 object-contain" />
             ) : (
               <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
                 <svg className="h-4 w-4 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
@@ -410,7 +467,7 @@ export default async function Home() {
             <div className="md:col-span-2">
               <Link href="/" className="flex items-center gap-2.5 font-bold text-lg text-slate-200 mb-4">
                 {logoUrl ? (
-                  <img src={logoUrl} alt="Logo" className="h-6 w-6 object-contain" />
+                  <img src={logoUrl} alt="Logo" width={24} height={24} className="h-6 w-6 object-contain" />
                 ) : (
                   <div className="h-6 w-6 rounded-md bg-indigo-500 flex items-center justify-center">
                     <svg className="h-3 w-3 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>

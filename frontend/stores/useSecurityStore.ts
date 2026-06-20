@@ -1,0 +1,162 @@
+import { create } from 'zustand'
+import { ApiClient } from '@/lib/api-client'
+import { toast } from 'react-hot-toast'
+
+interface SecurityState {
+  logs: any[]
+  blocked: any[]
+  packages: any[]
+  stats: {
+    total_verified: number
+    unique_ips: number
+    fraud_prevented: number
+    currently_blocked: number
+  }
+  dailyLimit: string
+  isVerificationEnabled: boolean
+  hasInitialized: boolean
+  
+  // Actions
+  hydrate: (data: any) => void
+  initialize: (force?: boolean) => Promise<void>
+  addLog: (log: any) => void
+  addBlocked: (block: any) => void
+  removeBlocked: (id: number) => void
+  updateStats: (stats: any) => void
+  setDailyLimit: (limit: string) => void
+  setVerificationEnabled: (enabled: boolean) => void
+  togglePackage: (id: number) => void
+  unblockClient: (id: number) => Promise<void>
+  handleSettingsUpdate: (newLimit?: string, newToggle?: boolean) => Promise<void>
+}
+
+export const useSecurityStore = create<SecurityState>((set, get) => ({
+  logs: [],
+  blocked: [],
+  packages: [],
+  stats: {
+    total_verified: 0,
+    unique_ips: 0,
+    fraud_prevented: 0,
+    currently_blocked: 0
+  },
+  dailyLimit: "10",
+  isVerificationEnabled: true,
+  hasInitialized: false,
+
+  hydrate: (data) => {
+    if (!data) return;
+    set({
+      ...(data.stats && { 
+        stats: data.stats, 
+        dailyLimit: data.stats.daily_limit || "10", 
+        isVerificationEnabled: data.stats.verifier_enabled ?? true 
+      }),
+      ...(data.logs && { logs: data.logs }),
+      ...(data.blocked && { blocked: data.blocked }),
+      ...(data.packages && { packages: data.packages }),
+      hasInitialized: true
+    })
+  },
+
+  initialize: async (force = false) => {
+    if (!force && get().hasInitialized) return;
+
+    try {
+      // Load stats & settings
+      const dashRes = await ApiClient.get<any>('/admin/security/dashboard')
+      if (dashRes.status === 'success') {
+        set({ 
+          stats: dashRes.data,
+          dailyLimit: dashRes.data.daily_limit || "10",
+          isVerificationEnabled: dashRes.data.verifier_enabled ?? true
+        })
+      }
+
+      // Load logs
+      const logsRes = await ApiClient.get<any[]>('/admin/security/verify-logs')
+      if (logsRes.status === 'success') set({ logs: logsRes.data || [] })
+
+      // Load blocklist
+      const blockRes = await ApiClient.get<any[]>('/admin/security/blocklist')
+      if (blockRes.status === 'success') set({ blocked: blockRes.data || [] })
+
+      // Load packages
+      const pkgRes = await ApiClient.get<any[]>('/admin/packages')
+      if (pkgRes.status === 'success') set({ packages: pkgRes.data || [] })
+
+      set({ hasInitialized: true })
+    } catch (err) {
+      console.error("Failed to load security dashboard data", err)
+      toast.error("Failed to load data")
+    }
+  },
+
+  addLog: (log) => set((state) => {
+    const logKey = log?.id ?? `${log?.created_at || ''}:${log?.ip || ''}:${log?.email || ''}:${log?.status || ''}`
+    const exists = state.logs.some((item) => {
+      const itemKey = item?.id ?? `${item?.created_at || ''}:${item?.ip || ''}:${item?.email || ''}:${item?.status || ''}`
+      return itemKey === logKey
+    })
+
+    if (exists) return {}
+
+    return { logs: [log, ...state.logs].slice(0, 50) }
+  }),
+
+  addBlocked: (block) => set((state) => {
+    const blockKey = block?.id ?? `${block?.type || ''}:${block?.value || ''}`
+    const exists = state.blocked.some((item) => {
+      const itemKey = item?.id ?? `${item?.type || ''}:${item?.value || ''}`
+      return itemKey === blockKey
+    })
+
+    if (exists) return {}
+
+    return { blocked: [block, ...state.blocked].slice(0, 50) }
+  }),
+
+  removeBlocked: (id) => set((state) => ({
+    blocked: state.blocked.filter(b => b.id !== id)
+  })),
+
+  updateStats: (newStats) => set((state) => ({
+    stats: { ...state.stats, ...newStats }
+  })),
+
+  setDailyLimit: (limit) => set({ dailyLimit: limit }),
+  
+  setVerificationEnabled: (enabled) => set({ isVerificationEnabled: enabled }),
+
+  togglePackage: (id) => set((state) => ({
+    packages: state.packages.map(p => p.id === id ? { ...p, is_public: !p.is_public } : p)
+  })),
+
+  handleSettingsUpdate: async (newLimit?: string, newToggle?: boolean) => {
+    try {
+      await ApiClient.post('/admin/security/settings', {
+        daily_limit: newLimit,
+        verifier_enabled: newToggle
+      })
+      toast.success("Settings updated")
+    } catch (err) {
+      toast.error("Failed to update settings")
+    }
+  },
+
+  unblockClient: async (id) => {
+    try {
+      const res = await ApiClient.post('/admin/security/unblock', { id })
+      if (res.status === 'success') {
+        toast.success("Unblocked successfully")
+        get().removeBlocked(id)
+        // Optionally update stats (-1 blocked)
+        set(state => ({
+          stats: { ...state.stats, currently_blocked: Math.max(0, state.stats.currently_blocked - 1) }
+        }))
+      }
+    } catch (err) {
+      toast.error("Failed to unblock")
+    }
+  }
+}))

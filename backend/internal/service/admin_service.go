@@ -9,6 +9,7 @@ import (
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
+	"ejp-backend/internal/ws"
 )
 
 type AdminService interface {
@@ -246,6 +247,16 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 				})
 			}
 			s.logActivity("INFO", "Admin", fmt.Sprintf("Adjusted %d credits for user #%d", amount, targetUserID), adminID)
+
+			// Broadcast updated credits and stats to the target user in real-time
+			go func() {
+				if updatedUser, getErr := s.userRepo.GetByID(targetUserID); getErr == nil && updatedUser != nil {
+					ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", map[string]interface{}{
+						"credits": updatedUser.Credits,
+					})
+				}
+				ComputeAndCacheDashboardStats(targetUserID)
+			}()
 		}
 		return err
 	}

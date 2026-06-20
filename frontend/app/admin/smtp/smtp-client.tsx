@@ -124,6 +124,52 @@ export function SmtpClient({
         }
     })
 
+    const fetchSmtpData = async () => {
+        try {
+            const [smtpData, tplData] = await Promise.all([
+                ApiClient.get('/admin/smtp/settings'),
+                ApiClient.get('/admin/smtp/templates')
+            ]);
+            if (smtpData.status === 'success' && smtpData.data) {
+                const smtpResponse = smtpData.data as SmtpSettings;
+                smtpForm.reset({
+                    host: smtpResponse.host || "",
+                    port: smtpResponse.port || "587",
+                    encryption: smtpResponse.encryption || "tls",
+                    username: smtpResponse.username || "",
+                    password: "",
+                    daily_limit: smtpResponse.daily_limit || "5000",
+                    is_active: smtpResponse.is_active ?? true
+                });
+                setHasStoredPassword(Boolean(smtpResponse.has_password));
+                setIsConnectionVerified(Boolean(smtpResponse.is_active));
+            }
+            if (tplData.status === 'success' && tplData.data) {
+                const rows = tplData.data as ApiTemplateRow[];
+                if (Array.isArray(rows)) {
+                    const nextTemplates = { ...DEFAULT_TEMPLATES };
+                    for (const row of rows) {
+                        const key = row.template_name as TemplatesKey;
+                        if (nextTemplates[key]) {
+                            nextTemplates[key] = {
+                                subject: row.subject || nextTemplates[key].subject,
+                                body: row.body || nextTemplates[key].body,
+                                is_active: row.is_active ?? true
+                            };
+                        }
+                    }
+                    setTemplates(nextTemplates);
+                }
+            }
+        } catch (error) {
+            console.error("Failed to fetch SMTP settings on client mount:", error);
+        }
+    };
+
+    useEffect(() => {
+        fetchSmtpData();
+    }, []);
+
     useEffect(() => {
         templateForm.reset({
             subject: templates[selectedTpl]?.subject || "",

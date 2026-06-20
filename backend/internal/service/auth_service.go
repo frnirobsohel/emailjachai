@@ -10,6 +10,8 @@ import (
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/helper"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type AuthService interface {
@@ -211,7 +213,7 @@ func (s *authService) ForgotPassword(email string) error {
 		return nil
 	}
 
-	token, err := helper.GenerateResetToken(user.Email)
+	token, err := helper.GenerateResetToken(user.Email, user.Password)
 	if err != nil {
 		return err
 	}
@@ -232,15 +234,34 @@ func (s *authService) ForgotPassword(email string) error {
 	return nil
 }
 
-func (s *authService) ResetPassword(token, newPassword string) error {
-	email, err := helper.VerifyResetToken(token)
+func (s *authService) ResetPassword(tokenString, newPassword string) error {
+	// 1. Decode token without validation to extract email claim
+	var claims jwt.MapClaims
+	_, _, err := new(jwt.Parser).ParseUnverified(tokenString, &claims)
 	if err != nil {
 		return errors.New("invalid or expired reset token")
 	}
 
+	tokenType, ok := claims["type"].(string)
+	if !ok || tokenType != "reset" {
+		return errors.New("invalid or expired reset token")
+	}
+
+	email, ok := claims["email"].(string)
+	if !ok || email == "" {
+		return errors.New("invalid or expired reset token")
+	}
+
+	// 2. Fetch user to obtain current password hash
 	user, err := s.userRepo.GetByEmail(email)
 	if err != nil {
 		return errors.New("user not found")
+	}
+
+	// 3. Fully verify token using user's password hash
+	_, err = helper.VerifyResetToken(tokenString, user.Password)
+	if err != nil {
+		return errors.New("invalid or expired reset token")
 	}
 
 	hashedPassword, err := helper.HashPassword(newPassword)

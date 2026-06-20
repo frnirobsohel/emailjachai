@@ -10,6 +10,7 @@ import (
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/security"
 	"ejp-backend/internal/verifier"
+	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
 
 	"github.com/gin-gonic/gin"
@@ -182,7 +183,9 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 			Browser:  brow,
 			Status:   stat,
 		}
-		config.DB.Create(&logEntry)
+		if err := config.DB.Create(&logEntry).Error; err == nil {
+			ws.GlobalHub.BroadcastToAdmins("security_log", logEntry)
+		}
 	}(email, ip, cookieId, browser, res.Status)
 }
 

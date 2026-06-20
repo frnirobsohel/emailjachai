@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -18,6 +19,17 @@ import (
 
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
+)
+
+var (
+	webhookClient = &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 100,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
 )
 
 type EmailTaskPayload struct {
@@ -157,12 +169,14 @@ func HandleWebhookTask(ctx context.Context, t *asynq.Task) error {
 		req.Header.Set("X-EJP-Signature", signature)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := webhookClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("webhook delivery failed: %v", err)
 	}
 	defer resp.Body.Close()
+
+	// Drain body to enable TCP connection reuse
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		logger.Info("Webhook delivered successfully", zap.String("url", p.URL), zap.Int("status", resp.StatusCode))

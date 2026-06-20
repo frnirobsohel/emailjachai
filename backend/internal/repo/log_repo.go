@@ -1,9 +1,11 @@
 package repo
 
 import (
-	"ejp-backend/internal/model"
-	"ejp-backend/pkg/config"
 	"time"
+
+	"ejp-backend/internal/model"
+	"ejp-backend/internal/ws"
+	"ejp-backend/pkg/config"
 
 	"gorm.io/gorm"
 )
@@ -37,7 +39,11 @@ func (r *logRepo) CountFailedLogins(ip, email string, since time.Time) (int64, e
 }
 
 func (r *logRepo) Create(log *model.ActivityLog) error {
-	return r.db.Create(log).Error
+	err := r.db.Create(log).Error
+	if err == nil && ws.GlobalHub != nil {
+		ws.GlobalHub.BroadcastToAdmins("system_log_update", log)
+	}
+	return err
 }
 
 func (r *logRepo) List(limit, offset int) ([]model.ActivityLog, int64, error) {

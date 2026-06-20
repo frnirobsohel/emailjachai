@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, HTMLAttributes } from "react"
+import { useState, useEffect, HTMLAttributes } from "react"
 import Link from "next/link"
 import { useRouter, usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
@@ -49,72 +49,35 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 import { useUIStore } from "@/stores/ui-state"
 import { useUserStore } from "@/stores/user-state"
+import { resetAllStores } from "@/stores/store-reset"
 
 export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
     const pathname = usePathname()
     const router = useRouter()
     const { isSidebarOpen, isSidebarCollapsed, toggleSidebarCollapse } = useUIStore()
-    // Zustand persist store থেকে user নেওয়া — পেজ চেঞ্জেও state থাকে
-    const { user: zustandUser } = useUserStore()
+    // Read user directly from Zustand persist store — no local state needed
+    const { user, isAuthenticated } = useUserStore()
+    const userRole = user?.role || 'user'
     const [openSection, setOpenSection] = useState<"user" | "admin" | "system" | "reseller" | null>(null)
-    const [user, setUser] = useState<{ name: string, email: string, role?: string } | null>(zustandUser)
-    const [userRole, setUserRole] = useState<string>(zustandUser?.role || 'user')
     const [isImpersonating, setIsImpersonating] = useState<boolean>(false)
-    const [mounted, setMounted] = useState(false)
-    // /auth/me কতক্ষণ আগে fetch হয়েছিল track করতে
-    const lastAuthFetch = useRef<number>(0)
     const settings = useSettings()
     const siteTitle = settings?.site_title || "EmailJachai Pro"
     const logoUrl = settings?.logo_url
 
-    useEffect(() => {
-        setMounted(true)
-
-        // যদি Zustand store-এ ইতিমধ্যে user থাকে, sync করো
-        if (zustandUser) {
-            setUser(zustandUser)
-            setUserRole(zustandUser.role || 'user')
-        }
-
-        // /auth/me শুধুমাত্র একবার fetch করবো (৫ মিনিটের TTL)
-        const AUTH_TTL = 5 * 60 * 1000
-        const now = Date.now()
-        const shouldFetch = !zustandUser || (now - lastAuthFetch.current > AUTH_TTL)
-
-        if (!shouldFetch) return
-
-        const fetchAuthMe = async () => {
-            try {
-                lastAuthFetch.current = now
-                const meResponse = await fetch('/next-api/auth/me')
-                if (meResponse.ok) {
-                    const meData = await meResponse.json()
-                    const sessionUser = meData?.data?.user
-                    if (meData.status === 'success' && sessionUser) {
-                        setUser(sessionUser)
-                        setUserRole(sessionUser.role || 'user')
-                        if (meData.data.isImpersonating) {
-                            setIsImpersonating(true)
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error("Failed to sync session:", error)
-            }
-        }
-        fetchAuthMe()
-    }, []) // mount-এ একবারই
-
-    // ...
-
     const handleLogout = async () => {
         try {
-            setUser(null);
-            // Clear local cache on logout
-            localStorage.removeItem('sidebar_user')
-            localStorage.removeItem('sidebar_role')
-            localStorage.removeItem('sidebar_user_synced_at')
-            
+            // 1. Reset all in-memory Zustand stores (prevent data leakage between sessions)
+            resetAllStores();
+
+            // 2. Clear persisted user state
+            useUserStore.getState().clearUser();
+
+            // 3. Clear any legacy localStorage keys
+            localStorage.removeItem('sidebar_user');
+            localStorage.removeItem('sidebar_role');
+            localStorage.removeItem('sidebar_user_synced_at');
+
+            // 4. Invalidate server-side session cookie
             const response = await fetch("/next-api/auth/logout", { method: "POST" });
             const result = await response.json();
 
@@ -128,6 +91,40 @@ export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
             window.location.href = "/login";
         }
     }
+
+    useEffect(() => {
+        const syncAuthMe = async () => {
+            try {
+                const meResponse = await fetch('/next-api/auth/me')
+                if (meResponse.ok) {
+                    const meData = await meResponse.json()
+                    if (meData.status === 'success' && meData.data?.user) {
+                        const sessionUser = meData.data.user
+                        // Always update the store so role is always accurate
+                        useUserStore.getState().setUser(
+                            {
+                                id: String(sessionUser.id),
+                                email: sessionUser.email,
+                                name: sessionUser.name,
+                                role: sessionUser.role || 'user',
+                                avatar: sessionUser.avatar,
+                            },
+                            // token already in cookie, pass empty string to avoid overwriting localStorage
+                            ''
+                        )
+                        if (meData.data.isImpersonating) {
+                            setIsImpersonating(true)
+                        }
+                    }
+                } else if (meResponse.status === 401) {
+                    handleLogout()
+                }
+            } catch (error) {
+                console.error("Failed to sync session:", error)
+            }
+        }
+        syncAuthMe()
+    }, []) // mount-এ একবারই
 
     // ... keeping existing routes logic ...
     useEffect(() => {
@@ -306,7 +303,7 @@ export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
                     {/* The Logo (Always visible, but fades out on hover when collapsed) */}
                     <div className={cn("absolute inset-0 flex items-center justify-center transition-opacity duration-200", isSidebarCollapsed ? "group-hover/header:opacity-0" : "opacity-100")}>
                         {logoUrl ? (
-                            <img src={logoUrl} alt="Logo" className="h-6 w-6 object-contain" />
+                            <img src={logoUrl} alt="Logo" width={24} height={24} className="h-6 w-6 object-contain" />
                         ) : (
                             <ShieldCheck className="h-6 w-6 text-indigo-500" />
                         )}

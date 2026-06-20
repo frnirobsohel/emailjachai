@@ -1,10 +1,6 @@
-import { WeeklyActivityChart } from "@/features/dashboard/components/weekly-activity-chart"
-import { LifetimeUsageChart } from "@/features/dashboard/components/lifetime-usage-chart"
-import { RecentActivity } from "@/features/dashboard/components/recent-activity"
-import { QuickActions } from "@/features/dashboard/components/quick-actions"
-import { StatsCards } from "@/features/dashboard/components/stats-cards"
 import { fetchServer } from "@/lib/fetch-server"
 import type { DashboardStats } from "@/stores/dashboard-store"
+import { DashboardClient } from "./dashboard-client"
 
 const EMPTY_STATS: DashboardStats = {
     credits_remaining: "0",
@@ -32,32 +28,21 @@ const EMPTY_STATS: DashboardStats = {
 
 export default async function DashboardPage() {
     let stats = EMPTY_STATS;
-    
-    const result = await fetchServer('/dashboard/stats');
-    if (result.status === 'success' && result.data) {
-        stats = { ...EMPTY_STATS, ...result.data };
+    let initialRecentJobs: any[] = [];
+
+    // Fetch stats + recent jobs in parallel on the server for fast initial load
+    const [statsResult, jobsResult] = await Promise.all([
+        fetchServer('/dashboard/stats'),
+        fetchServer('/jobs/list?limit=4&type=bulk'),
+    ]);
+
+    if (statsResult.status === 'success' && statsResult.data) {
+        stats = { ...EMPTY_STATS, ...statsResult.data };
     }
 
-    const currentStats = stats;
-    const isLoadingStats = false; // Always false on server render
+    if (jobsResult.status === 'success' && jobsResult.data) {
+        initialRecentJobs = (jobsResult.data as any)?.jobs || [];
+    }
 
-    return (
-        <div className="flex-1 space-y-4">
-            <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-            </div>
-
-            <StatsCards stats={currentStats} isLoading={isLoadingStats} />
-
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-                <LifetimeUsageChart data={currentStats.usage_breakdown || EMPTY_STATS.usage_breakdown!} isLoading={isLoadingStats} />
-                <WeeklyActivityChart data={currentStats.weekly_activity || EMPTY_STATS.weekly_activity!} isLoading={isLoadingStats} />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-                <RecentActivity />
-                <QuickActions />
-            </div>
-        </div>
-    )
+    return <DashboardClient initialStats={stats} initialRecentJobs={initialRecentJobs} />;
 }

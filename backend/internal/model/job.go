@@ -8,14 +8,14 @@ import (
 
 type Job struct {
 	ID             uint           `gorm:"primaryKey" json:"id"`
-	UserID         uint           `gorm:"column:user_id;index:idx_user_created,priority:1;not null" json:"user_id"`
+	UserID         uint           `gorm:"column:user_id;index:idx_user_created,priority:1;index:idx_user_type,priority:1;not null" json:"user_id"`
 	JobID          string         `gorm:"column:job_id;type:varchar(50);uniqueIndex;not null" json:"job_id"`
 	Email          string         `gorm:"type:varchar(255)" json:"email"`
 	Filename       string         `gorm:"type:varchar(255)" json:"filename"`
 	FileURL        string         `gorm:"column:file_url;type:varchar(255)" json:"file_url"`
 	ResultFilePath string         `gorm:"column:result_file_path;type:varchar(512)" json:"result_file_path,omitempty"` // ndjson storage path
 	Status         string         `gorm:"type:varchar(20);default:'pending'" json:"status"`            // pending, processing, completed, failed
-	JobType        string         `gorm:"column:type;type:varchar(20);default:'bulk'" json:"job_type"` // bulk, single
+	JobType        string         `gorm:"column:type;type:varchar(20);default:'bulk';index:idx_user_type,priority:2" json:"job_type"` // bulk, single
 	TotalEmails    int            `gorm:"column:total_emails;default:0" json:"total_emails"`
 	ProcessedCount int            `gorm:"column:processed_count;default:0" json:"processed_count"`
 	APIKeyID       *uint          `gorm:"column:api_key_id;index" json:"api_key_id,omitempty"`

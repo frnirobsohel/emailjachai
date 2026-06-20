@@ -1,34 +1,60 @@
 "use client"
 
 import { useSocket } from "@/hooks/use-socket";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useCreditStore } from "@/stores/credit-state";
+import { useDashboardStore } from "@/stores/dashboard-store";
+import { useDashboardWebSocket } from "@/hooks/useDashboardWebSocket";
 import { logger } from "@/lib/logger";
+import { usePathname } from "next/navigation";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-    const { isConnected } = useSocket();
+    const pathname = usePathname();
+    // Default to false during SSR, then determine based on pathname
+    const isAppRoute = pathname?.startsWith('/dashboard') || pathname?.startsWith('/admin') || false;
+    
+    const { isConnected } = useSocket(isAppRoute);
     const { setBalance } = useCreditStore();
 
+    // Call the dashboard WebSocket hook globally to ensure stats are updated in real-time
+    useDashboardWebSocket();
+
     useEffect(() => {
-        // Handle credit updates globally via WebSocket
+        // Handle credit updates globally via WebSocket (legacy/fallback)
         const handleCreditUpdate = (event: any) => {
             const { data } = event.detail;
             if (data && typeof data.balance === 'number') {
-                logger.info(`Credits updated: ${data.balance}`);
+                logger.info(`Credits updated (legacy): ${data.balance}`);
                 setBalance(data.balance);
             }
         };
 
+        // Handle user update event sent by the Go backend (contains updated credits)
+        const handleUserUpdate = (event: any) => {
+            const { data } = event.detail;
+            if (data && typeof data.credits === 'number') {
+                logger.info(`User credits updated: ${data.credits}`);
+                setBalance(data.credits);
+                
+                // Keep the dashboard stats in sync with the updated credit balance
+                const dashboardStore = useDashboardStore.getState();
+                if (dashboardStore.stats) {
+                    dashboardStore.setStats({
+                        ...dashboardStore.stats,
+                        credits_remaining: data.credits.toLocaleString(),
+                    });
+                }
+            }
+        };
+
         window.addEventListener('ws:credit_update' as any, handleCreditUpdate);
-        return () => window.removeEventListener('ws:credit_update' as any, handleCreditUpdate);
+        window.addEventListener('ws:user_update' as any, handleUserUpdate);
+
+        return () => {
+            window.removeEventListener('ws:credit_update' as any, handleCreditUpdate);
+            window.removeEventListener('ws:user_update' as any, handleUserUpdate);
+        };
     }, [setBalance]);
-
-    const [isAppRoute, setIsAppRoute] = useState(false);
-
-    useEffect(() => {
-        const path = window.location.pathname;
-        setIsAppRoute(path.startsWith('/dashboard') || path.startsWith('/admin'));
-    }, []);
 
     return (
         <>
@@ -40,3 +66,4 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </>
     );
 }
+

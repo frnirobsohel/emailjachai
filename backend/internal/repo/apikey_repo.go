@@ -1,8 +1,9 @@
 package repo
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"ejp-backend/internal/model"
-	"ejp-backend/internal/helper"
 	"ejp-backend/pkg/config"
 
 	"gorm.io/gorm"
@@ -40,29 +41,23 @@ func (r *apiKeyRepo) GetByUserID(userID uint) ([]model.APIKey, error) {
 }
 
 // GetByKey finds an API key record by its plaintext key value.
-// WARNING: This performs a direct DB equality match (NOT bcrypt comparison).
-// This is used for prefix-based key lookup only (e.g., finding which user owns a key).
-// For actual authentication, the auth middleware extracts the prefix, finds the key
-// via this method, then verifies the full key against the stored hash using bcrypt.
-// Do NOT use this method alone for authentication purposes.
+// It computes the SHA-256 hash and performs an indexed O(1) query.
 func (r *apiKeyRepo) GetByKey(key string) (*model.APIKey, error) {
 	prefix := ""
 	if len(key) >= 16 {
 		prefix = key[:16]
 	}
 
-	var keys []model.APIKey
-	if err := r.db.Where("key_prefix = ? AND status = 'active'", prefix).Find(&keys).Error; err != nil {
+	hasher := sha256.New()
+	hasher.Write([]byte(key))
+	hashedKey := hex.EncodeToString(hasher.Sum(nil))
+
+	var apiKey model.APIKey
+	if err := r.db.Where("key_prefix = ? AND key = ? AND status = 'active'", prefix, hashedKey).First(&apiKey).Error; err != nil {
 		return nil, err
 	}
 
-	for _, k := range keys {
-		if helper.CheckPasswordHash(key, k.APIKey) {
-			return &k, nil
-		}
-	}
-
-	return nil, gorm.ErrRecordNotFound
+	return &apiKey, nil
 }
 
 func (r *apiKeyRepo) Create(key *model.APIKey) error {

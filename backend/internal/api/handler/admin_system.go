@@ -302,13 +302,20 @@ func (h *AdminHandler) DeleteBackup(c *gin.Context) {
 		return
 	}
 
-	path := filepath.Join(BackupDir, fileName)
+	// Clean and extract base name to prevent directory traversal attacks
+	cleanFileName := filepath.Base(filepath.Clean(fileName))
+	if cleanFileName == "." || cleanFileName == ".." || strings.Contains(fileName, "..") {
+		helper.SendError(c, http.StatusBadRequest, "Invalid backup file name path", "")
+		return
+	}
+
+	path := filepath.Join(BackupDir, cleanFileName)
 	if err := os.Remove(path); err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to delete backup", err.Error())
 		return
 	}
 
-	logAction(adminID.(uint), "WARN", "Admin", fmt.Sprintf("Deleted backup file: %s", fileName))
+	logAction(adminID.(uint), "WARN", "Admin", fmt.Sprintf("Deleted backup file: %s", cleanFileName))
 	helper.SendSuccess(c, "Backup deleted", nil)
 }
 
@@ -367,7 +374,9 @@ func zipDirectory(source, target string) error {
 		}
 
 		// Skip the backups directory itself and .git, node_modules etc.
-		if strings.Contains(path, "backups") || strings.Contains(path, ".git") || strings.Contains(path, "node_modules") || strings.Contains(path, "tmp") {
+		// Explicitly skip .env and configuration secret files to prevent credentials disclosure
+		baseName := filepath.Base(path)
+		if strings.Contains(path, "backups") || strings.Contains(path, ".git") || strings.Contains(path, "node_modules") || strings.Contains(path, "tmp") || baseName == ".env" || strings.HasSuffix(baseName, ".env.production") {
 			return nil
 		}
 

@@ -10,8 +10,20 @@ export function HomeEmailVerifier() {
     const [email, setEmail] = useState("")
     const [isLoading, setIsLoading] = useState(false)
     const [status, setStatus] = useState<string | null>(null)
-    const [limit, setLimit] = useState<number>(15)
-    const [remaining, setRemaining] = useState<number>(15)
+    const [limit, setLimit] = useState<number | null>(() => {
+        if (typeof window !== 'undefined') {
+            const cached = localStorage.getItem('free_verify_limit')
+            return cached ? Number(cached) : null
+        }
+        return null
+    })
+    const [remaining, setRemaining] = useState<number | null>(() => {
+        if (typeof window !== 'undefined') {
+            const cached = localStorage.getItem('free_verify_remaining')
+            return cached ? Number(cached) : null
+        }
+        return null
+    })
     const [isInitializing, setIsInitializing] = useState(true)
 
     const fetchStatus = async () => {
@@ -22,6 +34,9 @@ export function HomeEmailVerifier() {
             if (res.status === 'success') {
                 setLimit(res.data.limit)
                 setRemaining(res.data.remaining)
+                // Cache it so next reload doesn't flash 15
+                localStorage.setItem('free_verify_limit', res.data.limit)
+                localStorage.setItem('free_verify_remaining', res.data.remaining)
             }
         } catch (e) {
             console.error("Failed to load verifier status")
@@ -39,7 +54,7 @@ export function HomeEmailVerifier() {
         if (!email.trim()) return
 
         // Check limit
-        if (!isInitializing && remaining <= 0) {
+        if (!isInitializing && remaining !== null && remaining <= 0) {
             router.push("/register")
             return
         }
@@ -128,12 +143,8 @@ export function HomeEmailVerifier() {
                 <p className="text-xs text-slate-500">
                     🔒 Free to try — No credit card required.
                 </p>
-                <p className="text-xs text-slate-500">
-                    {isInitializing ? (
-                        <span className="animate-pulse">Loading credits...</span>
-                    ) : (
-                        <>{remaining} free verifications left</>
-                    )}
+                <p className="text-xs text-slate-500 min-h-[16px] min-w-[140px] text-right" suppressHydrationWarning>
+                    {remaining !== null ? `${remaining} free verifications left` : " "}
                 </p>
             </div>
         </form>

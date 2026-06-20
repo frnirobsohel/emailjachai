@@ -93,7 +93,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
     }, [settingsForm]);
 
     useEffect(() => {
-        // fetchData(); // Handled by SSR initialData
+        fetchData();
     }, [fetchData]);
 
     const onSaveSettings = async (values: z.infer<typeof settingsSchema>) => {

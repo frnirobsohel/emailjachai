@@ -43,25 +43,23 @@ export function ProfileClient({ initialProfile }: { initialProfile: any }) {
     })
 
     useEffect(() => {
-        if (!initialProfile) {
-            const fetchProfile = async () => {
-                try {
-                    setIsLoading(true);
-                    const result = await ApiClient.get<any>('/auth/me');
-                    if (result.status === 'success' && result.data) {
-                        const profile = result.data.user || result.data;
-                        setUser(profile);
-                        nameForm.reset({ name: profile.name });
-                    }
-                } catch (error) {
-                    console.error("Failed to fetch profile:", error);
-                } finally {
-                    setIsLoading(false);
+        const fetchProfile = async () => {
+            try {
+                setIsLoading(true);
+                const result = await ApiClient.get<any>('/auth/me');
+                if (result.status === 'success' && result.data) {
+                    const profile = result.data.user || result.data;
+                    setUser(profile);
+                    nameForm.reset({ name: profile.name });
                 }
-            };
-            fetchProfile();
-        }
-    }, [initialProfile, nameForm]);
+            } catch (error) {
+                console.error("Failed to fetch profile:", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchProfile();
+    }, [nameForm]);
 
     const onUpdateName = async (values: z.infer<typeof nameSchema>) => {
         try {

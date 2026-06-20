@@ -6,92 +6,36 @@ import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ShieldAlert, ShieldCheck, Activity, Ban, RefreshCcw, Search, Eye, EyeOff, Terminal, Shield } from "lucide-react"
-import { ApiClient } from "@/lib/api-client"
-import { toast } from "react-hot-toast"
+import { useSecurityStore } from "@/stores/useSecurityStore"
+import { useSecurityWebSocket } from "@/hooks/useSecurityWebSocket"
 
-export function SecurityDashboardClient() {
-    const [isVerificationEnabled, setIsVerificationEnabled] = useState(true)
-    const [dailyLimit, setDailyLimit] = useState("10")
+export function SecurityDashboardClient({ initialData }: { initialData?: any }) {
     const [activeTab, setActiveTab] = useState<"stream" | "blocklist">("stream")
     
-    const [logs, setLogs] = useState<any[]>([])
-    const [blocked, setBlocked] = useState<any[]>([])
-    const [packages, setPackages] = useState<any[]>([])
-    const [stats, setStats] = useState({
-        total_verified: 0,
-        unique_ips: 0,
-        fraud_prevented: 0,
-        currently_blocked: 0
-    })
+    // Connect Zustand Store
+    const store = useSecurityStore()
+    
+    // Initialize WebSocket Connection
+    useSecurityWebSocket()
 
-    const loadData = async () => {
-        try {
-            // Load stats & settings
-            const dashRes = await ApiClient.get<any>('/admin/security/dashboard')
-            if (dashRes.status === 'success') {
-                setStats(dashRes.data)
-                setDailyLimit(dashRes.data.daily_limit || "10")
-                setIsVerificationEnabled(dashRes.data.verifier_enabled ?? true)
-            }
-
-            // Load logs
-            const logsRes = await ApiClient.get<any[]>('/admin/security/verify-logs')
-            if (logsRes.status === 'success') setLogs(logsRes.data || [])
-
-            // Load blocklist
-            const blockRes = await ApiClient.get<any[]>('/admin/security/blocklist')
-            if (blockRes.status === 'success') setBlocked(blockRes.data || [])
-
-            // Load packages
-            const pkgRes = await ApiClient.get<any[]>('/admin/packages')
-            if (pkgRes.status === 'success') setPackages(pkgRes.data || [])
-        } catch (err) {
-            console.error("Failed to load security dashboard data", err)
-            toast.error("Failed to load data")
-        }
-    }
-
+    // Initialize initial REST data on mount
     useEffect(() => {
-        loadData()
-        const interval = setInterval(loadData, 15000) // Auto refresh every 15s
-        return () => clearInterval(interval)
-    }, [])
-
-    const handleSettingsUpdate = async (newLimit?: string, newToggle?: boolean) => {
-        try {
-            await ApiClient.post('/admin/security/settings', {
-                daily_limit: newLimit,
-                verifier_enabled: newToggle
-            })
-            toast.success("Settings updated")
-        } catch (err) {
-            toast.error("Failed to update settings")
+        if (store.hasInitialized) {
+            store.initialize(true)
+        } else if (initialData && (initialData.stats || initialData.logs.length > 0)) {
+            store.hydrate(initialData)
+        } else {
+            store.initialize()
         }
-    }
+    }, [initialData])
 
-    const togglePackage = async (id: number) => {
-        try {
-            const res = await ApiClient.post(`/admin/packages/toggle-public`, { package_id: id })
-            if (res.status === 'success') {
-                setPackages(packages.map(p => p.id === id ? { ...p, is_public: !p.is_public } : p))
-                toast.success("Package visibility updated")
-            }
-        } catch (err) {
-            toast.error("Failed to toggle package")
-        }
-    }
-
-    const unblockClient = async (id: number) => {
-        try {
-            const res = await ApiClient.post('/admin/security/unblock', { id })
-            if (res.status === 'success') {
-                toast.success("Unblocked successfully")
-                loadData()
-            }
-        } catch (err) {
-            toast.error("Failed to unblock")
-        }
-    }
+    // Use store state if initialized, otherwise fallback to initialData (to prevent flash)
+    const currentStats = store.hasInitialized ? store.stats : (initialData?.stats || store.stats)
+    const currentVerificationEnabled = store.hasInitialized ? store.isVerificationEnabled : (initialData?.stats?.verifier_enabled ?? store.isVerificationEnabled)
+    const currentDailyLimit = store.hasInitialized ? store.dailyLimit : (initialData?.stats?.daily_limit || store.dailyLimit)
+    const currentLogs = store.hasInitialized ? store.logs : (initialData?.logs || store.logs)
+    const currentBlocked = store.hasInitialized ? store.blocked : (initialData?.blocked || store.blocked)
+    const currentPackages = store.hasInitialized ? store.packages : (initialData?.packages || store.packages)
 
     return (
         <div className="flex-1 space-y-6">
@@ -103,14 +47,14 @@ export function SecurityDashboardClient() {
                 <div className="flex items-center gap-4">
                     <span className="text-sm font-medium text-slate-700">Public Verifier</span>
                     <Switch 
-                        checked={isVerificationEnabled} 
+                        checked={currentVerificationEnabled} 
                         onCheckedChange={(val) => {
-                            setIsVerificationEnabled(val)
-                            handleSettingsUpdate(undefined, val)
+                            store.setVerificationEnabled(val)
+                            store.handleSettingsUpdate(undefined, val)
                         }} 
                     />
-                    <Badge variant={isVerificationEnabled ? "default" : "destructive"} className="ml-2">
-                        {isVerificationEnabled ? "Active" : "Disabled"}
+                    <Badge variant={currentVerificationEnabled ? "default" : "destructive"} className="ml-2">
+                        {currentVerificationEnabled ? "Active" : "Disabled"}
                     </Badge>
                 </div>
             </div>
@@ -123,8 +67,8 @@ export function SecurityDashboardClient() {
                         <Activity className="h-4 w-4 text-indigo-500" />
                     </CardHeader>
                     <CardContent className="pt-4">
-                        <div className="text-2xl font-bold text-slate-900">{stats.total_verified}</div>
-                        <p className="text-xs text-slate-500 mt-1">Across {stats.unique_ips} unique IPs</p>
+                        <div className="text-2xl font-bold text-slate-900">{currentStats.total_verified}</div>
+                        <p className="text-xs text-slate-500 mt-1">Across {currentStats.unique_ips} unique IPs</p>
                     </CardContent>
                 </Card>
                 <Card className="border-indigo-100 shadow-sm">
@@ -133,7 +77,7 @@ export function SecurityDashboardClient() {
                         <ShieldCheck className="h-4 w-4 text-green-500" />
                     </CardHeader>
                     <CardContent className="pt-4">
-                        <div className="text-2xl font-bold text-slate-900">{stats.fraud_prevented}</div>
+                        <div className="text-2xl font-bold text-slate-900">{currentStats.fraud_prevented}</div>
                         <p className="text-xs text-slate-500 mt-1">Cookie & IP cross-checks</p>
                     </CardContent>
                 </Card>
@@ -143,7 +87,7 @@ export function SecurityDashboardClient() {
                         <Ban className="h-4 w-4 text-rose-500" />
                     </CardHeader>
                     <CardContent className="pt-4">
-                        <div className="text-2xl font-bold text-slate-900">{stats.currently_blocked}</div>
+                        <div className="text-2xl font-bold text-slate-900">{currentStats.currently_blocked}</div>
                         <p className="text-xs text-slate-500 mt-1">IPs & Cookies</p>
                     </CardContent>
                 </Card>
@@ -154,10 +98,10 @@ export function SecurityDashboardClient() {
                     </CardHeader>
                     <CardContent className="pt-4 flex items-center gap-2">
                         <select 
-                            value={dailyLimit}
+                            value={currentDailyLimit}
                             onChange={(e) => {
-                                setDailyLimit(e.target.value)
-                                handleSettingsUpdate(e.target.value, undefined)
+                                store.setDailyLimit(e.target.value)
+                                store.handleSettingsUpdate(e.target.value, undefined)
                             }}
                             className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-600"
                         >
@@ -210,9 +154,9 @@ export function SecurityDashboardClient() {
                                 />
                             </div>
                         )}
-                        <Button variant="outline" size="sm" className="h-8 text-xs bg-transparent border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800" onClick={loadData}>
+                        <Button variant="outline" size="sm" className="h-8 text-xs bg-transparent border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800" onClick={() => store.initialize(true)}>
                             <RefreshCcw className="h-3.5 w-3.5 mr-2" />
-                            Refresh
+                            Force Sync
                         </Button>
                     </div>
                 </div>
@@ -240,7 +184,7 @@ export function SecurityDashboardClient() {
                 {/* Content */}
                 <div className="divide-y divide-slate-800/30 overflow-y-auto custom-scrollbar bg-[#0a0c10]" style={{ height: "400px" }}>
                     {activeTab === 'stream' ? (
-                        logs.map((log) => (
+                        currentLogs.map((log: any) => (
                             <div key={log.id} className="grid items-center px-6 py-3 font-mono text-[11px] hover:bg-white/[0.02] transition-colors group relative" style={{ gridTemplateColumns: "repeat(6, minmax(0, 1fr))" }}>
                                 <span className="text-slate-500 group-hover:text-slate-400 transition-colors">{new Date(log.created_at).toLocaleTimeString()}</span>
                                 <span className="text-slate-300 font-semibold tabular-nums">{log.ip}</span>
@@ -253,7 +197,7 @@ export function SecurityDashboardClient() {
                             </div>
                         ))
                     ) : (
-                        blocked.map((block) => (
+                        currentBlocked.map((block: any) => (
                             <div key={block.id} className="grid items-center px-6 py-3 font-mono text-[11px] hover:bg-white/[0.02] transition-colors group relative bg-rose-500/[0.02]" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
                                 <div className="absolute left-0 top-0 bottom-0 w-[2px] opacity-100 bg-rose-500" />
                                 <span className="text-slate-500">{new Date(block.blocked_at).toLocaleTimeString()}</span>
@@ -263,7 +207,7 @@ export function SecurityDashboardClient() {
                                 </div>
                                 <span className="text-rose-300/80 truncate mr-2" title={block.reason}>{block.reason}</span>
                                 <div className="text-right">
-                                    <button onClick={() => unblockClient(block.id)} className="text-[10px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded px-3 py-1 transition-all focus:outline-none">
+                                    <button onClick={() => store.unblockClient(block.id)} className="text-[10px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded px-3 py-1 transition-all focus:outline-none">
                                         UNBLOCK
                                     </button>
                                 </div>
@@ -284,7 +228,7 @@ export function SecurityDashboardClient() {
                         </span>
                     </div>
                     <span className="font-mono text-[10px] text-slate-500">
-                        {activeTab === 'stream' ? `${logs.length} ENTRIES` : `${blocked.length} BLOCKS RECORDED`}
+                        {activeTab === 'stream' ? `${currentLogs.length} ENTRIES` : `${currentBlocked.length} BLOCKS RECORDED`}
                     </span>
                 </div>
             </Card>
@@ -297,7 +241,7 @@ export function SecurityDashboardClient() {
                 </CardHeader>
                 <CardContent className="pt-6">
                     <div className="grid gap-4 md:grid-cols-3">
-                        {packages.map((pkg) => (
+                        {currentPackages.map((pkg: any) => (
                             <div key={pkg.id} className="border border-slate-200 rounded-lg p-4 flex items-center justify-between hover:border-indigo-200 transition-colors bg-white">
                                 <div>
                                     <h4 className="font-medium text-slate-900">{pkg.name}</h4>
@@ -306,7 +250,7 @@ export function SecurityDashboardClient() {
                                 <div className="flex flex-col items-center gap-2">
                                     <Switch 
                                         checked={pkg.is_public ?? true} 
-                                        onCheckedChange={() => togglePackage(pkg.id)}
+                                        onCheckedChange={() => store.togglePackage(pkg.id)}
                                     />
                                     <span className="text-[10px] font-medium text-slate-500 flex items-center gap-1">
                                         {pkg.is_public ?? true ? <Eye className="h-3 w-3 text-indigo-500" /> : <EyeOff className="h-3 w-3" />}

@@ -319,7 +319,7 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 			"credits": updatedUser.Credits,
 		})
 	}
-	config.ClearDashboardCache(userID)
+	go ComputeAndCacheDashboardStats(userID)
 
 	return job, resultRecord, nil
 }
@@ -552,7 +552,7 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 		})
 	}
 
-	config.ClearDashboardCache(user.ID)
+	go ComputeAndCacheDashboardStats(user.ID)
 	if idempotencyKey != "" {
 		redisKey := fmt.Sprintf("idempotency:job:%s", idempotencyKey)
 		config.Redis.Set(config.Ctx, redisKey, legacyJobID, 24*time.Hour)

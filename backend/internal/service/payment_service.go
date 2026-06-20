@@ -18,6 +18,7 @@ import (
 
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
+	"ejp-backend/internal/ws"
 
 	"gorm.io/gorm"
 )
@@ -594,6 +595,12 @@ func (s *paymentService) completeManualPayment(payload interface{}) error {
 	if err == nil {
 		user, getErr := s.userRepo.GetByID(userID)
 		if getErr == nil && user != nil {
+			// Broadcast updated credits and stats in real-time
+			ws.GlobalHub.BroadcastToUser(user.ID, "user_update", map[string]interface{}{
+				"credits": user.Credits,
+			})
+			go ComputeAndCacheDashboardStats(user.ID)
+
 			go s.emailService.SendTemplateEmail(user.Email, "buy_credits", map[string]string{
 				"name":     user.Name,
 				"credits":  fmt.Sprintf("%d", pkg.CreditsAmount),
@@ -826,9 +833,9 @@ func (s *paymentService) fulfillPaymentMapping(mapKey, externalID, gateway strin
 		return fmt.Errorf("invalid mapping data: %v", mapData)
 	}
 
-	return s.txRepo.DB().Transaction(func(tx *gorm.DB) error {
+	err := s.txRepo.DB().Transaction(func(tx *gorm.DB) error {
 		var txn model.Transaction
-		if err := tx.Where("id = ? AND status = 'pending'", mapData.TxnID).First(&txn).Error; err != nil {
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("id = ? AND status = 'pending'", mapData.TxnID).First(&txn).Error; err != nil {
 			return err
 		}
 
@@ -855,5 +862,19 @@ func (s *paymentService) fulfillPaymentMapping(mapKey, externalID, gateway strin
 
 		return nil
 	})
+
+	if err == nil {
+		// Broadcast updated credit balance and refresh stats in background
+		go func() {
+			if user, getErr := s.userRepo.GetByID(mapData.UserID); getErr == nil && user != nil {
+				ws.GlobalHub.BroadcastToUser(user.ID, "user_update", map[string]interface{}{
+					"credits": user.Credits,
+				})
+			}
+			ComputeAndCacheDashboardStats(mapData.UserID)
+		}()
+	}
+
+	return err
 }
 

@@ -84,6 +84,47 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
         }
     })
 
+    const fetchConfigs = async () => {
+        try {
+            const data = await ApiClient.get('/admin/settings');
+            if (data.status === 'success' && Array.isArray(data.data)) {
+                const raw: Record<string, string> = {}
+                for (const row of data.data) raw[row.setting_key] = row.setting_value
+
+                const next = { ...allConfigs }
+                for (const p of ['stripe', 'paypal', 'cryptomus'] as GatewayProvider[]) {
+                    next[p] = {
+                        enabled: raw[`${p}_enabled`] === '1',
+                        testMode: raw[`${p}_test_mode`] === '1',
+                        publicKey: raw[`${p}_public_key`] ?? '',
+                        secretKey: raw[`${p}_secret_key`] ?? '',
+                        webhookSecret: (p === 'paypal' ? raw[`${p}_webhook_id`] : raw[`${p}_webhook_secret`]) ?? '',
+                        merchantId: raw[`${p}_merchant_id`] ?? '',
+                        paymentKey: raw[`${p}_payment_key`] ?? '',
+                    }
+                }
+                setAllConfigs(next)
+                
+                const active = next[provider]
+                form.reset({
+                    enabled: active.enabled,
+                    testMode: active.testMode,
+                    publicKey: active.publicKey,
+                    secretKey: active.secretKey,
+                    webhookSecret: active.webhookSecret,
+                    merchantId: active.merchantId ?? '',
+                    paymentKey: active.paymentKey ?? '',
+                })
+            }
+        } catch (error) {
+            console.error("Failed to fetch payment settings on mount:", error);
+        }
+    }
+
+    useEffect(() => {
+        fetchConfigs();
+    }, []);
+
     // When tab switches: save current form values back, then reset to new provider's data
     const handleProviderSwitch = (newProvider: GatewayProvider) => {
         // Persist current form values into allConfigs

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -93,6 +93,11 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
             toast.error("Failed to load backup list")
         }
     }
+
+    useEffect(() => {
+        fetchSystemStatus()
+        fetchBackups()
+    }, [])
 
     // ── License key form ──
 

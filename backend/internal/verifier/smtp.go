@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,6 +32,16 @@ type VerifyResult struct {
 	Reason         string // syntax, mx, smtp, etc.
 }
 
+type domainPolicyEntry struct {
+	isFree        bool
+	isDisposable  bool
+	isSpamTrap    bool
+	isBlacklisted bool
+	expiresAt     time.Time
+}
+
+var domainPolicyCache sync.Map
+
 func randomString(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
@@ -38,6 +49,24 @@ func randomString(n int) string {
 }
 
 func checkDomainPolicy(domain string) (isFree, isDisposable, isSpamTrap, isBlacklisted bool) {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if val, found := domainPolicyCache.Load(domain); found {
+		entry := val.(domainPolicyEntry)
+		if time.Now().Before(entry.expiresAt) {
+			return entry.isFree, entry.isDisposable, entry.isSpamTrap, entry.isBlacklisted
+		}
+	}
+
+	defer func() {
+		domainPolicyCache.Store(domain, domainPolicyEntry{
+			isFree:        isFree,
+			isDisposable:  isDisposable,
+			isSpamTrap:    isSpamTrap,
+			isBlacklisted: isBlacklisted,
+			expiresAt:     time.Now().Add(10 * time.Minute),
+		})
+	}()
+
 	parts := strings.Split(domain, ".")
 	if len(parts) < 2 {
 		return

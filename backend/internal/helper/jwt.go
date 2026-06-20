@@ -48,7 +48,7 @@ func VerifyJWT(tokenString string) (*jwt.Token, jwt.MapClaims, error) {
 }
 
 // GenerateResetToken creates a short-lived token for password reset
-func GenerateResetToken(email string) (string, error) {
+func GenerateResetToken(email string, currentPasswordHash string) (string, error) {
 	claims := jwt.MapClaims{
 		"email": email,
 		"exp":   time.Now().Add(time.Hour * 1).Unix(), // 1 hour expiration
@@ -56,14 +56,25 @@ func GenerateResetToken(email string) (string, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(getSecretKey())
+	return token.SignedString(append(getSecretKey(), []byte(currentPasswordHash)...))
 }
 
 // VerifyResetToken validates the reset token and returns the email
-func VerifyResetToken(tokenString string) (string, error) {
-	_, claims, err := VerifyJWT(tokenString)
+func VerifyResetToken(tokenString string, currentPasswordHash string) (string, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return append(getSecretKey(), []byte(currentPasswordHash)...), nil
+	})
+
 	if err != nil {
 		return "", err
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || !token.Valid {
+		return "", jwt.ErrTokenInvalidClaims
 	}
 
 	tokenType, ok := claims["type"].(string)

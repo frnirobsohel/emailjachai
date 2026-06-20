@@ -61,9 +61,9 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
             } else {
                 setError(result.message || "Failed to verify email");
             }
-        } catch (err: unknown) {
+        } catch (err: any) {
             logger.error("Verification operation failed:", err);
-            setError("An unexpected error occurred during verification");
+            setError(err.message || "An unexpected error occurred during verification");
         } finally {
             setIsLoading(false)
         }

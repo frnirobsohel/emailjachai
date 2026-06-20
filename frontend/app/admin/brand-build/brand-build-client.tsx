@@ -50,6 +50,47 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
         }
     })
 
+    const fetchSettings = async () => {
+        setIsLoading(true);
+        try {
+            const result = await ApiClient.get('/admin/settings');
+            if (result.status === 'success') {
+                const payload = result.data;
+                const mapped: Record<string, string> = {};
+                if (Array.isArray(payload)) {
+                    for (const item of payload) {
+                        if (item.setting_key) {
+                            mapped[item.setting_key] = item.setting_value ?? "";
+                        }
+                    }
+                } else if (payload && typeof payload === "object") {
+                    Object.assign(mapped, payload);
+                }
+                form.reset({
+                    site_title: mapped.site_title || "",
+                    site_tagline: mapped.site_tagline || "",
+                    logo_url: mapped.logo_url || "",
+                    favicon_url: mapped.favicon_url || "",
+                    primary_color: mapped.primary_color || "#0F172B",
+                    nav_style: (mapped.nav_style as 'dark' | 'light') || "dark",
+                    support_email: mapped.support_email || "",
+                    help_center_url: mapped.help_center_url || "",
+                    twitter_url: mapped.twitter_url || "",
+                    linkedin_url: mapped.linkedin_url || "",
+                    github_url: mapped.github_url || "",
+                });
+            }
+        } catch (error) {
+            console.error("Failed to fetch brand settings:", error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchSettings();
+    }, []);
+
     const handleSaveSubmit = async (values: BrandSettingsValues) => {
         try {
             // Clean up empty strings to not fail backend logic or keep them if intended.

@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ApiClient } from "@/lib/api-client"
 import { toast } from "react-hot-toast"
+import { useLogsStore } from "@/stores/logs-store"
+import { useLogsWebSocket } from "@/hooks/useLogsWebSocket"
 
 export type LogEntry = {
     id?: number
@@ -41,10 +43,12 @@ const sourceColor = (source: string) => {
 }
 
 export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { initialLogs: LogEntry[], initialTotal: number, initialHasMore: boolean }) {
-    const [logs, setLogs] = useState<LogEntry[]>(initialLogs)
-    const [total, setTotal] = useState(initialTotal)
-    const [hasMore, setHasMore] = useState(initialHasMore)
+    const store = useLogsStore()
+    const { logs, total, hasMore } = store
     const [offset, setOffset] = useState(initialLogs.length)
+    
+    // Connect to WebSocket to receive real-time system_log_update events
+    useLogsWebSocket()
     const [isLoading, setIsLoading] = useState(false)
     const [isInitial, setIsInitial] = useState(false)
     const [searchTerm, setSearchTerm] = useState("")
@@ -62,9 +66,7 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
 
             if (result.status === 'success' && result.data) {
                 const newLogs = result.data.logs || [];
-                setTotal(result.data.total || 0);
-                setHasMore(result.data.has_more);
-                setLogs(prev => currentOffset === 0 ? newLogs : [...prev, ...newLogs]);
+                store.appendLogs(newLogs, result.data.total || 0, result.data.has_more);
                 setOffset(currentOffset + newLogs.length);
             }
         } catch (error) {
@@ -77,8 +79,11 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
     }, [isLoading])
 
     useEffect(() => {
-        // loadPage(0) // Handled by SSR
-    }, [])
+        store.clearLogs();
+        setOffset(0);
+        setIsInitial(true);
+        loadPage(0);
+    }, []);
 
     useEffect(() => {
         if (!sentinelRef.current) return
@@ -95,9 +100,8 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
     }, [hasMore, isLoading, offset, isInitial, loadPage])
 
     const handleRefresh = () => {
-        setLogs([])
+        store.clearLogs()
         setOffset(0)
-        setHasMore(true)
         setIsInitial(true)
         loadPage(0)
     }
@@ -123,9 +127,7 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
             const result = await ApiClient.delete('/admin/logs/clear');
 
             if (result.status === 'success') {
-                setLogs([]);
-                setTotal(0);
-                setHasMore(false);
+                store.clearLogs();
                 setOffset(0);
                 toast.success("Activity logs cleared successfully");
             } else {

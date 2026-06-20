@@ -100,6 +100,7 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
             setBaseUrl(window.location.origin);
         }
         fetchDashboardStats();
+        fetchKeys(); // Refresh API keys on client mount to bypass Next.js Router Cache stales
     }, [fetchDashboardStats]);
 
     const onCreateKey = async (values: z.infer<typeof createKeySchema>) => {

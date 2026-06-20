@@ -67,12 +67,10 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
     }
 
     useEffect(() => {
-        // If data isn't provided via props, fetch it (fallback)
-        if (!initialPackages || initialPackages.length === 0) {
-            fetchPackages();
-            fetchSettings();
-        }
-    }, [initialPackages]);
+        // Fetch fresh packages and settings on client-side mount to bypass Next.js Router Cache
+        fetchPackages();
+        fetchSettings();
+    }, []);
 
 
     const handleCryptoPurchase = async () => {

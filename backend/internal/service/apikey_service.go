@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"time"
 	"ejp-backend/internal/model"
@@ -29,7 +31,9 @@ func NewAPIKeyService(repo repo.APIKeyRepo) APIKeyService {
 func (s *apiKeyService) CreateLoginKey(userID uint) (string, error) {
 	plainKey := "ak_live_" + helper.GenerateRandomKey()
 	prefix := plainKey[:16]
-	hashedKey, _ := helper.HashPassword(plainKey)
+	hasher := sha256.New()
+	hasher.Write([]byte(plainKey))
+	hashedKey := hex.EncodeToString(hasher.Sum(nil))
 
 	apiKey := &model.APIKey{
 		UserID:    userID,
@@ -50,7 +54,9 @@ func (s *apiKeyService) CreateLoginKey(userID uint) (string, error) {
 func (s *apiKeyService) CreateImpersonationKey(userID uint) (string, error) {
 	plainKey := "ak_live_" + helper.GenerateRandomKey()
 	prefix := plainKey[:16]
-	hashedKey, _ := helper.HashPassword(plainKey)
+	hasher := sha256.New()
+	hasher.Write([]byte(plainKey))
+	hashedKey := hex.EncodeToString(hasher.Sum(nil))
 
 	expiry := time.Now().Add(20 * time.Minute)
 	apiKey := &model.APIKey{
@@ -95,7 +101,9 @@ func (s *apiKeyService) Create(userID uint, name string) (*model.APIKey, error) 
 
 	plainKey := "ak_live_" + helper.GenerateRandomKey()
 	prefix := plainKey[:16]
-	hashedKey, _ := helper.HashPassword(plainKey)
+	hasher := sha256.New()
+	hasher.Write([]byte(plainKey))
+	hashedKey := hex.EncodeToString(hasher.Sum(nil))
 
 	apiKey := &model.APIKey{
 		UserID:    userID,
@@ -127,7 +135,9 @@ func (s *apiKeyService) Rotate(id uint, userID uint) (*model.APIKey, error) {
 
 	plainKey := "ak_live_" + helper.GenerateRandomKey()
 	prefix := plainKey[:16]
-	hashedKey, _ := helper.HashPassword(plainKey)
+	hasher := sha256.New()
+	hasher.Write([]byte(plainKey))
+	hashedKey := hex.EncodeToString(hasher.Sum(nil))
 
 	updates := map[string]interface{}{
 		"api_key":    hashedKey,

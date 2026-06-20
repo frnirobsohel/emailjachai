@@ -62,6 +62,10 @@ func SetupRoutes(router *gin.Engine) {
 	adminHandler := handler.NewAdminHandler(adminService, logService, domainService, serverService, packageService, settingsService, systemService)
 	cacheHandler := handler.NewCacheHandler(cacheRepo, settingsRepo)
 
+	// Start Global Background Broadcasters
+	adminHandler.StartAdminStatsBroadcaster()
+	adminHandler.StartServerListBroadcaster()
+
 	// Global API v1 Group
 	v1 := router.Group("/api/v1")
 	v1.Use(middleware.RateLimiter())
@@ -81,10 +85,14 @@ func SetupRoutes(router *gin.Engine) {
 		v1.GET("/ws", middleware.WSAuthMiddleware(), systemHandler.ServeWS)
 
 		// Public Auth
-		v1.POST("/auth/login", authHandler.Login)
-		v1.POST("/auth/register", authHandler.Register)
-		v1.POST("/auth/forgot-password", authHandler.ForgotPassword)
-		v1.POST("/auth/reset-password", authHandler.ResetPassword)
+		authRoutes := v1.Group("/auth")
+		authRoutes.Use(middleware.PublicRateLimiter())
+		{
+			authRoutes.POST("/login", authHandler.Login)
+			authRoutes.POST("/register", authHandler.Register)
+			authRoutes.POST("/forgot-password", authHandler.ForgotPassword)
+			authRoutes.POST("/reset-password", authHandler.ResetPassword)
+		}
 		v1.GET("/auth/verify-email", authHandler.VerifyEmail)
 
 		// ==========================================

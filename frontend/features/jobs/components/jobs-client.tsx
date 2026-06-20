@@ -29,6 +29,9 @@ export interface Job {
     created_at: string;
 }
 
+import { useJobsStore } from "@/stores/jobs-store"
+import { useJobsWebSocket } from "@/hooks/useJobsWebSocket"
+
 /**
  * JobsClient Component
  * 
@@ -36,14 +39,26 @@ export interface Job {
  * Features include pagination, real-time progress bars, and secure job deletion.
  */
 export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], initialTotal: number }) {
-    const [jobs, setJobs] = useState<Job[]>(initialJobs)
+    const store = useJobsStore()
+    const { jobs, total } = store
+
     const [isLoading, setIsLoading] = useState(false)
     const [isDeleting, setIsDeleting] = useState<string | null>(null)
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
-    const [total, setTotal] = useState(initialTotal)
     const [offset, setOffset] = useState(0)
     const limit = 20
-    const [hasMounted, setHasMounted] = useState(false)
+
+    // Connect to WebSocket to receive real-time job_update events
+    useJobsWebSocket()
+
+    // Initialize store on mount with server-fetched data ONLY if empty, otherwise fetch fresh
+    useEffect(() => {
+        if (store.jobs.length === 0) {
+            store.setJobs(initialJobs, initialTotal)
+        } else {
+            fetchJobs()
+        }
+    }, [initialJobs, initialTotal])
 
     const fetchJobs = async () => {
         setIsLoading(true);
@@ -51,8 +66,7 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
             const data = await ApiClient.get(`/jobs/list?limit=${limit}&offset=${offset}&type=bulk`);
             if (data.status === 'success') {
                 const responseData = data.data as { jobs: Job[], total: number }
-                setJobs(responseData.jobs || []);
-                setTotal(responseData.total || 0);
+                store.setJobs(responseData.jobs || [], responseData.total || 0);
             }
         } catch (error) {
             logger.error("Failed to fetch jobs:", error);
@@ -82,11 +96,10 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
     }
 
     useEffect(() => {
-        if (!hasMounted) {
-            setHasMounted(true);
-            return;
+        // Fetch when navigating pages (offset > 0)
+        if (offset > 0) {
+            fetchJobs();
         }
-        fetchJobs();
     }, [offset]);
 
     const columns = [

@@ -37,7 +37,6 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
     const [total, setTotal] = useState(initialTotal)
     const [offset, setOffset] = useState(0)
     const limit = 10
-    const [hasMounted, setHasMounted] = useState(false)
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -64,10 +63,6 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
     }, [offset]);
 
     useEffect(() => {
-        if (!hasMounted) {
-            setHasMounted(true);
-            return;
-        }
         fetchData();
     }, [offset, fetchData]);
 

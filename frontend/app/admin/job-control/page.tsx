@@ -3,7 +3,7 @@ import { fetchServer } from "@/lib/fetch-server"
 import { JobControlClient } from "./job-control-client"
 
 export default async function JobControlPage() {
-    let initialSettings: Record<string, string> = {};
+    const initialSettings: Record<string, string> = {};
     let initialStats = null;
     
     try {

@@ -7,6 +7,7 @@ import (
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
+	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
 )
 
@@ -142,7 +143,9 @@ func (g *FraudGuard) softBlock(value, typ, reason string) {
 		Reason:    reason,
 	}
 	// Ignore errors for duplicates
-	config.DB.Where("value = ?", value).FirstOrCreate(&block)
+	if err := config.DB.Where("value = ?", value).FirstOrCreate(&block).Error; err == nil {
+		ws.GlobalHub.BroadcastToAdmins("blocklist_update", block)
+	}
 }
 
 func (g *FraudGuard) hardBlock(value, typ, reason string) {
@@ -152,7 +155,9 @@ func (g *FraudGuard) hardBlock(value, typ, reason string) {
 		BlockType: "hard",
 		Reason:    reason,
 	}
-	config.DB.Where("value = ?", value).Assign(model.BlockedClient{BlockType: "hard", Reason: reason}).FirstOrCreate(&block)
+	if err := config.DB.Where("value = ?", value).Assign(model.BlockedClient{BlockType: "hard", Reason: reason}).FirstOrCreate(&block).Error; err == nil {
+		ws.GlobalHub.BroadcastToAdmins("blocklist_update", block)
+	}
 }
 
 // GetUsage returns the total daily limit and the remaining usages for the given IP and Cookie combo.

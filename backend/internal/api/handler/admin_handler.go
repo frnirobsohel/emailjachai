@@ -8,6 +8,7 @@ import (
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/service"
+	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
 
 	"github.com/gin-gonic/gin"
@@ -60,6 +61,20 @@ func (h *AdminHandler) AdminStats(c *gin.Context) {
 
 	config.SetCachedAdminStats(stats, 1*time.Minute)
 	helper.SendSuccess(c, "Admin stats retrieved", stats)
+}
+
+// StartAdminStatsBroadcaster starts a background ticker to periodically recalculate and broadcast stats
+func (h *AdminHandler) StartAdminStatsBroadcaster() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		for range ticker.C {
+			stats, err := h.adminService.GetAdminStats()
+			if err == nil {
+				config.SetCachedAdminStats(stats, 1*time.Minute)
+				ws.GlobalHub.BroadcastToAdmins("admin_stats_update", stats)
+			}
+		}
+	}()
 }
 
 func (h *AdminHandler) GetAllUsers(c *gin.Context) {

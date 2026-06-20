@@ -5,7 +5,7 @@ import type { Package } from "@/features/credits/components/credits-client"
 
 export default async function BuyCreditsPage() {
     let initialPackages: Package[] = [];
-    let initialSettings = {
+    const initialSettings = {
         cryptomusEnabled: false,
         stripeEnabled: false,
         paypalEnabled: false,

@@ -54,6 +54,7 @@ import {
 import { ApiClient } from "@/lib/api-client"
 import { SimpleSelect } from "@/components/ui/simple-select"
 import { cn } from "@/lib/utils"
+import { useUsersStore } from "@/stores/users-store"
 
 type Role = "admin" | "manager" | "reseller" | "user" | "demo"
 
@@ -128,7 +129,11 @@ const adjustCreditsSchema = z.object({
 })
 type AdjustCreditsValues = z.infer<typeof adjustCreditsSchema>
 export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
-    const [users, setUsers] = useState<User[]>(initialData ? initialData.map(normalizeUser) : [])
+    const { users: storeUsers, hasInitialized, setUsers, updateUser: storeUpdateUser, removeUser: storeRemoveUser } = useUsersStore()
+
+    // Normalize store users to local User type for display
+    const users = storeUsers.map(normalizeUser)
+
     const [isLoading, setIsLoading] = useState(false)
     const [searchTerm, setSearchTerm] = useState("")
     const [roleFilter, setRoleFilter] = useState<Role | null>(null)
@@ -206,18 +211,26 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
             const data = await ApiClient.get('/admin/users');
             if (data.status === 'success') {
                 const rows = (data.data as ApiUser[]) || [];
-                setUsers(rows.map(normalizeUser));
+                setUsers(rows);
             }
         } catch (error) {
             console.error("Failed to fetch users:", error);
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [setUsers]);
 
     useEffect(() => {
-        // fetchUsers(); // Handled by SSR initialData
-    }, [fetchUsers]);
+        if (initialData && initialData.length > 0) {
+            setUsers(initialData);
+        }
+    }, [initialData, setUsers]);
+
+    useEffect(() => {
+        if (hasInitialized || initialData.length === 0) {
+            fetchUsers();
+        }
+    }, [hasInitialized, fetchUsers, initialData.length]);
 
     const performAction = async (actionData: unknown) => {
         try {

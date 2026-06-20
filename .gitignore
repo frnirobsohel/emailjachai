@@ -20,6 +20,7 @@ backend/ejp-backend
 backend/ejp-backend.exe
 backend/tmp/
 backend/storage/
+backend/backups/
 backend/.gocache/
 # Go build artifacts
 *.exe
@@ -60,6 +61,7 @@ frontend/coverage/
 .idea/
 *.swp
 *.swo
+*~
 .DS_Store
 Thumbs.db
 desktop.ini

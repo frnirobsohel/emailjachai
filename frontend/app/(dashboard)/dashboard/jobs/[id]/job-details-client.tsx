@@ -6,15 +6,22 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ArrowLeft, Download, Trash2, Loader2 } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
+import { useJobsStore } from "@/stores/jobs-store"
+import { useJobsWebSocket } from "@/hooks/useJobsWebSocket"
 
 export function JobDetailsClient({ initialJob }: { initialJob: any }) {
     const params = useParams()
     const router = useRouter()
     const jobId = params.id as string
 
-    const [job, setJob] = useState<any>(initialJob)
+    const store = useJobsStore()
+    const job = store.currentJobDetails || initialJob
+
     const [isLoading, setIsLoading] = useState(false)
     const [isDeleting, setIsDeleting] = useState(false)
+
+    // Connect to WebSocket to receive real-time job_update events
+    useJobsWebSocket()
 
     const fetchJobDetails = async () => {
         try {
@@ -22,7 +29,7 @@ export function JobDetailsClient({ initialJob }: { initialJob: any }) {
             if (data.status === 'success') {
                 // API returns { data: { job: {...}, result: {...} } }
                 const responseData = data.data as { job: any; result: any };
-                setJob(responseData.job || responseData);
+                store.setCurrentJobDetails(responseData.job || responseData);
             }
         } catch (error) {
             console.error("Failed to fetch job details:", error);
@@ -32,33 +39,9 @@ export function JobDetailsClient({ initialJob }: { initialJob: any }) {
     }
 
     useEffect(() => {
-        // Only fetch immediately if initialJob was not provided (e.g. error on server)
-        if (!initialJob) {
-            fetchJobDetails();
-        }
-
-        // Don't poll if job is already in a terminal state
-        if (job?.status === "completed" || job?.status === "failed") {
-            return;
-        }
-
-        // Auto-poll every 5 seconds for active jobs
-        const pollInterval = setInterval(() => {
-            fetchJobDetails();
-        }, 5000);
-
-        const onVisibilityChange = () => {
-            if (document.visibilityState === "visible") {
-                fetchJobDetails();
-            }
-        };
-
-        document.addEventListener("visibilitychange", onVisibilityChange);
-        return () => {
-            clearInterval(pollInterval);
-            document.removeEventListener("visibilitychange", onVisibilityChange);
-        };
-    }, [jobId, job?.status]);
+        // Always fetch fresh details on client-side mount to bypass Next.js Router Cache stales
+        fetchJobDetails()
+    }, [jobId]);
 
     const handleDeleteJob = async () => {
         if (!confirm('Are you sure you want to delete this job? This action cannot be undone.')) {

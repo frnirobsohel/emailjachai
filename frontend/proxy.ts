@@ -6,7 +6,7 @@ export async function proxy(request: NextRequest) {
     const { pathname } = request.nextUrl
 
     const token = request.cookies.get('auth_token')?.value
-    const user = await verifyUser(token)
+    const user = token ? await verifyUser(token) : null
 
     // Protect /admin routes — must be logged in AND have 'admin' role
     if (pathname.startsWith('/admin')) {

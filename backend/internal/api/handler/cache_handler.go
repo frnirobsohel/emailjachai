@@ -146,6 +146,9 @@ func (h *CacheHandler) PurgeExpiredCache(c *gin.Context) {
 
 // UploadBulkCache parses CSV/TXT and upserts to cache
 func (h *CacheHandler) UploadBulkCache(c *gin.Context) {
+	// Limit upload size to 20MB early to prevent OOM
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 20*1024*1024)
+
 	file, _, err := c.Request.FormFile("file")
 	if err != nil {
 		helper.SendError(c, http.StatusBadRequest, "Failed to read uploaded file", err.Error())
