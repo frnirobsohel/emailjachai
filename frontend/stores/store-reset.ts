@@ -6,6 +6,7 @@ import { useSecurityStore } from '@/stores/useSecurityStore';
 import { useServerStore } from '@/stores/server-store';
 import { useAdminStore } from '@/stores/admin-store';
 import { useUsersStore } from '@/stores/users-store';
+import { useConfigStore } from '@/stores/config-store';
 
 /**
  * Resets all Zustand stores to their initial state.
@@ -59,4 +60,11 @@ export function resetAllStores() {
     useAdminStore.getState().reset();
 
     useUsersStore.getState().reset();
+
+    useConfigStore.setState({
+        packages: null,
+        settings: null,
+        isLoadingPackages: false,
+        isLoadingSettings: false,
+    });
 }

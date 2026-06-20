@@ -28,49 +28,47 @@ interface BuyCreditsProps {
     };
 }
 
+import { useConfigStore } from "@/stores/config-store"
+
 export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCreditsProps) {
-    const [packages, setPackages] = useState<Package[]>(initialPackages)
-    const [isLoading, setIsLoading] = useState(false)
-    const [cryptomusEnabled, setCryptomusEnabled] = useState(initialSettings.cryptomusEnabled)
-    const [stripeEnabled, setStripeEnabled] = useState(initialSettings.stripeEnabled)
-    const [paypalEnabled, setPaypalEnabled] = useState(initialSettings.paypalEnabled)
+    const configStore = useConfigStore()
+
+    // Initialize store with SSR values to avoid network request on first load
+    useEffect(() => {
+        if (!configStore.packages) {
+            configStore.setPackages(initialPackages)
+        }
+        if (!configStore.settings) {
+            configStore.setSettings({
+                cryptomus_enabled: initialSettings.cryptomusEnabled ? '1' : '0',
+                stripe_enabled: initialSettings.stripeEnabled ? '1' : '0',
+                paypal_enabled: initialSettings.paypalEnabled ? '1' : '0',
+            })
+        }
+    }, [initialPackages, initialSettings, configStore])
+
+    // Trigger config store fetches on mount (will hit session cache if already initialized)
+    useEffect(() => {
+        configStore.fetchPackages()
+        configStore.fetchSettings()
+    }, [configStore])
+
+    const packages = configStore.packages || initialPackages
+    const cryptomusEnabled = configStore.settings 
+        ? configStore.settings.cryptomus_enabled === '1' 
+        : initialSettings.cryptomusEnabled
+    const stripeEnabled = configStore.settings 
+        ? configStore.settings.stripe_enabled === '1' 
+        : initialSettings.stripeEnabled
+    const paypalEnabled = configStore.settings 
+        ? configStore.settings.paypal_enabled === '1' 
+        : initialSettings.paypalEnabled
+    
+    const isLoading = configStore.isLoadingPackages || configStore.isLoadingSettings
 
     // Payment modal state
     const [selectedPkg, setSelectedPkg] = useState<Package | null>(null)
     const [paying, setPaying] = useState<'standard' | 'crypto' | 'stripe' | 'paypal' | null>(null)
-
-    const fetchPackages = async () => {
-        try {
-            const data = await ApiClient.get('/packages/list');
-            if (data.status === 'success') {
-                setPackages((data.data as Package[]).filter((p: Package) => p.status === 'active'));
-            }
-        } catch (error) {
-            console.error("Failed to fetch packages:", error);
-        } finally {
-            setIsLoading(false);
-        }
-    }
-
-    const fetchSettings = async () => {
-        try {
-            const data = await ApiClient.get('/settings/public')
-            if (data.status === 'success' && data.data) {
-                const raw = data.data as Record<string, string>
-                setCryptomusEnabled(raw['cryptomus_enabled'] === '1')
-                setStripeEnabled(raw['stripe_enabled'] === '1')
-                setPaypalEnabled(raw['paypal_enabled'] === '1')
-            }
-        } catch (e) {
-            console.error("Failed to fetch settings:", e);
-        }
-    }
-
-    useEffect(() => {
-        // Fetch fresh packages and settings on client-side mount to bypass Next.js Router Cache
-        fetchPackages();
-        fetchSettings();
-    }, []);
 
 
     const handleCryptoPurchase = async () => {
