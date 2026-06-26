@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"log"
 	"os"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 func getSecretKey() []byte {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		return []byte("super_secret_jwt_key_here_change_in_production")
+		log.Fatalf("FATAL: JWT_SECRET environment variable is missing!")
 	}
 	return []byte(secret)
 }

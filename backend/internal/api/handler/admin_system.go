@@ -24,7 +24,7 @@ import (
 
 const (
 	BackupDir = "backups"
-	Version   = "v2.4.0"
+	Version   = config.Version
 )
 
 type BackupFile struct {
@@ -91,6 +91,7 @@ func (h *AdminHandler) GetSystemStatus(c *gin.Context) {
 
 	helper.SendSuccess(c, "System status retrieved", gin.H{
 		"version":        systemVersion,
+		"author":         config.AuthorName,
 		"license_status": status,
 		"license_key":    maskedKey,
 		"release_date":   systemReleaseDate,
@@ -208,8 +209,9 @@ func (h *AdminHandler) UploadUpdate(c *gin.Context) {
 
 // ListBackups returns a list of files in the backups directory
 func (h *AdminHandler) ListBackups(c *gin.Context) {
-	if _, err := os.Stat(BackupDir); os.IsNotExist(err) {
-		os.Mkdir(BackupDir, 0755)
+	if err := os.MkdirAll(BackupDir, 0750); err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Failed to access backups directory", err.Error())
+		return
 	}
 
 	files, err := os.ReadDir(BackupDir)
@@ -265,8 +267,9 @@ func (h *AdminHandler) CreateBackup(c *gin.Context) {
 	var fileName string
 	var err error
 
-	if _, err := os.Stat(BackupDir); os.IsNotExist(err) {
-		os.Mkdir(BackupDir, 0755)
+	if err := os.MkdirAll(BackupDir, 0750); err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Failed to create backups directory", err.Error())
+		return
 	}
 
 	switch input.Type {

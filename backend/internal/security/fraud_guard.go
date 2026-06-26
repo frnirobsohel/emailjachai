@@ -3,6 +3,7 @@ package security
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"ejp-backend/internal/helper"
@@ -10,6 +11,40 @@ import (
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
 )
+
+var dailyFreeLimitCache struct {
+	mu        sync.RWMutex
+	limit     int64
+	expiresAt time.Time
+}
+
+func getCachedDailyFreeLimit() int64 {
+	const defaultLimit = int64(10)
+	const cacheTTL = 5 * time.Minute
+
+	dailyFreeLimitCache.mu.RLock()
+	if time.Now().Before(dailyFreeLimitCache.expiresAt) {
+		v := dailyFreeLimitCache.limit
+		dailyFreeLimitCache.mu.RUnlock()
+		return v
+	}
+	dailyFreeLimitCache.mu.RUnlock()
+
+	limit := defaultLimit
+	var setting model.Setting
+	if err := config.DB.Where("setting_key = 'daily_free_limit'").First(&setting).Error; err == nil {
+		if val, err := helper.SafeAtoi(setting.SettingValue); err == nil && val > 0 {
+			limit = int64(val)
+		}
+	}
+
+	dailyFreeLimitCache.mu.Lock()
+	dailyFreeLimitCache.limit = limit
+	dailyFreeLimitCache.expiresAt = time.Now().Add(cacheTTL)
+	dailyFreeLimitCache.mu.Unlock()
+
+	return limit
+}
 
 type FraudAction string
 
@@ -42,14 +77,8 @@ func (g *FraudGuard) CheckRequest(ip, cookie string) (FraudAction, string) {
 		}
 	}
 
-	// 2. Get Daily Limit
-	limit := int64(10)
-	var setting model.Setting
-	if err := config.DB.Where("setting_key = 'daily_free_limit'").First(&setting).Error; err == nil {
-		if val, err := helper.SafeAtoi(setting.SettingValue); err == nil && val > 0 {
-			limit = int64(val)
-		}
-	}
+	// 2. Get Daily Limit (cached)
+	limit := getCachedDailyFreeLimit()
 
 	today := time.Now().Format("2006-01-02")
 	ipUsageKey := fmt.Sprintf("pub_use:ip:%s:%s", ip, today)
@@ -164,13 +193,7 @@ func (g *FraudGuard) hardBlock(value, typ, reason string) {
 func (g *FraudGuard) GetUsage(ip, cookie string) (limit int64, remaining int64) {
 	ctx := context.Background()
 
-	limit = int64(10)
-	var setting model.Setting
-	if err := config.DB.Where("setting_key = 'daily_free_limit'").First(&setting).Error; err == nil {
-		if val, err := helper.SafeAtoi(setting.SettingValue); err == nil && val > 0 {
-			limit = int64(val)
-		}
-	}
+	limit = getCachedDailyFreeLimit()
 
 	today := time.Now().Format("2006-01-02")
 	ipUsageKey := fmt.Sprintf("pub_use:ip:%s:%s", ip, today)

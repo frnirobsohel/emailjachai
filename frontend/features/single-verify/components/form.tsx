@@ -54,6 +54,8 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
             // Use ApiClient to call the proxied backend
             const result = await ApiClient.post('/jobs/verify-single', {
                 email: email
+            }, {
+                timeout: 60000
             });
 
             if (result.status === 'success') {

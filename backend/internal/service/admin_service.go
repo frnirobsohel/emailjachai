@@ -18,8 +18,6 @@ type AdminService interface {
 	UserAction(action string, targetUserID uint, adminID uint, status, role string, amount int, amountPaid float64) error
 	GetJobStats() (interface{}, error)
 	CleanupJobs(days int) (int64, error)
-	GetWorkerKey() (string, error)
-	RotateWorkerKey() (string, error)
 	CreateUser(name, email, password, role string, credits int) error
 	EditUser(id uint, name, email, role string) error
 	AdminDownloadAllJobs(jobType string) (*sql.Rows, error)
@@ -301,14 +299,6 @@ func (s *adminService) GetJobStats() (interface{}, error) {
 func (s *adminService) CleanupJobs(days int) (int64, error) {
 	cutoff := time.Now().AddDate(0, 0, -days)
 	return s.adminRepo.CleanupJobsByDate(cutoff)
-}
-
-func (s *adminService) GetWorkerKey() (string, error) {
-	return "worker_key_xyz", nil
-}
-
-func (s *adminService) RotateWorkerKey() (string, error) {
-	return "new_worker_key_abc", nil
 }
 
 func (s *adminService) CreateUser(name, email, password, role string, credits int) error {

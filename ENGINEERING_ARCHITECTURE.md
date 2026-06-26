@@ -531,7 +531,7 @@ To ensure the system remains maintainable as it scales, all contributors MUST fo
 - **Frontend Docs**: Maintain TSDoc comments for all reusable components in `/components/reusable`.
 
 ### 7.2 Development Workflow
-1. **Local Setup**: Use the root `docker-compose.yml` to spin up PostgreSQL and Redis.
+1. **Local Setup**: Deploy `frontend`, `backend`, and `worker` independently using their own Dockerfiles; PostgreSQL and Redis can be local, managed, or separate VPS services.
 2. **Linting**: Run `go fmt` for Backend/Worker and `npm run lint` for Frontend before every commit.
 3. **Error Logging**: All backend errors must be logged using the centralized `pkg/logger` with appropriate severity.
 

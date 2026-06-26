@@ -2,7 +2,9 @@ package handler
 
 import (
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"ejp-backend/internal/helper"
@@ -16,6 +18,41 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+var publicVerifierEnabledCache struct {
+	mu        sync.RWMutex
+	enabled   bool
+	expiresAt time.Time
+}
+
+func isPublicVerifierEnabled() bool {
+	publicVerifierEnabledCache.mu.RLock()
+	if time.Now().Before(publicVerifierEnabledCache.expiresAt) {
+		v := publicVerifierEnabledCache.enabled
+		publicVerifierEnabledCache.mu.RUnlock()
+		return v
+	}
+	publicVerifierEnabledCache.mu.RUnlock()
+
+	enabled := true // default
+	var setting model.Setting
+	if err := config.DB.Where("setting_key = ?", "public_verifier_enabled").First(&setting).Error; err == nil {
+		enabled = setting.SettingValue != "false"
+	}
+
+	publicVerifierEnabledCache.mu.Lock()
+	publicVerifierEnabledCache.enabled = enabled
+	publicVerifierEnabledCache.expiresAt = time.Now().Add(5 * time.Minute)
+	publicVerifierEnabledCache.mu.Unlock()
+
+	return enabled
+}
+
+func ClearPublicVerifierEnabledCache() {
+	publicVerifierEnabledCache.mu.Lock()
+	publicVerifierEnabledCache.expiresAt = time.Time{}
+	publicVerifierEnabledCache.mu.Unlock()
+}
 
 // PublicVerifyHandler handles the no-auth, no-credit public email verification endpoint.
 // Used for the landing page demo verifier — no DB writes, no credit deductions.
@@ -37,6 +74,11 @@ type publicVerifyRequest struct {
 // No authentication required. No credits deducted. No DB writes.
 // Uses cache first, then falls back to live SMTP/DNS verification.
 func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
+	if !isPublicVerifierEnabled() {
+		helper.SendError(c, http.StatusForbidden, "Public verifier is disabled by administrator", "ERR_DISABLED")
+		return
+	}
+
 	var req publicVerifyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		helper.SendError(c, http.StatusBadRequest, "Email is required", "ERR_BAD_REQUEST")
@@ -53,7 +95,8 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 	cookieId, err := c.Cookie("device_id")
 	if err != nil || cookieId == "" {
 		cookieId = uuid.New().String()
-		c.SetCookie("device_id", cookieId, 365*24*60*60, "/", "", false, true)
+		secureCookie := strings.EqualFold(os.Getenv("GO_ENV"), "production") || strings.EqualFold(os.Getenv("ENVIRONMENT"), "production")
+		c.SetCookie("device_id", cookieId, 365*24*60*60, "/", "", secureCookie, true)
 	}
 	browser := c.GetHeader("User-Agent")
 
@@ -195,7 +238,8 @@ func (h *PublicVerifyHandler) GetPublicStatus(c *gin.Context) {
 	cookieId, err := c.Cookie("device_id")
 	if err != nil || cookieId == "" {
 		cookieId = uuid.New().String()
-		c.SetCookie("device_id", cookieId, 365*24*60*60, "/", "", false, true)
+		secureCookie := strings.EqualFold(os.Getenv("GO_ENV"), "production") || strings.EqualFold(os.Getenv("ENVIRONMENT"), "production")
+		c.SetCookie("device_id", cookieId, 365*24*60*60, "/", "", secureCookie, true)
 	}
 
 	guard := security.NewFraudGuard()

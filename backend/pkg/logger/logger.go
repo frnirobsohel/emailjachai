@@ -17,7 +17,12 @@ var (
 func Init() {
 	once.Do(func() {
 		var config zap.Config
-		if os.Getenv("ENVIRONMENT") == "production" {
+		// Use GO_ENV for consistency; also accept ENVIRONMENT for backward compatibility
+		env := os.Getenv("GO_ENV")
+		if env == "" {
+			env = os.Getenv("ENVIRONMENT")
+		}
+		if env == "production" {
 			config = zap.NewProductionConfig()
 			config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 		} else {

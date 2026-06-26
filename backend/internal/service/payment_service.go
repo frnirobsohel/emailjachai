@@ -270,7 +270,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		Type:          "purchase",
 		Status:        "pending",
 		Package:       pkg.Name,
-		Description:   fmt.Sprintf("%s: %s (%s)", strings.Title(provider), pkg.Name, txnID),
+		Description:   fmt.Sprintf("%s: %s (%s)", capitalize(provider), pkg.Name, txnID),
 		Provider:      provider,
 	}
 
@@ -878,3 +878,11 @@ func (s *paymentService) fulfillPaymentMapping(mapKey, externalID, gateway strin
 	return err
 }
 
+// capitalize returns the string with the first letter uppercased.
+// Replaces the deprecated strings.Title() for single-word provider names.
+func capitalize(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}

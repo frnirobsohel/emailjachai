@@ -63,10 +63,11 @@ func (h *AdminHandler) AdminStats(c *gin.Context) {
 	helper.SendSuccess(c, "Admin stats retrieved", stats)
 }
 
-// StartAdminStatsBroadcaster starts a background ticker to periodically recalculate and broadcast stats
+// StartAdminStatsBroadcaster starts a background ticker to periodically recalculate and broadcast stats.
 func (h *AdminHandler) StartAdminStatsBroadcaster() {
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
 		for range ticker.C {
 			stats, err := h.adminService.GetAdminStats()
 			if err == nil {

@@ -50,6 +50,9 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE INDEX IF NOT EXISTS idx_transactions_user_status     ON transactions (user_id, status);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_created_at ON transactions (user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_transactions_user_id         ON transactions (user_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_type            ON transactions (type);
+CREATE INDEX IF NOT EXISTS idx_transactions_created_at      ON transactions (created_at);
 -- UNIQUE idx_transactions_transaction_id is already covered by the UNIQUE constraint above.
 
 -- ============================================================

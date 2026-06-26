@@ -18,6 +18,7 @@ import { ApiClient } from "@/lib/api-client"
 
 export type LicenseInfo = {
     version: string
+    author?: string
     license_status: string
     license_key: string
     release_date: string
@@ -486,8 +487,8 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                             </div>
                         )}
                         <div className="flex items-center justify-between text-[10px] text-slate-400 pt-4 uppercase font-bold tracking-widest">
-                            <span>Current: {licenseInfo?.version || "v2.4.0"}</span>
-                            <span>Release: {licenseInfo?.release_date || "2026-04-20"}</span>
+                            <span>Author: {licenseInfo?.author || "Sohel Akter"}</span>
+                            <span>Version: {licenseInfo?.version !== undefined ? licenseInfo.version : ""}</span>
                         </div>
                     </CardContent>
                 </Card>
@@ -581,7 +582,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                         <div className="relative pl-6">
                             <span className="absolute -left-[9px] top-1 h-4 w-4 rounded-full bg-indigo-600 border-2 border-white shadow-sm flex items-center justify-center ring-2 ring-indigo-100" />
                             <div className="flex flex-wrap items-center gap-2 mb-1">
-                                <span className="font-bold text-slate-900 text-sm">{licenseInfo?.version || "v2.4.0"}</span>
+                                <span className="font-bold text-slate-900 text-sm">{licenseInfo?.version !== undefined ? licenseInfo.version : ""}</span>
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-600 text-white tracking-wide">Latest</span>
                                 <span className="text-xs text-slate-400">{licenseInfo?.release_date || "Feb 20, 2024"}</span>
                             </div>

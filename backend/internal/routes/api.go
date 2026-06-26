@@ -141,8 +141,7 @@ func SetupRoutes(router *gin.Engine) {
 		protected.Use(middleware.AuthMiddleware())
 		{
 			// Jobs & Verification
-			protected.POST("/jobs/submit", jobHandler.SubmitBulkJob)
-			protected.POST("/jobs/submit-file", jobHandler.SubmitBulkJob)
+			protected.POST("/jobs/submit", jobHandler.SubmitBulkJob)        // Primary bulk submit endpoint
 			protected.POST("/jobs/verify-single", jobHandler.SubmitSingleVerify)
 			protected.GET("/jobs/download", jobHandler.DownloadJobResults)
 			protected.GET("/jobs/list", jobHandler.GetJobs)
@@ -153,7 +152,6 @@ func SetupRoutes(router *gin.Engine) {
 			userKeys := protected.Group("/user/keys")
 			{
 				userKeys.GET("", apiKeyHandler.GetAPIKeys)
-				userKeys.GET("/list", apiKeyHandler.GetAPIKeys)
 				userKeys.POST("/create", apiKeyHandler.CreateAPIKey)
 				userKeys.POST("/revoke", apiKeyHandler.DeleteAPIKey)
 				userKeys.POST("/rotate", apiKeyHandler.RotateAPIKey)
@@ -173,14 +171,9 @@ func SetupRoutes(router *gin.Engine) {
 			// Payment Session Creation
 			payments := protected.Group("/payments")
 			{
-				payments.POST("/create", paymentHandler.CreateSession)
-				payments.POST("/stripe/create", paymentHandler.CreateSession)
-				payments.POST("/paypal/create", paymentHandler.CreateSession)
-				payments.POST("/cryptomus/create", paymentHandler.CreateSession)
+				payments.POST("/create", paymentHandler.CreateSession) // provider specified in body
 				payments.GET("/verify", paymentHandler.VerifyPayment)
 			}
-			// Legacy singular aliases
-			protected.POST("/payment/create", paymentHandler.CreateSession)
 
 			// Reseller
 			protected.POST("/reseller/transfer", userHandler.TransferCredits)
@@ -272,6 +265,3 @@ func SetupRoutes(router *gin.Engine) {
 		helper.SendError(c, http.StatusNotFound, "Route not found", "ERR_NOT_FOUND")
 	})
 }
-
-
-

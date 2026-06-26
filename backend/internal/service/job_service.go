@@ -456,6 +456,9 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 	chunksChan := make(chan int, len(savedTasks))
 	var wg sync.WaitGroup
 
+	// Fetch cache retention policies ONCE — shared across all chunk goroutines
+	b2bRet, freeValidRet, freeInvalidRet := s.getCacheRetentionPolicies()
+
 	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
 		go func() {
@@ -473,8 +476,7 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 				}
 				chunkEmails := queueEmails[currentTask.StartIndex : endIndex+1]
 
-				// 1. CACHE CHECK
-				b2bRet, freeValidRet, freeInvalidRet := s.getCacheRetentionPolicies()
+				// 1. CACHE CHECK (retention policies fetched once above the pool)
 				cachedResults, err := s.cacheRepo.GetCachedEmailsInBatches(chunkEmails, b2bRet, freeValidRet, freeInvalidRet)
 				if err != nil {
 					logger.Error("Cache check error", "error", err)

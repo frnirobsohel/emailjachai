@@ -64,7 +64,8 @@ export function HomeEmailVerifier() {
 
         try {
             const res = await ApiClient.post<any>('/jobs/verify-public', { email }, {
-                withCredentials: true
+                withCredentials: true,
+                timeout: 60000
             })
             
             if (res?.status === 'success' && res.data) {
@@ -78,8 +79,8 @@ export function HomeEmailVerifier() {
                 setStatus(res?.message || 'Unknown')
             }
 
-        } catch (error) {
-            setStatus('Error connecting to server')
+        } catch (error: any) {
+            setStatus(error?.message || 'Error connecting to server')
         } finally {
             setIsLoading(false)
         }

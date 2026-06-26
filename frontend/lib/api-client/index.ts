@@ -24,13 +24,10 @@ class ApiClientService {
         // Request Interceptor
         this.instance.interceptors.request.use(
             (config) => {
-                // If we are in the browser, try to get the token from localStorage or cookie
-                // For now, we assume the server handles auth via cookies or the proxy handles it.
-                // But we can add a token here if needed.
-                const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-                if (token && config.headers) {
-                    config.headers.Authorization = `Bearer ${token}`;
-                }
+                // Authentication is handled exclusively via httpOnly cookies
+                // through the Next.js proxy (/next-api/proxy). The proxy injects
+                // the Bearer token server-side from the secure cookie, so no
+                // client-side token management is needed or allowed here.
                 return config;
             },
             (error) => {

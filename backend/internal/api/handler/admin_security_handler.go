@@ -32,15 +32,16 @@ func (h *AdminHandler) SecurityDashboard(c *gin.Context) {
 
 	// Get Daily Limit Setting
 	dailyLimit := "10"
-	var setting model.Setting
-	if err := config.DB.Where("setting_key = ?", "daily_free_limit").First(&setting).Error; err == nil {
-		dailyLimit = setting.SettingValue
+	var limitSetting model.Setting
+	if err := config.DB.Where("setting_key = ?", "daily_free_limit").First(&limitSetting).Error; err == nil {
+		dailyLimit = limitSetting.SettingValue
 	}
 
 	// Get Verifier Toggle Setting
 	verifierEnabled := true
-	if err := config.DB.Where("setting_key = ?", "public_verifier_enabled").First(&setting).Error; err == nil {
-		verifierEnabled = setting.SettingValue == "true"
+	var toggleSetting model.Setting
+	if err := config.DB.Where("setting_key = ?", "public_verifier_enabled").First(&toggleSetting).Error; err == nil {
+		verifierEnabled = toggleSetting.SettingValue == "true"
 	}
 
 	helper.SendSuccess(c, "Security dashboard retrieved", gin.H{
@@ -113,6 +114,7 @@ func (h *AdminHandler) UpdateSecuritySettings(c *gin.Context) {
 		}
 		setting := model.Setting{SettingKey: "public_verifier_enabled", SettingValue: val}
 		config.DB.Where("setting_key = ?", "public_verifier_enabled").Assign(setting).FirstOrCreate(&setting)
+		ClearPublicVerifierEnabledCache()
 	}
 
 	helper.SendSuccess(c, "Settings updated successfully", nil)

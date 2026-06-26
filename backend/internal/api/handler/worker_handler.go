@@ -123,6 +123,7 @@ func (h *WorkerHandler) ReportTaskResult(c *gin.Context) {
 		return
 	}
 
+	h.workerService.BroadcastJobUpdate(job.JobID)
 	helper.SendSuccess(c, "Result recorded", nil)
 
 	// Async: persist result to ndjson file (bulk jobs only)
@@ -214,6 +215,7 @@ func (h *WorkerHandler) ReportTaskResults(c *gin.Context) {
 		return
 	}
 
+	h.workerService.BroadcastJobUpdate(job.JobID)
 	helper.SendSuccess(c, "Batch results recorded", nil)
 
 	// Async: persist batch to ndjson file

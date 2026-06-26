@@ -234,7 +234,7 @@ func (h *AdminHandler) TestSmtpConnection(c *gin.Context) {
 	}
 	d.TLSConfig = &tls.Config{
 		ServerName:         host,
-		InsecureSkipVerify: true,
+		InsecureSkipVerify: false,
 	}
 
 	closer, err := d.Dial()

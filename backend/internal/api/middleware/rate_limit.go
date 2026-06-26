@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"ejp-backend/internal/helper"
@@ -15,6 +16,43 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 )
+
+// rateLimitCache caches the DB-backed rate_limit_per_minute setting in memory
+// to avoid a DB query on every single API request.
+var rateLimitCache struct {
+	mu        sync.RWMutex
+	limit     int64
+	expiresAt time.Time
+}
+
+func getCachedRateLimit() int64 {
+	const defaultLimit = int64(120)
+	const cacheTTL = 5 * time.Minute
+
+	rateLimitCache.mu.RLock()
+	if time.Now().Before(rateLimitCache.expiresAt) {
+		v := rateLimitCache.limit
+		rateLimitCache.mu.RUnlock()
+		return v
+	}
+	rateLimitCache.mu.RUnlock()
+
+	// Cache miss: read from DB
+	limit := defaultLimit
+	var setting model.Setting
+	if err := config.DB.Where("setting_key = 'rate_limit_per_minute'").First(&setting).Error; err == nil {
+		if parsed, convErr := strconv.ParseInt(setting.SettingValue, 10, 64); convErr == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	rateLimitCache.mu.Lock()
+	rateLimitCache.limit = limit
+	rateLimitCache.expiresAt = time.Now().Add(cacheTTL)
+	rateLimitCache.mu.Unlock()
+
+	return limit
+}
 
 // RateLimiter implements a Redis-backed sliding window rate limiter with Admin bypass.
 func RateLimiter() gin.HandlerFunc {
@@ -46,14 +84,8 @@ func RateLimiter() gin.HandlerFunc {
 			key = fmt.Sprintf("rate_limit:ip:%s", c.ClientIP())
 		}
 
-		// 4. Fetch dynamic rate limits from Settings table
-		limitPerMinute := int64(120) // default limit: 120 req/min
-		var setting model.Setting
-		if err := config.DB.Where("setting_key = 'rate_limit_per_minute'").First(&setting).Error; err == nil {
-			if parsed, convErr := strconv.ParseInt(setting.SettingValue, 10, 64); convErr == nil && parsed > 0 {
-				limitPerMinute = parsed
-			}
-		}
+		// 4. Get rate limit from memory cache (avoids DB query per request)
+		limitPerMinute := getCachedRateLimit()
 
 		ctx := context.Background()
 		now := time.Now().UnixNano()
@@ -61,19 +93,19 @@ func RateLimiter() gin.HandlerFunc {
 
 		// 5. Redis sorted-set pipeline execution
 		pipe := config.Redis.TxPipeline()
-		
+
 		// Remove entries older than 60 seconds
 		pipe.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(clearBefore, 10))
-		
+
 		// Add current request timestamp
 		pipe.ZAdd(ctx, key, redis.Z{
 			Score:  float64(now),
 			Member: strconv.FormatInt(now, 10),
 		})
-		
+
 		// Count request quantity in sliding window
 		cardCmd := pipe.ZCard(ctx, key)
-		
+
 		// Auto-expire set to prevent memory leaks
 		pipe.Expire(ctx, key, 70*time.Second)
 

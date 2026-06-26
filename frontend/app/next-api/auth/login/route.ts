@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { authorizeUser } from '@/lib/auth';
-const PHP_API_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
 
 export async function POST(request: Request) {
     try {
@@ -14,8 +14,8 @@ export async function POST(request: Request) {
             );
         }
 
-        // Call PHP Backend for authentication
-        const response = await fetch(`${PHP_API_URL}/auth/login`, {
+        // Call Go Backend for authentication
+        const response = await fetch(`${API_BASE_URL}/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password }),

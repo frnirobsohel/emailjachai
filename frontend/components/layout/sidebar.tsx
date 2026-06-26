@@ -129,7 +129,7 @@ export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
     // ... keeping existing routes logic ...
     useEffect(() => {
         if (pathname?.startsWith("/admin")) {
-            const systemPaths = ["/admin/logs", "/admin/server", "/admin/monitoring", "/admin/job-control", "/admin/cache-control"]
+            const systemPaths = ["/admin/logs", "/admin/server", "/admin/monitoring", "/admin/job-control", "/admin/cache-control", "/admin/security"]
             const adminTopPaths = ["/admin", "/admin/users", "/admin/domains", "/admin/brand-build", "/admin/smtp", "/admin/packages", "/admin/settings/payment", "/admin/license"]
 
             if (systemPaths.includes(pathname)) {

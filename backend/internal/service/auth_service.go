@@ -157,10 +157,10 @@ func (s *authService) Login(email, password, ip string) (*model.User, string, er
 		return nil, "", errors.New("invalid email or password")
 	}
 
-	if user.Status == "Suspended" {
+	if strings.EqualFold(user.Status, "suspended") {
 		return nil, "", errors.New("account suspended")
 	}
-	if user.Status == "Inactive" {
+	if strings.EqualFold(user.Status, "inactive") {
 		return nil, "", errors.New("please verify your email address to log in")
 	}
 
@@ -288,7 +288,7 @@ func (s *authService) VerifyEmail(token string) error {
 		return errors.New("user not found")
 	}
 
-	if user.Status == "Active" {
+	if strings.EqualFold(user.Status, "active") {
 		return nil // Already verified
 	}
 

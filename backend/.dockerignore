@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+*.exe
+*.test
+*.out
+tmp*
+storage
+backups
+vendor

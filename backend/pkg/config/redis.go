@@ -3,7 +3,6 @@ package config
 import (
 	"context"
 	"os"
-	"strings"
 	"time"
 
 	"ejp-backend/pkg/logger"
@@ -20,20 +19,24 @@ var (
 func ConnectRedis() {
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
-		redisURL = "localhost:6379"
+		redisURL = "redis://localhost:6379/0"
 	}
 
-	// Clean up URL for asynq and redis client
-	redisAddr := strings.Replace(redisURL, "redis://", "", 1)
-	redisAddr = strings.Split(redisAddr, "/")[0]
+	redisOpt, err := redis.ParseURL(redisURL)
+	if err != nil {
+		logger.Error("Failed to parse REDIS_URL", "error", err)
+		os.Exit(1)
+	}
 
-	redisOpt := asynq.RedisClientOpt{Addr: redisAddr}
-	
-	AsynqClient = asynq.NewClient(redisOpt)
-	
-	Redis = redis.NewClient(&redis.Options{
-		Addr: redisAddr,
-	})
+	asynqOpt := asynq.RedisClientOpt{
+		Addr:     redisOpt.Addr,
+		Password: redisOpt.Password,
+		DB:       redisOpt.DB,
+	}
+
+	AsynqClient = asynq.NewClient(asynqOpt)
+
+	Redis = redis.NewClient(redisOpt)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -45,6 +48,3 @@ func ConnectRedis() {
 		logger.Info("Successfully connected to Redis Queue (Asynq) and Data Cache (Raw)")
 	}
 }
-
-
-

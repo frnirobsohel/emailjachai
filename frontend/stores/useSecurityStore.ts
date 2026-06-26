@@ -25,7 +25,7 @@ interface SecurityState {
   updateStats: (stats: any) => void
   setDailyLimit: (limit: string) => void
   setVerificationEnabled: (enabled: boolean) => void
-  togglePackage: (id: number) => void
+  togglePackage: (id: number) => Promise<void>
   unblockClient: (id: number) => Promise<void>
   handleSettingsUpdate: (newLimit?: string, newToggle?: boolean) => Promise<void>
 }
@@ -128,9 +128,21 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
   
   setVerificationEnabled: (enabled) => set({ isVerificationEnabled: enabled }),
 
-  togglePackage: (id) => set((state) => ({
-    packages: state.packages.map(p => p.id === id ? { ...p, is_public: !p.is_public } : p)
-  })),
+  togglePackage: async (id) => {
+    try {
+      const res = await ApiClient.post<any>('/admin/packages/toggle-public', { package_id: id })
+      if (res.status === 'success') {
+        set((state) => ({
+          packages: state.packages.map(p => p.id === id ? { ...p, is_public: !p.is_public } : p)
+        }))
+        toast.success("Package visibility updated")
+      } else {
+        toast.error(res.message || "Failed to update package visibility")
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update package visibility")
+    }
+  },
 
   handleSettingsUpdate: async (newLimit?: string, newToggle?: boolean) => {
     try {

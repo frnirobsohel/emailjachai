@@ -32,7 +32,7 @@ func (r *packageRepo) List(activeOnly bool) ([]model.Package, error) {
 	var pkgs []model.Package
 	query := r.db.Order("price asc")
 	if activeOnly {
-		query = query.Where("status = ?", "active")
+		query = query.Where("status = ? AND is_public = ?", "active", true)
 	}
 	err := query.Find(&pkgs).Error
 	return pkgs, err

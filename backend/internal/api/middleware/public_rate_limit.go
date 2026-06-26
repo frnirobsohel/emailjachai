@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"ejp-backend/internal/helper"
@@ -14,6 +15,41 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 )
+
+var publicRateLimitCache struct {
+	mu        sync.RWMutex
+	limit     int64
+	expiresAt time.Time
+}
+
+func getCachedPublicRateLimit() int64 {
+	const defaultLimit = int64(5)
+	const cacheTTL = 5 * time.Minute
+
+	publicRateLimitCache.mu.RLock()
+	if time.Now().Before(publicRateLimitCache.expiresAt) {
+		v := publicRateLimitCache.limit
+		publicRateLimitCache.mu.RUnlock()
+		return v
+	}
+	publicRateLimitCache.mu.RUnlock()
+
+	// Cache miss: read from DB
+	limit := defaultLimit
+	var setting model.Setting
+	if err := config.DB.Where("setting_key = 'public_rate_limit_per_minute'").First(&setting).Error; err == nil {
+		if parsed, convErr := helper.SafeAtoi(setting.SettingValue); convErr == nil && parsed > 0 {
+			limit = int64(parsed)
+		}
+	}
+
+	publicRateLimitCache.mu.Lock()
+	publicRateLimitCache.limit = limit
+	publicRateLimitCache.expiresAt = time.Now().Add(cacheTTL)
+	publicRateLimitCache.mu.Unlock()
+
+	return limit
+}
 
 // PublicRateLimiter applies a strict IP-based rate limit for unauthenticated public endpoints.
 // Default: 5 requests per minute per IP. Configurable via settings table key "public_rate_limit_per_minute".
@@ -26,14 +62,8 @@ func PublicRateLimiter() gin.HandlerFunc {
 			return
 		}
 
-		// Determine rate limit from settings table (default: 5/min)
-		limitPerMinute := int64(5)
-		var setting model.Setting
-		if err := config.DB.Where("setting_key = 'public_rate_limit_per_minute'").First(&setting).Error; err == nil {
-			if parsed, convErr := helper.SafeAtoi(setting.SettingValue); convErr == nil && parsed > 0 {
-				limitPerMinute = int64(parsed)
-			}
-		}
+		// Determine rate limit from cache
+		limitPerMinute := getCachedPublicRateLimit()
 
 		key := fmt.Sprintf("pub_rate:ip:%s", c.ClientIP())
 		ctx := context.Background()

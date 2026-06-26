@@ -89,9 +89,9 @@ func (s *emailService) SendTemplateEmail(to string, templateKey string, placehol
 	}
 	d.TLSConfig = &tls.Config{
 		ServerName:         smtpConfig.Host,
-		InsecureSkipVerify: true,
+		InsecureSkipVerify: false,
 	}
-	
+
 	if err := d.DialAndSend(m); err != nil {
 		logger.Error("Failed to send email", "to", to, "error", err)
 		return err

@@ -19,7 +19,16 @@ backend/api
 backend/ejp-backend
 backend/ejp-backend.exe
 backend/tmp/
-backend/storage/
+# Ignore storage contents but preserve folders via .gitkeep
+backend/storage/**
+!backend/storage/
+!backend/storage/.gitkeep
+!backend/storage/jobs/
+!backend/storage/jobs/.gitkeep
+!backend/storage/results/
+!backend/storage/results/.gitkeep
+!backend/storage/results/single/
+!backend/storage/results/single/.gitkeep
 backend/backups/
 backend/.gocache/
 # Go build artifacts
@@ -36,11 +45,15 @@ vendor/
 # Explicit backend build outputs (belt-and-suspenders)
 backend/*.exe
 backend/tmp_*
+backend/backups/
 
 # ─── Worker (Go) ────────────────────────────────────────────
 worker/.env
 worker/*.exe
 worker/*.out
+worker/*~
+worker/test_worker
+worker/tmp_*
 worker/vendor/
 
 # ─── Frontend (Next.js) ─────────────────────────────────────

@@ -107,7 +107,8 @@ func HealthCheck(c *gin.Context) {
 			"breakdown": queueBreakdown,
 		},
 		"time":    time.Now().Format("2006-01-02 15:04:05"),
-		"version": "1.0.0-pro",
+		"version": config.Version,
+		"author":  config.AuthorName,
 	})
 }
 

@@ -61,6 +61,9 @@ func (h *PaymentHandler) HandleWebhook(c *gin.Context) {
 		return
 	}
 
+	// Limit webhook body to 5MB to prevent memory exhaustion attacks
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 5*1024*1024)
+
 	// Read the raw webhook payload
 	rawBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
