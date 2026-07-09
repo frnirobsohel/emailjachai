@@ -22,29 +22,30 @@ import (
 )
 
 type WorkerReportPayload struct {
-	JobID         string  `json:"job_id"`
-	JobIDLegacy   string  `json:"jobId"`
-	TaskID        uint    `json:"task_id"`
-	Email         string  `json:"email"`
-	Status        string  `json:"status"`
-	Score         int     `json:"score"`
-	Reason        string  `json:"reason"`
-	TimeTaken     float64 `json:"time_taken"`
-	SmtpCode      int     `json:"smtp_code"`
-	ServerName    string  `json:"server_name"`
-	WorkerName    string  `json:"worker_name"`
-	IsDeliverable *bool   `json:"is_deliverable"`
-	IsCatchAll    *bool   `json:"is_catch_all"`
-	IsDisposable  *bool   `json:"is_disposable"`
-	IsFree        *bool   `json:"is_free"`
-	IsRole        *bool   `json:"is_role"`
-	HasMx         *bool   `json:"has_mx"`
-	SmtpConnect   *bool   `json:"smtp_connect"`
-	UserExists    *bool   `json:"user_exists"`
-	IsSyntaxValid *bool   `json:"is_syntax_valid"`
-	IsSpamTrap    *bool   `json:"is_spam_trap"`
-	IsBlacklisted *bool   `json:"is_blacklisted"`
-	MailboxFull   *bool   `json:"mailbox_full"`
+	JobID         string   `json:"job_id"`
+	JobIDLegacy   string   `json:"jobId"`
+	TaskID        uint     `json:"task_id"`
+	Email         string   `json:"email"`
+	Status        string   `json:"status"`
+	Score         int      `json:"score"`
+	Reason        string   `json:"reason"`
+	TimeTaken     float64  `json:"time_taken"`
+	SmtpCode      int      `json:"smtp_code"`
+	ServerName    string   `json:"server_name"`
+	WorkerName    string   `json:"worker_name"`
+	IsDeliverable *bool    `json:"is_deliverable"`
+	IsCatchAll    *bool    `json:"is_catch_all"`
+	IsDisposable  *bool    `json:"is_disposable"`
+	IsFree        *bool    `json:"is_free"`
+	IsRole        *bool    `json:"is_role"`
+	HasMx         *bool    `json:"has_mx"`
+	SmtpConnect   *bool    `json:"smtp_connect"`
+	UserExists    *bool    `json:"user_exists"`
+	IsSyntaxValid *bool    `json:"is_syntax_valid"`
+	IsSpamTrap    *bool    `json:"is_spam_trap"`
+	IsBlacklisted *bool    `json:"is_blacklisted"`
+	MailboxFull   *bool    `json:"mailbox_full"`
+	MxRecords     []string `json:"mx_records"`
 }
 
 type WorkerBatchPayload struct {
@@ -645,6 +646,7 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 				IsFree:         isFree,
 				IsRole:         isRole,
 				HasMx:          hasMx,
+				MxRecords:      r.MxRecords,
 				SmtpConnect:    smtpConnect,
 				UserExists:     userExists,
 				IsCatchAll:     isCatchAll,

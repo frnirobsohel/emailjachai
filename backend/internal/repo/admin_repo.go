@@ -121,7 +121,7 @@ func (r *adminRepo) CleanupJobsByDate(cutoff time.Time) (int64, error) {
 func (r *adminRepo) AdminDownloadAllJobs(jobType string) (*sql.Rows, error) {
 	query := r.db.Model(&model.JobResult{}).
 		Joins("JOIN jobs ON jobs.id = job_results.job_internal_id").
-		Select("job_results.email, job_results.status, job_results.reason, job_results.is_catch_all, job_results.score, job_results.created_at, jobs.job_id as legacy_job_id")
+		Select("job_results.email, job_results.status, job_results.reason, job_results.is_catch_all, job_results.score, job_results.created_at, jobs.job_id as legacy_job_id, job_results.mx_records")
 
 	switch jobType {
 	case "single":

@@ -256,12 +256,12 @@ func SetupRoutes(router *gin.Engine) {
 			admin.POST("/smtp/templates", adminHandler.SaveTemplate)
 			admin.POST("/smtp/test", adminHandler.TestSmtpConnection)
 
-			// Security Shield & Public Verifier
-			admin.GET("/security/dashboard", adminHandler.SecurityDashboard)
-			admin.GET("/security/verify-logs", adminHandler.GetSecurityVerifyLogs)
-			admin.GET("/security/blocklist", adminHandler.GetSecurityBlocklist)
-			admin.POST("/security/unblock", adminHandler.SecurityUnblock)
-			admin.POST("/security/settings", adminHandler.UpdateSecuritySettings)
+			// Public Verifier
+			admin.GET("/public-verifier/dashboard", adminHandler.SecurityDashboard)
+			admin.GET("/public-verifier/verify-logs", adminHandler.GetSecurityVerifyLogs)
+			admin.GET("/public-verifier/blocklist", adminHandler.GetSecurityBlocklist)
+			admin.POST("/public-verifier/unblock", adminHandler.SecurityUnblock)
+			admin.POST("/public-verifier/settings", adminHandler.UpdateSecuritySettings)
 		}
 	}
 

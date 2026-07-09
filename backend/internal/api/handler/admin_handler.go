@@ -2,14 +2,17 @@ package handler
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/service"
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
+	"ejp-backend/pkg/report"
 	"ejp-backend/pkg/safe"
 
 	"github.com/gin-gonic/gin"
@@ -161,28 +164,33 @@ func (h *AdminHandler) AdminDownloadAllJobs(c *gin.Context) {
 	c.Writer.Write([]byte("\xEF\xBB\xBF"))
 
 	writer := csv.NewWriter(c.Writer)
-	writer.Write([]string{"Email", "Status", "Reason", "Catch-All", "Score", "Verified At", "Job ID"})
+	writer.Write([]string{"Domain", "Email", "Status", "Score", "MX Record", "Reason", "Verified At", "Job ID"})
 
 	for rows.Next() {
 		var email, status, reason, legacyJobID string
 		var isCatchAll bool
 		var score int
 		var createdAt time.Time
-		if err := rows.Scan(&email, &status, &reason, &isCatchAll, &score, &createdAt, &legacyJobID); err != nil {
+		var mxRecordsRaw []byte
+		if err := rows.Scan(&email, &status, &reason, &isCatchAll, &score, &createdAt, &legacyJobID, &mxRecordsRaw); err != nil {
 			continue
 		}
 
-		catchAll := "No"
-		if isCatchAll {
-			catchAll = "Yes"
+		domain := report.GetDomainFromEmail(email)
+		var mxRecords []string
+		if len(mxRecordsRaw) > 0 {
+			_ = json.Unmarshal(mxRecordsRaw, &mxRecords)
 		}
+		mxRecordsStr := strings.Join(mxRecords, "; ")
+		friendlyReason := report.GetFriendlyReason(reason, status)
 
 		writer.Write([]string{
+			domain,
 			email,
 			status,
-			reason,
-			catchAll,
 			fmt.Sprintf("%d", score),
+			mxRecordsStr,
+			friendlyReason,
 			createdAt.Format("2006-01-02 15:04:05"),
 			legacyJobID,
 		})

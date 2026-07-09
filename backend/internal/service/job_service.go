@@ -512,12 +512,12 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 	safe.Go(func() {
 		jobID := jobIDCopy
 		emails := emailsCopy
-		basePath := os.Getenv("BULK_JOBS_PATH")
-		if basePath == "" {
-			basePath = "./storage/bulk_jobs"
+		sourcePath := os.Getenv("BULK_SOURCE_PATH")
+		if sourcePath == "" {
+			sourcePath = "./storage/jobs/bulk"
 		}
-		_ = os.MkdirAll(basePath, 0750)
-		sourceFile := filepath.Join(basePath, jobID+"_source.txt")
+		_ = os.MkdirAll(sourcePath, 0750)
+		sourceFile := filepath.Join(sourcePath, jobID+"_source.txt")
 		f, err := os.OpenFile(sourceFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
 		if err == nil {
 			writer := bufio.NewWriter(f)
@@ -785,9 +785,9 @@ func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID u
 	safe.Go(func() {
 		jobID := jobIDCopyForNDJSON
 		newRows := newRowsCopy
-		basePath := os.Getenv("BULK_JOBS_PATH")
+		basePath := os.Getenv("BULK_RESULTS_PATH")
 		if basePath == "" {
-			basePath = "./storage/bulk_jobs"
+			basePath = "./storage/results/bulk"
 		}
 		storeRows := make([]storage.ResultRow, 0, len(newRows))
 		for _, r := range newRows {
@@ -899,11 +899,11 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 	}
 
 	// 2. Read source emails
-	basePath := os.Getenv("BULK_JOBS_PATH")
-	if basePath == "" {
-		basePath = "./storage/bulk_jobs"
+	sourcePath := os.Getenv("BULK_SOURCE_PATH")
+	if sourcePath == "" {
+		sourcePath = "./storage/jobs/bulk"
 	}
-	sourceFilePath := filepath.Join(basePath, job.JobID+"_source.txt")
+	sourceFilePath := filepath.Join(sourcePath, job.JobID+"_source.txt")
 	
 	// Check if source file exists
 	if _, err := os.Stat(sourceFilePath); os.IsNotExist(err) {

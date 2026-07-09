@@ -33,12 +33,13 @@ type JobRepository interface {
 }
 
 type DownloadResultRow struct {
-	Email      string
-	Status     string
-	Reason     string
-	IsCatchAll bool
-	Score      int
-	CreatedAt  time.Time
+	Email        string
+	Status       string
+	Reason       string
+	IsCatchAll   bool
+	Score        int
+	CreatedAt    time.Time
+	MxRecordsRaw []byte
 }
 
 type jobRepository struct {
@@ -294,7 +295,7 @@ func (r *jobRepository) GetJobForUser(userID uint, jobID string) (*model.Job, er
 }
 
 func (r *jobRepository) GetJobResultsRows(jobInternalID uint) (*sql.Rows, error) {
-	return r.db.Model(&model.JobResult{}).Select("email, status, reason, is_catch_all, score, created_at").Where("job_internal_id = ?", jobInternalID).Rows()
+	return r.db.Model(&model.JobResult{}).Select("email, status, reason, is_catch_all, score, created_at, mx_records").Where("job_internal_id = ?", jobInternalID).Rows()
 }
 
 func (r *jobRepository) CountAllActiveJobs() (int64, error) {

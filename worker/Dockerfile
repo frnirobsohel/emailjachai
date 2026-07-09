@@ -27,5 +27,11 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /app/worker .
 
+# Create non-root system user and group, and change ownership of /app
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
+    && chown -R appuser:appgroup /app
+
+USER appuser
+
 # Run binary
 CMD ["./worker"]

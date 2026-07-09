@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 )
 
@@ -39,6 +40,7 @@ type ResultRow struct {
 	Score      int       `json:"score"`
 	VerifiedAt time.Time `json:"verified_at"`
 	JobID      string    `json:"job_id"`
+	MxRecords  []string  `json:"mx_records,omitempty"`
 }
 
 // RowSource is any iterator that can produce ResultRows one at a time.
@@ -60,7 +62,56 @@ type RowSource interface {
 
 // csvHeader defines the column order for all exported CSV files.
 var csvHeader = []string{
-	"Email", "Status", "Reason", "Catch-All", "Score", "Verified At", "Job ID",
+	"Domain", "Email", "Status", "Score", "MX Record", "Reason", "Verified At", "Job ID",
+}
+
+// GetFriendlyReason translates a technical reason code into a user-friendly description.
+func GetFriendlyReason(reasonCode string, status string) string {
+	switch reasonCode {
+	case "syntax":
+		return "Invalid Email Syntax (Format error)"
+	case "mx":
+		return "No MX Records found for domain"
+	case "disposable":
+		return "Disposable Email Provider (Temporary mail)"
+	case "spamtrap":
+		return "Spam Trap Address"
+	case "blacklist":
+		return "Blacklisted Domain/IP"
+	case "rejected":
+		return "Mailbox does not exist (Recipient rejected)"
+	case "mailbox_full":
+		return "Mailbox is full / Storage limit exceeded"
+	case "catch_all":
+		return "Catch-all Domain (Accepts all incoming mail)"
+	case "smtp":
+		return "SMTP server timed out or unreachable"
+	case "rate_limit_timeout":
+		return "Verification timed out due to rate limit"
+	case "temp_fail":
+		return "Temporary mail server error"
+	case "worker":
+		if status == "valid" {
+			return "Deliverable (Valid Inbox)"
+		}
+		return "Processed by worker"
+	case "":
+		if status == "valid" {
+			return "Deliverable (Valid Inbox)"
+		}
+		return "Deliverable"
+	default:
+		return reasonCode
+	}
+}
+
+// GetDomainFromEmail extracts the domain part of an email address.
+func GetDomainFromEmail(email string) string {
+	parts := strings.Split(email, "@")
+	if len(parts) == 2 {
+		return parts[1]
+	}
+	return ""
 }
 
 // CSVWriter streams verification results as a UTF-8 CSV with BOM.
@@ -95,16 +146,17 @@ func (cw *CSVWriter) WriteTo(w io.Writer) (int64, error) {
 
 	for cw.source.Next() {
 		row := cw.source.Row()
-		catchAll := "No"
-		if row.IsCatchAll {
-			catchAll = "Yes"
-		}
+		domain := GetDomainFromEmail(row.Email)
+		mxRecordsStr := strings.Join(row.MxRecords, "; ")
+		friendlyReason := GetFriendlyReason(row.Reason, row.Status)
+
 		if err := cw2.Write([]string{
+			domain,
 			row.Email,
 			row.Status,
-			row.Reason,
-			catchAll,
 			fmt.Sprintf("%d", row.Score),
+			mxRecordsStr,
+			friendlyReason,
 			row.VerifiedAt.Format("2006-01-02 15:04:05"),
 			row.JobID,
 		}); err != nil {

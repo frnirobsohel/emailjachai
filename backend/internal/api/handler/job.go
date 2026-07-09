@@ -147,9 +147,9 @@ func (h *JobHandler) DeleteJob(c *gin.Context) {
 	jobIDCopy := req.JobID
 	safe.Go(func() {
 		jobID := jobIDCopy
-		basePath := os.Getenv("BULK_JOBS_PATH")
+		basePath := os.Getenv("BULK_RESULTS_PATH")
 		if basePath == "" {
-			basePath = "./storage/bulk_jobs"
+			basePath = "./storage/results/bulk"
 		}
 		_ = storage.DeleteJobFile(basePath, jobID)
 	})

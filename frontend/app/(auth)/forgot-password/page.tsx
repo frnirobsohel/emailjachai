@@ -5,34 +5,52 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { ArrowLeft, CheckCircle2 } from "lucide-react"
+import { ArrowLeft, CheckCircle2, Loader2, AlertCircle } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { forgotPasswordSchema, ForgotPasswordValues } from "@/features/auth/schemas/forgot-password.schema"
+import { cn } from "@/lib/utils"
 
 export default function ForgotPasswordPage() {
     const [isLoading, setIsLoading] = useState(false)
     const [submitted, setSubmitted] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [shakeKey, setShakeKey] = useState(0)
 
-    async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-        event.preventDefault()
+    const form = useForm<ForgotPasswordValues>({
+        resolver: zodResolver(forgotPasswordSchema),
+        defaultValues: {
+            email: "",
+        }
+    })
+
+    function triggerShake() {
+        setShakeKey(prev => prev + 1)
+    }
+
+    async function onSubmit(values: ForgotPasswordValues) {
         setError(null)
         setIsLoading(true)
 
-        const formData = new FormData(event.currentTarget)
-        const email = formData.get("email") as string
-
         try {
-            const res = await ApiClient.post('/auth/forgot-password', { email })
+            const res = await ApiClient.post('/auth/forgot-password', values)
             if (res.status === 'success') {
                 setSubmitted(true)
             } else {
                 setError(res.message || "Failed to send reset link")
+                triggerShake()
             }
         } catch (err: any) {
             setError(err.message || "An unexpected error occurred")
+            triggerShake()
         } finally {
             setIsLoading(false)
         }
+    }
+
+    function onInvalid() {
+        triggerShake()
     }
 
     if (submitted) {
@@ -77,18 +95,42 @@ export default function ForgotPasswordPage() {
                 </CardDescription>
             </CardHeader>
             <CardContent>
-                <form onSubmit={onSubmit} className="grid gap-4">
+                <form 
+                    key={shakeKey}
+                    onSubmit={form.handleSubmit(onSubmit, onInvalid)} 
+                    className={cn("grid gap-4 transition-all duration-200", shakeKey > 0 && "animate-error-shake")}
+                >
                     {error && (
-                        <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
-                            {error}
+                        <div className="rounded-lg border border-red-500/30 bg-red-50/90 p-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-950/50 dark:text-red-300 flex items-start gap-2.5 animate-in fade-in zoom-in-95 duration-200 shadow-sm">
+                            <AlertCircle className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
+                            <span className="font-medium leading-tight">{error}</span>
                         </div>
                     )}
-                    <div className="grid gap-2">
-                        <label htmlFor="email" className="text-sm font-medium">Email</label>
-                        <Input id="email" name="email" type="email" placeholder="m@example.com" autoComplete="email" required />
+                    <div className="flex flex-col gap-1.5 min-h-[72px]">
+                        <label htmlFor="email" className="text-sm font-medium leading-none">Email</label>
+                        <Input 
+                            {...form.register("email")}
+                            id="email" 
+                            type="email" 
+                            placeholder="m@example.com" 
+                            autoComplete="email" 
+                            disabled={isLoading}
+                            className={cn(form.formState.errors.email && "border-red-500 focus-visible:ring-red-500")}
+                        />
+                        {form.formState.errors.email ? (
+                            <span className="text-xs font-medium text-red-500 flex items-center gap-1 animate-in fade-in duration-150">
+                                {form.formState.errors.email.message}
+                            </span>
+                        ) : null}
                     </div>
-                    <Button type="submit" className="w-full" disabled={isLoading}>
-                        {isLoading ? "Sending link..." : "Send Reset Link"}
+                    <Button type="submit" className="w-full mt-1 font-medium shadow-sm" disabled={isLoading}>
+                        {isLoading ? (
+                            <>
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" /> Sending link...
+                            </>
+                        ) : (
+                            "Send Reset Link"
+                        )}
                     </Button>
                 </form>
             </CardContent>

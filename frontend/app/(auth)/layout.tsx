@@ -16,8 +16,8 @@ export default function AuthLayout({
     const siteTagline = settings?.site_tagline || "Professional Email Verification Platform"
 
     return (
-        <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 dark:bg-[#030712] p-4 md:p-8">
-            <div className="w-full max-w-md flex flex-col items-center">
+        <div className="flex min-h-screen flex-col items-center justify-start bg-slate-50 dark:bg-[#030712] p-4 md:p-8 py-10 md:py-16">
+            <div className="w-full max-w-md flex flex-col items-center my-auto transition-all duration-200">
                 {/* ─── Branding Header (Horizontal Layout with Tagline Below) ─── */}
                 <div className="mb-6 text-center flex flex-col items-center">
                     <Link 

@@ -64,7 +64,7 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
 
     try {
       // Load stats & settings
-      const dashRes = await ApiClient.get<any>('/admin/security/dashboard')
+      const dashRes = await ApiClient.get<any>('/admin/public-verifier/dashboard')
       if (dashRes.status === 'success') {
         set({ 
           stats: dashRes.data,
@@ -74,11 +74,11 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
       }
 
       // Load logs
-      const logsRes = await ApiClient.get<any[]>('/admin/security/verify-logs')
+      const logsRes = await ApiClient.get<any[]>('/admin/public-verifier/verify-logs')
       if (logsRes.status === 'success') set({ logs: logsRes.data || [] })
 
       // Load blocklist
-      const blockRes = await ApiClient.get<any[]>('/admin/security/blocklist')
+      const blockRes = await ApiClient.get<any[]>('/admin/public-verifier/blocklist')
       if (blockRes.status === 'success') set({ blocked: blockRes.data || [] })
 
       // Load packages
@@ -146,7 +146,7 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
 
   handleSettingsUpdate: async (newLimit?: string, newToggle?: boolean) => {
     try {
-      await ApiClient.post('/admin/security/settings', {
+      await ApiClient.post('/admin/public-verifier/settings', {
         daily_limit: newLimit,
         verifier_enabled: newToggle
       })
@@ -158,7 +158,7 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
 
   unblockClient: async (id) => {
     try {
-      const res = await ApiClient.post('/admin/security/unblock', { id })
+      const res = await ApiClient.post('/admin/public-verifier/unblock', { id })
       if (res.status === 'success') {
         toast.success("Unblocked successfully")
         get().removeBlocked(id)

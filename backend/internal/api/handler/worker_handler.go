@@ -140,9 +140,9 @@ func (h *WorkerHandler) ReportTaskResult(c *gin.Context) {
 			st := stCopy
 			resultPath := resultPathCopy
 			p := pCopy
-			basePath := os.Getenv("BULK_JOBS_PATH")
+			basePath := os.Getenv("BULK_RESULTS_PATH")
 			if basePath == "" {
-				basePath = "./storage/bulk_jobs"
+				basePath = "./storage/results/bulk"
 			}
 			row := storage.ResultRow{
 				JobID:      jID,
@@ -150,6 +150,7 @@ func (h *WorkerHandler) ReportTaskResult(c *gin.Context) {
 				Status:     st,
 				Score:      p.Score,
 				Reason:     p.Reason,
+				MxRecords:  p.MxRecords,
 				VerifiedAt: time.Now(),
 			}
 			if p.IsCatchAll != nil {
@@ -236,9 +237,9 @@ func (h *WorkerHandler) ReportTaskResults(c *gin.Context) {
 		safe.Go(func() {
 			jID := jIDCopy
 			rows := rowsCopy
-			basePath := os.Getenv("BULK_JOBS_PATH")
+			basePath := os.Getenv("BULK_RESULTS_PATH")
 			if basePath == "" {
-				basePath = "./storage/bulk_jobs"
+				basePath = "./storage/results/bulk"
 			}
 			storeRows := make([]storage.ResultRow, 0, len(rows))
 			for _, r := range rows {
@@ -254,6 +255,7 @@ func (h *WorkerHandler) ReportTaskResults(c *gin.Context) {
 					IsFree:         r.IsFree,
 					IsRole:         r.IsRole,
 					HasMx:          r.HasMx,
+					MxRecords:      r.MxRecords,
 					SmtpConnect:    r.SmtpConnect,
 					IsSpamTrap:     r.IsSpamTrap,
 					IsBlacklisted:  r.IsBlacklisted,

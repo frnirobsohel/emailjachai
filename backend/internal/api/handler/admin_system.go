@@ -238,8 +238,8 @@ func (h *AdminHandler) ListBackups(c *gin.Context) {
 		fileType := "Full System"
 		if strings.HasSuffix(f.Name(), ".sql") {
 			fileType = "Database"
-		} else if strings.Contains(f.Name(), "chats") {
-			fileType = "Conversation"
+		} else if strings.Contains(f.Name(), "user_details") {
+			fileType = "User Details"
 		}
 
 		backups = append(backups, BackupFile{
@@ -287,8 +287,8 @@ func (h *AdminHandler) CreateBackup(c *gin.Context) {
 	case "Full System":
 		fileName = fmt.Sprintf("full_system_%s.zip", timestamp)
 		err = zipDirectory(".", filepath.Join(BackupDir, fileName))
-	case "Conversation":
-		fileName = fmt.Sprintf("chats_export_%s.json", timestamp)
+	case "User Details":
+		fileName = fmt.Sprintf("user_details_export_%s.json", timestamp)
 		err = exportChats(filepath.Join(BackupDir, fileName))
 	default:
 		helper.SendError(c, http.StatusBadRequest, "Invalid backup type", "")
@@ -488,7 +488,48 @@ func zipDirectory(source, target string) error {
 
 // Helper: Export chats (mock for now, could be real JSON dump)
 func exportChats(targetPath string) error {
-	return os.WriteFile(targetPath, []byte(`[]`), 0644)
+	type UserBackupData struct {
+		ID        uint               `json:"id"`
+		Name      string             `json:"name"`
+		Email     string             `json:"email"`
+		Role      string             `json:"role"`
+		Credits   int                `json:"credits"`
+		Status    string             `json:"status"`
+		CreatedAt time.Time          `json:"created_at"`
+		History   []model.Transaction `json:"history"`
+	}
+
+	var users []model.User
+	if err := config.DB.Find(&users).Error; err != nil {
+		return err
+	}
+
+	var backupData []UserBackupData
+	for _, u := range users {
+		var history []model.Transaction
+		if err := config.DB.Where("user_id = ?", u.ID).Order("created_at desc").Find(&history).Error; err != nil {
+			// Skip or handle error. Here we just log or proceed with empty history
+			history = []model.Transaction{}
+		}
+
+		backupData = append(backupData, UserBackupData{
+			ID:        u.ID,
+			Name:      u.Name,
+			Email:     u.Email,
+			Role:      u.Role,
+			Credits:   u.Credits,
+			Status:    u.Status,
+			CreatedAt: u.CreatedAt,
+			History:   history,
+		})
+	}
+
+	fileContent, err := json.MarshalIndent(backupData, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(targetPath, fileContent, 0644)
 }
 
 

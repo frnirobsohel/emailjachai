@@ -48,7 +48,7 @@ export function SidebarNavigation({
 
     useEffect(() => {
         if (pathname?.startsWith("/admin")) {
-            const systemPaths = ["/admin/logs", "/admin/server", "/admin/monitoring", "/admin/job-control", "/admin/cache-control", "/admin/security"]
+            const systemPaths = ["/admin/logs", "/admin/server", "/admin/monitoring", "/admin/job-control", "/admin/cache-control", "/admin/public-verifier"]
             const adminTopPaths = ["/admin", "/admin/users", "/admin/domains", "/admin/brand-build", "/admin/smtp", "/admin/packages", "/admin/settings/payment", "/admin/license"]
 
             if (systemPaths.includes(pathname)) {
@@ -195,10 +195,10 @@ export function SidebarNavigation({
             active: pathname === "/admin/cache-control",
         },
         {
-            label: "Security Shield",
+            label: "Public Verifier",
             icon: ShieldCheck,
-            href: "/admin/security",
-            active: pathname === "/admin/security",
+            href: "/admin/public-verifier",
+            active: pathname === "/admin/public-verifier",
         },
     ]
 

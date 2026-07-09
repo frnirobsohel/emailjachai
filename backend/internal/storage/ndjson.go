@@ -26,6 +26,7 @@ type ResultRow struct {
 	IsFree         bool      `json:"free"`
 	IsRole         bool      `json:"role"`
 	HasMx          bool      `json:"has_mx"`
+	MxRecords      []string  `json:"mx_records,omitempty"`
 	SmtpConnect    bool      `json:"smtp_connect"`
 	IsSpamTrap     bool      `json:"spam_trap"`
 	IsBlacklisted  bool      `json:"blacklisted"`
@@ -78,7 +79,7 @@ func (lm *jobLockManager) DeleteLock(jobID string) {
 }
 
 // BulkJobFilePath returns the canonical path for a bulk job's ndjson results file.
-// Pattern: {BULK_JOBS_PATH}/{jobID}.ndjson
+// Pattern: {BULK_RESULTS_PATH}/{jobID}.ndjson
 func BulkJobFilePath(basePath, jobID string) string {
 	return filepath.Join(basePath, jobID+".ndjson")
 }

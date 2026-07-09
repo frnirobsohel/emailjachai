@@ -34,7 +34,13 @@ COPY ./migrations ./migrations
 # Create directory for local uploads/storage (if used)
 RUN mkdir -p /app/storage
 
+# Create non-root system user and group, and change ownership of /app
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
+    && chown -R appuser:appgroup /app
+
+USER appuser
+
 EXPOSE 8000
 
-# By default, run idempotent SQL migrations and then start the API.
-CMD sh -c "for f in ./migrations/*.sql; do echo \"Running migration $f\"; psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"$f\"; done && ./api"
+# By default, wait for PostgreSQL to be ready, run idempotent SQL migrations, and then start the API.
+CMD sh -c "echo 'Waiting for database...' && i=0; while [ \$i -lt 15 ]; do pg_isready -d \"\$DATABASE_URL\" -t 1 && break; i=\$((\$i+1)); echo 'Database not ready, sleeping 2s...'; sleep 2; done && for f in ./migrations/*.sql; do echo \"Running migration \$f\"; psql \"\$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"\$f\"; done && ./api"

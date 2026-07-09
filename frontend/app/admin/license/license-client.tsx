@@ -672,7 +672,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                         <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
                             <Database className="h-5 w-5 text-indigo-500" /> System Backup & Recovery
                         </CardTitle>
-                        <CardDescription>Generate and download full system, database, or conversation backups.</CardDescription>
+                        <CardDescription>Generate and download full system, database, or user details backups.</CardDescription>
                     </div>
                     <div className="flex gap-2">
                         <Button
@@ -685,7 +685,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                             Full Backup
                         </Button>
                         <Button onClick={() => generateBackup("Database")} disabled={isBackingUp} size="sm" variant="outline" className="bg-white">DB Only</Button>
-                        <Button onClick={() => generateBackup("Conversation")} disabled={isBackingUp} size="sm" variant="outline" className="bg-white">Chats</Button>
+                        <Button onClick={() => generateBackup("User Details")} disabled={isBackingUp} size="sm" variant="outline" className="bg-white">User Details</Button>
                     </div>
                 </CardHeader>
                 <CardContent className="pt-6">

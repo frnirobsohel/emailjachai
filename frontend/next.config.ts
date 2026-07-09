@@ -22,6 +22,7 @@ if (isProd) {
 }
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   // Optimize heavy packages so Turbopack doesn't re-analyze them on every compile
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts', '@radix-ui/react-dropdown-menu'],

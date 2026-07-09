@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/storage"
 	"ejp-backend/pkg/logger"
+	"ejp-backend/pkg/report"
 
 	"github.com/gin-gonic/gin"
 )
@@ -50,9 +52,9 @@ func (h *JobHandler) DownloadJobResults(c *gin.Context) {
 	}
 
 	// 2. Determine base path for ndjson files
-	basePath := os.Getenv("BULK_JOBS_PATH")
+	basePath := os.Getenv("BULK_RESULTS_PATH")
 	if basePath == "" {
-		basePath = "./storage/bulk_jobs"
+		basePath = "./storage/results/bulk"
 	}
 
 	// 3. File-first strategy: serve ndjson file directly if it exists
@@ -87,7 +89,7 @@ func (h *JobHandler) DownloadJobResults(c *gin.Context) {
 			defer f.Close()
 
 			w := csv.NewWriter(c.Writer)
-			w.Write([]string{"Email", "Status", "Reason", "Catch-All", "Score", "Verified At", "Job ID"})
+			w.Write([]string{"Domain", "Email", "Status", "Score", "MX Record", "Reason", "Verified At", "Job ID"})
 
 			scanner := bufio.NewScanner(f)
 			// Allow lines up to 1MB (large JSON objects are rare but possible)
@@ -100,16 +102,17 @@ func (h *JobHandler) DownloadJobResults(c *gin.Context) {
 				if err := json.Unmarshal(scanner.Bytes(), &row); err != nil {
 					continue
 				}
-				catchAll := "No"
-				if row.IsCatchAll {
-					catchAll = "Yes"
-				}
+				domain := report.GetDomainFromEmail(row.Email)
+				mxRecordsStr := strings.Join(row.MxRecords, "; ")
+				friendlyReason := report.GetFriendlyReason(row.Reason, row.Status)
+
 				w.Write([]string{
+					domain,
 					row.Email,
 					row.Status,
-					row.Reason,
-					catchAll,
 					fmt.Sprintf("%d", row.Score),
+					mxRecordsStr,
+					friendlyReason,
 					row.VerifiedAt.Format("2006-01-02 15:04:05"),
 					job.JobID,
 				})
@@ -138,27 +141,32 @@ func (h *JobHandler) DownloadJobResults(c *gin.Context) {
 		c.Writer.Write([]byte("\xEF\xBB\xBF"))
 
 		writer := csv.NewWriter(c.Writer)
-		writer.Write([]string{"Email", "Status", "Reason", "Catch-All", "Score", "Verified At", "Job ID"})
+		writer.Write([]string{"Domain", "Email", "Status", "Score", "MX Record", "Reason", "Verified At", "Job ID"})
 
 		for rows.Next() {
 			if c.Request.Context().Err() != nil {
 				return
 			}
 			var res repo.DownloadResultRow
-			if err := rows.Scan(&res.Email, &res.Status, &res.Reason, &res.IsCatchAll, &res.Score, &res.CreatedAt); err != nil {
+			if err := rows.Scan(&res.Email, &res.Status, &res.Reason, &res.IsCatchAll, &res.Score, &res.CreatedAt, &res.MxRecordsRaw); err != nil {
 				continue
 			}
 
-			catchAll := "No"
-			if res.IsCatchAll {
-				catchAll = "Yes"
+			domain := report.GetDomainFromEmail(res.Email)
+			var mxRecords []string
+			if len(res.MxRecordsRaw) > 0 {
+				_ = json.Unmarshal(res.MxRecordsRaw, &mxRecords)
 			}
+			mxRecordsStr := strings.Join(mxRecords, "; ")
+			friendlyReason := report.GetFriendlyReason(res.Reason, res.Status)
+
 			writer.Write([]string{
+				domain,
 				res.Email,
 				res.Status,
-				res.Reason,
-				catchAll,
 				fmt.Sprintf("%d", res.Score),
+				mxRecordsStr,
+				friendlyReason,
 				res.CreatedAt.Format("2006-01-02 15:04:05"),
 				job.JobID,
 			})
@@ -175,8 +183,12 @@ func (h *JobHandler) DownloadJobResults(c *gin.Context) {
 				return
 			}
 			var res repo.DownloadResultRow
-			if err := rows.Scan(&res.Email, &res.Status, &res.Reason, &res.IsCatchAll, &res.Score, &res.CreatedAt); err != nil {
+			if err := rows.Scan(&res.Email, &res.Status, &res.Reason, &res.IsCatchAll, &res.Score, &res.CreatedAt, &res.MxRecordsRaw); err != nil {
 				continue
+			}
+			var mxRecords []string
+			if len(res.MxRecordsRaw) > 0 {
+				_ = json.Unmarshal(res.MxRecordsRaw, &mxRecords)
 			}
 			encoder.Encode(gin.H{
 				"email":       res.Email,
@@ -184,6 +196,7 @@ func (h *JobHandler) DownloadJobResults(c *gin.Context) {
 				"score":       res.Score,
 				"catch_all":   res.IsCatchAll,
 				"reason":      res.Reason,
+				"mx_records":  mxRecords,
 				"verified_at": res.CreatedAt.Format("2006-01-02 15:04:05"),
 			})
 			c.Writer.Flush()
