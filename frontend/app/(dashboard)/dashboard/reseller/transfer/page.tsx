@@ -1,3 +1,9 @@
+import { Metadata } from "next"
+
+export const metadata: Metadata = {
+    title: "Reseller Credit Transfer",
+}
+
 export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { ResellerTransferClient } from "./reseller-transfer-client"

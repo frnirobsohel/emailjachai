@@ -1,3 +1,9 @@
+import { Metadata } from "next"
+
+export const metadata: Metadata = {
+    title: "SMTP Settings",
+}
+
 export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { SmtpClient, SmtpSettings, Template, TemplatesKey, DEFAULT_TEMPLATES, ApiTemplateRow } from "./smtp-client"

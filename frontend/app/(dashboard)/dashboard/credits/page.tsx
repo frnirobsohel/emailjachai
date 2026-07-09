@@ -1,3 +1,9 @@
+import { Metadata } from "next"
+
+export const metadata: Metadata = {
+    title: "Buy Credits",
+}
+
 export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { BuyCreditsClient } from "@/features/credits/components/credits-client"

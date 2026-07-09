@@ -34,6 +34,10 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next()
 }
 
+// Export default and alias as middleware for maximum compatibility across Next.js versions
+export { proxy as middleware }
+export default proxy
+
 export const config = {
     matcher: ['/dashboard/:path*', '/admin/:path*', '/login', '/register'],
 }

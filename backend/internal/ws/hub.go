@@ -176,5 +176,13 @@ func (h *Hub) BroadcastToUser(userID uint, msgType string, data interface{}) {
 	}
 }
 
+// HasActiveConnections returns true if there are any active WebSocket connections.
+// Thread-safe wrapper protecting map reads.
+func (h *Hub) HasActiveConnections() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.Clients) > 0
+}
+
 
 

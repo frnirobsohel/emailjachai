@@ -115,19 +115,18 @@ func (s *domainService) BulkUpload(content string, domainType string, adminID ui
 		domainsToInsert = append(domainsToInsert, domain)
 	}
 
+	duplicates := 0
 	if len(domainsToInsert) > 0 {
-		err := s.repo.BulkCreate(domainsToInsert)
+		inserted, err := s.repo.BulkCreate(domainsToInsert)
 		if err != nil {
 			return 0, 0, invalid, err
 		}
-		// Since we use ON CONFLICT DO NOTHING, we assume all valid lines were processed.
-		// For accurate counts, we would need to check existing domains or query diffs,
-		// but to keep it simple, we treat them as 'added' assuming they weren't strictly errors.
-		added = len(domainsToInsert)
+		added = int(inserted)
+		duplicates = len(domainsToInsert) - added
 	}
 
-	s.logActivity("INFO", "Admin", fmt.Sprintf("Bulk uploaded domains: %d processed, %d invalid", len(domainsToInsert), invalid), adminID)
-	return added, 0, invalid, nil
+	s.logActivity("INFO", "Admin", fmt.Sprintf("Bulk uploaded domains: %d processed (%d added, %d duplicates), %d invalid", len(domainsToInsert), added, duplicates, invalid), adminID)
+	return added, duplicates, invalid, nil
 }
 
 func (s *domainService) logActivity(level, source, message string, adminID uint) {

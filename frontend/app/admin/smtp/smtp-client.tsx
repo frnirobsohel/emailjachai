@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -101,6 +101,7 @@ export function SmtpClient({
     const [templates, setTemplates] = useState<Record<TemplatesKey, Template>>(initialTemplates)
     const [hasStoredPassword, setHasStoredPassword] = useState(initialHasStoredPassword)
     const [isConnectionVerified, setIsConnectionVerified] = useState(initialIsConnectionVerified)
+    const isFirstMount = useRef(true)
 
     const smtpForm = useForm<z.infer<typeof smtpSettingsSchema>>({
         resolver: zodResolver(smtpSettingsSchema),
@@ -167,6 +168,10 @@ export function SmtpClient({
     };
 
     useEffect(() => {
+        if (isFirstMount.current) {
+            isFirstMount.current = false;
+            return;
+        }
         fetchSmtpData();
     }, []);
 

@@ -1,3 +1,9 @@
+import { Metadata } from "next"
+
+export const metadata: Metadata = {
+    title: "Bulk Email Verification",
+}
+
 import { BulkUploadForm } from "@/features/bulk-upload/components/form"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Mail, Database, CheckCircle, AlertTriangle } from "lucide-react"

@@ -7,6 +7,7 @@ import { RecentActivity } from "@/features/dashboard/components/recent-activity"
 import { QuickActions } from "@/features/dashboard/components/quick-actions"
 import { StatsCards } from "@/features/dashboard/components/stats-cards"
 import { useDashboardStore, type DashboardStats, type RecentDashboardJob } from "@/stores/dashboard-store"
+import { ApiClient } from "@/lib/api-client"
 
 interface DashboardClientProps {
     initialStats: DashboardStats
@@ -16,15 +17,32 @@ interface DashboardClientProps {
 export function DashboardClient({ initialStats, initialRecentJobs }: DashboardClientProps) {
     const store = useDashboardStore()
 
+    const fetchDashboardData = async () => {
+        try {
+            const [statsRes, jobsRes] = await Promise.all([
+                ApiClient.get<DashboardStats>('/dashboard/stats'),
+                ApiClient.get<{ jobs: RecentDashboardJob[], total: number }>('/jobs/list?limit=4&type=all')
+            ]);
+            if (statsRes.status === 'success' && statsRes.data) {
+                store.setStats(statsRes.data)
+            }
+            if (jobsRes.status === 'success' && jobsRes.data) {
+                store.setRecentJobs(jobsRes.data.jobs || [])
+            }
+        } catch (error) {
+            console.error("Failed to fetch dashboard data client-side:", error)
+        }
+    }
+
     // Initialize store with server-fetched data on mount/navigation
     useEffect(() => {
-        // Only initialize stats if the store doesn't have stats yet, to prevent overwriting
-        // real-time WebSocket updates with stale Next.js Router Cache data.
         if (!store.stats) {
             store.setStats(initialStats)
+            store.setRecentJobs(initialRecentJobs)
         }
-        store.setRecentJobs(initialRecentJobs)
-    }, [initialStats, initialRecentJobs, store.stats])
+        // Always fetch fresh data client-side to override Next.js Router Cache
+        fetchDashboardData()
+    }, [initialStats, initialRecentJobs])
 
     // Use store stats if available, otherwise fallback to initialStats (to prevent flash before hydration)
     const currentStats = store.stats || initialStats

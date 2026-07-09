@@ -26,6 +26,12 @@ export async function POST(request: NextRequest) {
     headers.set('Authorization', `Bearer ${apiKey}`);
     headers.set('X-Request-ID', request.headers.get('x-request-id') || `upload_${Date.now()}`);
 
+    // Forward the client's actual IP address to the backend
+    const clientIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || (request as any).ip || '';
+    if (clientIp) {
+        headers.set('X-Forwarded-For', clientIp);
+    }
+
     try {
         const response = await fetch(`${API_BASE_URL}/jobs/submit-file`, {
             method: 'POST',

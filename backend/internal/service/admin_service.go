@@ -10,6 +10,7 @@ import (
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/ws"
+	"ejp-backend/pkg/safe"
 )
 
 type AdminService interface {
@@ -239,22 +240,28 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 
 		if err == nil {
 			if amount > 0 {
-				go s.emailService.SendTemplateEmail(user.Email, "credit_assigned", map[string]string{
-					"name":    user.Name,
-					"credits": fmt.Sprintf("%d", amount),
+				emailCopy := user.Email
+				nameCopy := user.Name
+				amountCopy := amount
+				safe.Go(func() {
+					s.emailService.SendTemplateEmail(emailCopy, "credit_assigned", map[string]string{
+						"name":    nameCopy,
+						"credits": fmt.Sprintf("%d", amountCopy),
+					})
 				})
 			}
 			s.logActivity("INFO", "Admin", fmt.Sprintf("Adjusted %d credits for user #%d", amount, targetUserID), adminID)
 
 			// Broadcast updated credits and stats to the target user in real-time
-			go func() {
-				if updatedUser, getErr := s.userRepo.GetByID(targetUserID); getErr == nil && updatedUser != nil {
+			targetUserIDCopy := targetUserID
+			safe.Go(func() {
+				if updatedUser, getErr := s.userRepo.GetByID(targetUserIDCopy); getErr == nil && updatedUser != nil {
 					ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", map[string]interface{}{
 						"credits": updatedUser.Credits,
 					})
 				}
-				ComputeAndCacheDashboardStats(targetUserID)
-			}()
+				ComputeAndCacheDashboardStats(targetUserIDCopy)
+			})
 		}
 		return err
 	}
@@ -306,6 +313,11 @@ func (s *adminService) CreateUser(name, email, password, role string, credits in
 		return fmt.Errorf("name, email and password are required")
 	}
 
+	allowedRoles := map[string]bool{"admin": true, "manager": true, "reseller": true, "user": true, "demo": true}
+	if !allowedRoles[role] {
+		return fmt.Errorf("invalid role value: %s", role)
+	}
+
 	// Check if email already exists
 	existing, _ := s.userRepo.GetByEmail(email)
 	if existing != nil {
@@ -337,6 +349,11 @@ func (s *adminService) EditUser(id uint, name, email, role string) error {
 
 	if name == "" || email == "" {
 		return fmt.Errorf("name and email are required")
+	}
+
+	allowedRoles := map[string]bool{"admin": true, "manager": true, "reseller": true, "user": true, "demo": true}
+	if !allowedRoles[role] {
+		return fmt.Errorf("invalid role value: %s", role)
 	}
 
 	// If email changed, verify uniqueness

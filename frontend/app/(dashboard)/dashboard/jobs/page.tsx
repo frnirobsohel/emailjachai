@@ -1,3 +1,9 @@
+import { Metadata } from "next"
+
+export const metadata: Metadata = {
+    title: "Verification Jobs",
+}
+
 export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { JobsClient } from "@/features/jobs/components/jobs-client"

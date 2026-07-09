@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Users, CreditCard, Activity, DollarSign, ArrowUpRight, ArrowDownRight, RefreshCcw } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
 import { useAdminStore } from "@/stores/admin-store"
-import { useAdminWebSocket } from "@/hooks/useAdminWebSocket"
+import { useAdminWebSocket } from "@/hooks/use-admin-web-socket"
 
 export function AdminDashboardClient({ initialData }: { initialData: any }) {
     const store = useAdminStore()

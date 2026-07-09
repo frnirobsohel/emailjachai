@@ -80,10 +80,10 @@ func (h *APIKeyHandler) GetAPIKeys(c *gin.Context) {
 func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	var input struct {
-		Name string `json:"name" binding:"required"`
+		Name string `json:"name" binding:"required,max=50"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "API Key name must be between 1 and 50 characters", "ERR_INVALID_INPUT")
 		return
 	}
 
@@ -113,6 +113,11 @@ func (h *APIKeyHandler) DeleteAPIKey(c *gin.Context) {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to delete key", err.Error())
 		return
 	}
+
+	// M1 Fix: Clear API auth cache so the revoked key stops working immediately
+	// (previously revoked keys remained valid for up to 2 minutes via in-memory cache)
+	h.apiKeyService.InvalidateCacheByKeyID(input.ID)
+
 	helper.SendSuccess(c, "API key deleted successfully", nil)
 }
 
@@ -125,6 +130,9 @@ func (h *APIKeyHandler) RotateAPIKey(c *gin.Context) {
 		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
 		return
 	}
+
+	// M1 Fix: Clear cache for old key before rotating
+	h.apiKeyService.InvalidateCacheByKeyID(input.ID)
 
 	key, err := h.apiKeyService.Rotate(input.ID, userID.(uint))
 	if err != nil {

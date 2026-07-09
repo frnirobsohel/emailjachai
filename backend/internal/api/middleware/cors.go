@@ -17,14 +17,18 @@ func CORSMiddleware() gin.HandlerFunc {
 	allowedOrigins := strings.Split(allowedOriginsEnv, ",")
 	originSet := make(map[string]struct{}, len(allowedOrigins))
 	for _, o := range allowedOrigins {
-		originSet[strings.TrimSpace(o)] = struct{}{}
+		cleaned := strings.ToLower(strings.TrimRight(strings.TrimSpace(o), "/"))
+		if cleaned != "" {
+			originSet[cleaned] = struct{}{}
+		}
 	}
 
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
+		cleanedOrigin := strings.ToLower(strings.TrimRight(strings.TrimSpace(origin), "/"))
 
 		// Check if the request origin is in our allowed list
-		if _, ok := originSet[origin]; ok {
+		if _, ok := originSet[cleanedOrigin]; ok {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		}

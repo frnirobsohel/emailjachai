@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -10,6 +11,7 @@ import (
 	"ejp-worker/internal/reporter"
 	"ejp-worker/pkg/config"
 	"ejp-worker/pkg/logger"
+	"ejp-worker/pkg/safe"
 
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
@@ -32,8 +34,8 @@ func main() {
 	reporter.SelfHeal()
 
 	// 4. Start Background Routines
-	go reporter.UpdateDomainCache()
-	go reporter.StartHeartbeat()
+	safe.Go(reporter.UpdateDomainCache)
+	safe.Go(reporter.StartHeartbeat)
 
 	// 5. Configure Asynq Server
 	srv := asynq.NewServer(
@@ -46,6 +48,17 @@ func main() {
 				"low":      1,
 			},
 			Logger: newAsynqLogger(), // Bridge Asynq internal logs to zap
+			ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
+				retried, _ := asynq.GetRetryCount(ctx)
+				maxRetry, _ := asynq.GetMaxRetry(ctx)
+				if retried >= maxRetry {
+					logger.Error("Task exhausted all retries (Dead-Letter Queue)",
+						zap.String("type", task.Type()),
+						zap.Error(err),
+					)
+					queue.HandleDeadLetterTask(ctx, task, err)
+				}
+			}),
 		},
 	)
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -70,6 +70,7 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
     const [provider, setProvider] = useState<GatewayProvider>('stripe')
     // Keep a full copy of all 3 providers' data so switching tabs doesn't lose unsaved changes
     const [allConfigs, setAllConfigs] = useState<Record<GatewayProvider, ConfigState>>(initialConfigs)
+    const isFirstMount = useRef(true)
 
     const form = useForm<GatewayFormValues>({
         resolver: zodResolver(gatewaySchema),
@@ -122,6 +123,10 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
     }
 
     useEffect(() => {
+        if (isFirstMount.current) {
+            isFirstMount.current = false;
+            return;
+        }
         fetchConfigs();
     }, []);
 

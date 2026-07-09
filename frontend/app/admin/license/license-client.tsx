@@ -6,11 +6,13 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { toast } from "react-hot-toast"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { ShieldCheck, ArrowUpCircle, Key, RefreshCcw, CheckCircle, Download, UploadCloud, FileArchive, Database, History, HardDriveDownload, RotateCcw, AlertCircle, Loader2, Trash2 } from "lucide-react"
+import { ShieldCheck, ArrowUpCircle, Key, RefreshCcw, CheckCircle, Download, UploadCloud, FileArchive, Database, History, HardDriveDownload, RotateCcw, AlertCircle, Loader2, Trash2, Wrench, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { ApiClient } from "@/lib/api-client"
 
@@ -65,6 +67,36 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
     const [backups, setBackups] = useState<BackupFile[]>(initialBackups)
     const [licenseInfo, setLicenseInfo] = useState<LicenseInfo | null>(initialLicenseInfo)
     const [isEditingLicense, setIsEditingLicense] = useState(false)
+    const isFirstMount = useRef(true)
+
+    // Maintenance Mode States
+    const [maintenanceMode, setMaintenanceMode] = useState(false)
+    const [maintenanceMessage, setMaintenanceMessage] = useState("We are currently optimizing our verification engine. Single/Bulk verification is temporarily paused. Your existing files are safe.")
+    const [isSavingMaintenance, setIsSavingMaintenance] = useState(false)
+
+    const handleSaveMaintenance = async () => {
+        setIsSavingMaintenance(true)
+        try {
+            const res = await ApiClient.post('/admin/settings/update', {
+                settings: {
+                    maintenance_mode: maintenanceMode ? "1" : "0",
+                    maintenance_message: maintenanceMessage
+                }
+            })
+            if (res.status === 'success') {
+                toast.success("Maintenance settings updated successfully!")
+                setTimeout(() => {
+                    window.location.reload()
+                }, 1000)
+            } else {
+                toast.error(res.message || "Failed to update maintenance settings")
+            }
+        } catch (err: any) {
+            toast.error(err.message || "An error occurred while saving")
+        } finally {
+            setIsSavingMaintenance(false)
+        }
+    }
 
     const licenseForm = useForm<LicenseFormValues>({
         resolver: zodResolver(licenseSchema),
@@ -95,9 +127,31 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
         }
     }
 
+    const fetchMaintenanceSettings = async () => {
+        try {
+            const res = await ApiClient.get<any[]>('/admin/settings')
+            if (res.status === 'success' && Array.isArray(res.data)) {
+                const modeSetting = res.data.find(s => s.setting_key === 'maintenance_mode')
+                const msgSetting = res.data.find(s => s.setting_key === 'maintenance_message')
+                if (modeSetting) {
+                    setMaintenanceMode(modeSetting.setting_value === '1' || modeSetting.setting_value === 'true')
+                }
+                if (msgSetting) {
+                    setMaintenanceMessage(msgSetting.setting_value || "")
+                }
+            }
+        } catch (err) {
+            console.error("Failed to load maintenance settings:", err)
+        }
+    }
+
     useEffect(() => {
+        if (isFirstMount.current) {
+            isFirstMount.current = false;
+        }
         fetchSystemStatus()
         fetchBackups()
+        fetchMaintenanceSettings()
     }, [])
 
     // ── License key form ──
@@ -208,21 +262,27 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
 
     // ── Restore ──
 
-    const startRestore = () => {
+    const startRestore = async () => {
         if (!showRestoreConfirm) return
+        const target = showRestoreConfirm
         setShowRestoreConfirm(null)
         setIsRestoring(true)
-        setRestoreProgress(0)
+        setRestoreProgress(10)
 
-        let progress = 0
-        const interval = setInterval(() => {
-            progress += 5
-            setRestoreProgress(progress)
-            if (progress >= 100) {
-                clearInterval(interval)
-                setTimeout(() => setIsRestoring(false), 1000)
+        try {
+            const res = await ApiClient.post('/admin/system/backups/restore', { name: target.name })
+            if (res.status === 'success') {
+                setRestoreProgress(100)
+                toast.success("Database restored successfully!")
+                fetchSystemStatus()
+            } else {
+                toast.error(res.message || "Failed to restore database")
             }
-        }, 150)
+        } catch (err: any) {
+            toast.error(err.message || "Connection error during restore")
+        } finally {
+            setTimeout(() => setIsRestoring(false), 1000)
+        }
     }
 
     const resetUpdate = () => {
@@ -301,6 +361,22 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                     <p className="text-slate-500">Manage system versions, licenses, and data security.</p>
                 </div>
             </div>
+
+            {/* Maintenance Live Preview Banner */}
+            {maintenanceMode && (
+                <div className="w-full bg-amber-50/80 border-l-4 border-amber-500 p-4 rounded-r-xl shadow-sm flex items-start gap-3 border border-amber-100/50 animate-pulse">
+                    <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                        <h4 className="text-sm font-bold text-amber-900 flex items-center gap-1.5">
+                            System Maintenance Mode Active
+                        </h4>
+                        <p className="text-xs text-amber-700 mt-1">{maintenanceMessage}</p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-[10px] font-bold text-amber-800 uppercase tracking-wider">
+                        Live Banner Preview
+                    </span>
+                </div>
+            )}
 
             <div className="grid gap-6 md:grid-cols-2">
                 {/* License Card */}
@@ -493,6 +569,101 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                     </CardContent>
                 </Card>
             </div>
+
+            {/* System Maintenance (Horizontal Card) */}
+            <Card className="shadow-sm border-indigo-100 overflow-hidden">
+                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50 flex flex-row items-center justify-between space-y-0">
+                    <div>
+                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+                            <Wrench className="h-5 w-5 text-amber-500" /> System Maintenance Control
+                        </CardTitle>
+                        <CardDescription>Configure global maintenance mode to perform safe database or server upgrades.</CardDescription>
+                    </div>
+                    <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-slate-100 shadow-sm shrink-0">
+                        <div className="text-right">
+                            <p className="text-xs font-semibold text-slate-900">Maintenance Status</p>
+                            <p className="text-[10px] text-slate-500">
+                                {maintenanceMode ? "New validations blocked" : "System fully operational"}
+                            </p>
+                        </div>
+                        <Switch
+                            checked={maintenanceMode}
+                            onCheckedChange={(checked) => {
+                                setMaintenanceMode(checked)
+                                if (checked) {
+                                    toast.success("Maintenance Mode enabled in preview")
+                                } else {
+                                    toast("Maintenance Mode disabled in preview", { icon: "⚙️" })
+                                }
+                            }}
+                        />
+                    </div>
+                </CardHeader>
+                <CardContent className="pt-6">
+                    <div className="grid gap-6 md:grid-cols-12 items-start">
+                        {/* Message Input & Draining Info (7 cols) */}
+                        <div className="md:col-span-7 space-y-4">
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                    Notification Banner Message
+                                </Label>
+                                <Textarea
+                                    value={maintenanceMessage}
+                                    onChange={(e) => setMaintenanceMessage(e.target.value)}
+                                    placeholder="Enter maintenance banner message for users..."
+                                    className="min-h-[90px] resize-none text-xs focus-visible:ring-amber-500"
+                                    disabled={!maintenanceMode}
+                                />
+                            </div>
+                            <div className="rounded-lg bg-amber-50/50 border border-amber-100/50 p-3.5 text-xs text-amber-800 leading-relaxed flex gap-2">
+                                <span className="text-base shrink-0">💡</span>
+                                <div>
+                                    <strong className="font-semibold">Graceful Queue Draining:</strong> While active, already running bulk jobs will continue to process until finished. Only new uploads, verifications, and API validations are blocked. User area and Reseller area will be blocked from performing new operations.
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Banner Preview & Save Action (5 cols) */}
+                        <div className="md:col-span-5 space-y-4 flex flex-col justify-between min-h-[175px]">
+                            <div className="space-y-2">
+                                <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                    Real-time Banner Preview
+                                </Label>
+                                <div className={cn(
+                                    "p-4 rounded-xl border text-xs transition-all duration-300 min-h-[90px] flex items-center justify-center",
+                                    maintenanceMode 
+                                        ? "bg-amber-50/80 border-amber-200 text-amber-900 shadow-inner" 
+                                        : "bg-slate-50 border-slate-200 text-slate-400 italic"
+                                )}>
+                                    {maintenanceMode ? (
+                                        <div className="flex gap-2 items-start">
+                                            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                                            <p className="leading-relaxed">{maintenanceMessage}</p>
+                                        </div>
+                                    ) : (
+                                        "Toggle Maintenance Status to see preview"
+                                    )}
+                                </div>
+                            </div>
+
+                            <Button
+                                className="w-full bg-amber-600 hover:bg-amber-700 text-white font-medium shadow-sm transition-colors duration-200"
+                                size="sm"
+                                disabled={isSavingMaintenance}
+                                onClick={handleSaveMaintenance}
+                            >
+                                {isSavingMaintenance ? (
+                                    <>
+                                        <Loader2 className="h-4 w-4 animate-spin mr-2" /> Saving settings...
+                                    </>
+                                ) : (
+                                    "Save Maintenance Settings"
+                                )}
+                            </Button>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
 
             {/* System Backup Card */}
             <Card className="shadow-sm border-indigo-100 overflow-hidden">

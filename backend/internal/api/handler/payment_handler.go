@@ -54,10 +54,23 @@ func (h *PaymentHandler) CreateSession(c *gin.Context) {
 	helper.SendSuccess(c, "Payment session created", gin.H{"checkout_url": url})
 }
 
+// validPaymentProviders is the explicit whitelist of supported payment gateways.
+var validPaymentProviders = map[string]bool{
+	"stripe":    true,
+	"paypal":    true,
+	"cryptomus": true,
+}
+
 func (h *PaymentHandler) HandleWebhook(c *gin.Context) {
 	provider := c.Param("provider")
 	if provider == "" {
 		helper.SendError(c, http.StatusBadRequest, "Payment provider is required", "ERR_MISSING_PROVIDER")
+		return
+	}
+
+	// C1 Fix: Validate provider against strict whitelist
+	if !validPaymentProviders[provider] {
+		helper.SendError(c, http.StatusBadRequest, "Unknown payment provider", "ERR_INVALID_PROVIDER")
 		return
 	}
 

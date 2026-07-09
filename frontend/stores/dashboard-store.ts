@@ -19,7 +19,7 @@ export interface RecentDashboardJob {
     total_emails: number;
     processed_count?: number;
     created_at?: string;
-    job_type?: string;
+    type?: string;
 }
 
 interface DashboardState {

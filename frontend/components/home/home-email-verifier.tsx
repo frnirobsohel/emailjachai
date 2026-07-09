@@ -4,9 +4,12 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Loader2 } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
+import { useSettings } from "@/lib/settings-context"
 
 export function HomeEmailVerifier() {
     const router = useRouter()
+    const settings = useSettings()
+    const isMaintenance = settings?.maintenance_mode === "1"
     const [email, setEmail] = useState("")
     const [isLoading, setIsLoading] = useState(false)
     const [status, setStatus] = useState<string | null>(null)
@@ -51,7 +54,7 @@ export function HomeEmailVerifier() {
 
     const handleVerify = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!email.trim()) return
+        if (!email.trim() || isMaintenance) return
 
         // Check limit
         if (!isInitializing && remaining !== null && remaining <= 0) {
@@ -97,7 +100,10 @@ export function HomeEmailVerifier() {
     let buttonText = "Verify Now"
     let buttonStyle = "bg-indigo-600 text-slate-200 shadow-indigo-600/20 hover:bg-indigo-500"
 
-    if (isLoading) {
+    if (isMaintenance) {
+        buttonText = "Maintenance Active"
+        buttonStyle = "bg-amber-600 text-white shadow-none hover:bg-amber-600 cursor-not-allowed opacity-80"
+    } else if (isLoading) {
         buttonText = "Verifying..."
         buttonStyle = "bg-indigo-500/50 text-slate-300 cursor-wait"
     } else if (status) {
@@ -124,22 +130,24 @@ export function HomeEmailVerifier() {
                         required
                         value={email}
                         onChange={handleEmailChange}
-                        placeholder="Enter email address to verify..."
-                        className="w-full pl-12 pr-4 py-4 rounded-xl bg-white/5 border-0 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-base transition-colors"
+                        placeholder={isMaintenance ? settings?.maintenance_message || "System under maintenance..." : "Enter email address to verify..."}
+                        className="w-full pl-12 pr-4 py-4 rounded-xl bg-white/5 border-0 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={isLoading || isMaintenance}
                     />
                 </div>
                 <button
                     type="submit"
-                    disabled={isLoading || !email || status !== null}
+                    disabled={isLoading || !email || isMaintenance}
                     className={`flex items-center justify-center gap-2 px-8 py-4 rounded-xl font-semibold text-base shadow-lg transition-all hover:-translate-y-0.5 whitespace-nowrap disabled:opacity-70 disabled:hover:translate-y-0 disabled:cursor-not-allowed ${buttonStyle}`}
                 >
                     {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {!isLoading && status === null && (
+                    {!isLoading && !status && (
                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
                     )}
                     {buttonText}
                 </button>
             </div>
+
             <div className="flex items-center justify-between mt-4 px-2">
                 <p className="text-xs text-slate-500">
                     🔒 Free to try — No credit card required.

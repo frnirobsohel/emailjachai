@@ -706,6 +706,11 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 				Update("emails_verified", gorm.Expr("emails_verified + ?", processedIncTotal)).Error
 		}
 
+		// Trigger risky refund check if job completes
+		if err := s.jobRepo.CheckAndApplyRiskyRefund(tx, job.JobID); err != nil {
+			logger.Error("Failed to check/apply risky refund on task report", "job_id", job.JobID, "error", err)
+		}
+
 		return nil
 	})
 

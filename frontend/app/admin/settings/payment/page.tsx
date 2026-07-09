@@ -1,3 +1,9 @@
+import { Metadata } from "next"
+
+export const metadata: Metadata = {
+    title: "Payment Settings",
+}
+
 export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { PaymentClient, GatewayProvider, ConfigState } from "./payment-client"

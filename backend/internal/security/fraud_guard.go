@@ -10,6 +10,8 @@ import (
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
+
+	"gorm.io/gorm/clause"
 )
 
 var dailyFreeLimitCache struct {
@@ -84,25 +86,41 @@ func (g *FraudGuard) CheckRequest(ip, cookie string) (FraudAction, string) {
 	ipUsageKey := fmt.Sprintf("pub_use:ip:%s:%s", ip, today)
 	cookieUsageKey := fmt.Sprintf("pub_use:cookie:%s:%s", cookie, today)
 
-	ipUsage, _ := config.Redis.Get(ctx, ipUsageKey).Int64()
-	cookieUsage, _ := config.Redis.Get(ctx, cookieUsageKey).Int64()
-
-	// Normal usage
-	if ipUsage < limit && cookieUsage < limit {
-		// Increment usage
-		config.Redis.Incr(ctx, ipUsageKey)
+	// --- Fix I-02: Atomic INCR-then-CHECK (eliminates TOCTOU race) ---
+	// আগে: GET দিয়ে value পড়ে check করত, তারপর INCR করত।
+	// সমস্যা: দুইটা concurrent request একসাথে GET করলে দুইজনই limit-এর নিচে দেখত
+	// এবং দুইজনই INCR করত — quota bypass হত।
+	// এখন: আগে INCR করো, তারপর check করো। Atomically safe.
+	newIPCount, err := config.Redis.Incr(ctx, ipUsageKey).Result()
+	if err == nil {
 		config.Redis.Expire(ctx, ipUsageKey, 24*time.Hour)
-		config.Redis.Incr(ctx, cookieUsageKey)
+	}
+	newCookieCount, err2 := config.Redis.Incr(ctx, cookieUsageKey).Result()
+	if err2 == nil {
 		config.Redis.Expire(ctx, cookieUsageKey, 24*time.Hour)
+	}
 
+	// If both are within limits, allow and save origin associations
+	if newIPCount <= limit && newCookieCount <= limit {
 		// Save orig association if not exists
 		origIpKey := fmt.Sprintf("pub_orig:cookie:%s", cookie)
 		origCookieKey := fmt.Sprintf("pub_orig:ip:%s", ip)
 		config.Redis.SetNX(ctx, origIpKey, ip, 7*24*time.Hour)
 		config.Redis.SetNX(ctx, origCookieKey, cookie, 7*24*time.Hour)
-
 		return ActionAllow, ""
 	}
+
+	// Over limit: decrement back so counters reflect actual consumed quota
+	if newIPCount > limit {
+		config.Redis.Decr(ctx, ipUsageKey)
+	}
+	if newCookieCount > limit {
+		config.Redis.Decr(ctx, cookieUsageKey)
+	}
+
+	// Re-read for fraud detection logic below
+	ipUsage, _ := config.Redis.Get(ctx, ipUsageKey).Int64()
+	cookieUsage, _ := config.Redis.Get(ctx, cookieUsageKey).Int64()
 
 	// Quota exhausted. We are now in Fraud Detection territory.
 	// Someone is trying to verify beyond the limit.
@@ -171,8 +189,12 @@ func (g *FraudGuard) softBlock(value, typ, reason string) {
 		BlockType: "soft",
 		Reason:    reason,
 	}
-	// Ignore errors for duplicates
-	if err := config.DB.Where("value = ?", value).FirstOrCreate(&block).Error; err == nil {
+	// --- Fix I-07: Use ON CONFLICT DO NOTHING instead of FirstOrCreate ---
+	// আগে FirstOrCreate race-prone ছিল: দুই goroutine একসাথে First করলে
+	// দুজনই record খুঁজে পেত না, তারপর দুজনই Create করত → unique violation.
+	// এখন OnConflict{DoNothing: true} ব্যবহার করা হয় যেটা atomic.
+	result := config.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&block)
+	if result.Error == nil {
 		ws.GlobalHub.BroadcastToAdmins("blocklist_update", block)
 	}
 }
@@ -184,7 +206,12 @@ func (g *FraudGuard) hardBlock(value, typ, reason string) {
 		BlockType: "hard",
 		Reason:    reason,
 	}
-	if err := config.DB.Where("value = ?", value).Assign(model.BlockedClient{BlockType: "hard", Reason: reason}).FirstOrCreate(&block).Error; err == nil {
+	// Upsert: insert new, or upgrade existing block to "hard" atomically
+	result := config.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "value"}},
+		DoUpdates: clause.AssignmentColumns([]string{"block_type", "reason", "blocked_at"}),
+	}).Create(&block)
+	if result.Error == nil {
 		ws.GlobalHub.BroadcastToAdmins("blocklist_update", block)
 	}
 }

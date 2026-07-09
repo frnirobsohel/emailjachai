@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { ApiClient } from "@/lib/api-client"
 import { toast } from "react-hot-toast"
 import { useLogsStore } from "@/stores/logs-store"
-import { useLogsWebSocket } from "@/hooks/useLogsWebSocket"
+import { useLogsWebSocket } from "@/hooks/use-logs-web-socket"
 
 export type LogEntry = {
     id?: number
@@ -78,12 +78,19 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
         }
     }, [isLoading])
 
+    const isFirstMount = useRef(true)
+
     useEffect(() => {
-        store.clearLogs();
-        setOffset(0);
-        setIsInitial(true);
-        loadPage(0);
-    }, []);
+        if (initialLogs && initialLogs.length > 0) {
+            store.setInitial(initialLogs, initialTotal, initialHasMore);
+            setOffset(initialLogs.length);
+        } else if (store.logs.length === 0) {
+            store.clearLogs();
+            setOffset(0);
+            setIsInitial(true);
+            loadPage(0);
+        }
+    }, [initialLogs, initialTotal, initialHasMore]);
 
     useEffect(() => {
         if (!sentinelRef.current) return

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useHydrated } from "@/hooks/use-hydrated"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts"
 import { Loader2 } from "lucide-react"
@@ -18,11 +18,10 @@ type WeeklyActivityChartProps = {
 }
 
 export function WeeklyActivityChart({ data, isLoading = false }: WeeklyActivityChartProps) {
-    const [isMounted, setIsMounted] = useState(false)
-
-    useEffect(() => { setIsMounted(true) }, [])
+    const isMounted = useHydrated()
 
     return (
+
         <Card className="col-span-1 lg:col-span-4 shadow-sm border-indigo-100 overflow-hidden h-full flex flex-col">
             <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
                 <CardTitle className="text-lg font-semibold text-slate-900">Weekly Activity</CardTitle>

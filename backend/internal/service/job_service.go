@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -23,11 +24,28 @@ import (
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
 	"ejp-backend/pkg/logger"
+	"ejp-backend/pkg/safe"
 
 	"github.com/gin-gonic/gin"
 	"github.com/hibiken/asynq"
 	"gorm.io/gorm"
 )
+
+var (
+	singleLockMap   = make(map[uint64]*sync.Mutex)
+	singleLockMapMu sync.Mutex
+)
+
+func getSingleMutex(index uint64) *sync.Mutex {
+	singleLockMapMu.Lock()
+	defer singleLockMapMu.Unlock()
+	if lock, exists := singleLockMap[index]; exists {
+		return lock
+	}
+	lock := &sync.Mutex{}
+	singleLockMap[index] = lock
+	return lock
+}
 
 type JobService interface {
 	GetJobs(userID uint, jobType string, limit, offset int) ([]model.Job, int64, error)
@@ -40,6 +58,7 @@ type JobService interface {
 	GetMaxEmailsPerJobLimit() int
 	GetJobForUser(userID uint, jobID string) (*model.Job, error)
 	GetJobResultsRows(jobInternalID uint) (*sql.Rows, error)
+	RetryJob(userID uint, jobID string) (*model.Job, error)
 }
 
 type jobService struct {
@@ -177,7 +196,11 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 	if !fromCache {
 		res = verifier.VerifyEmail(email)
 		// Async upsert to cache for future lookups
-		go func(r verifier.VerifyResult, e string) {
+		resCopy := res
+		emailCopy := email
+		safe.Go(func() {
+			r := resCopy
+			e := emailCopy
 			cacheRows := []model.EmailCache{{
 				Email:          e,
 				Status:         r.Status,
@@ -201,7 +224,7 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 				UpdatedAt:      time.Now(),
 			}}
 			_ = s.cacheRepo.UpsertEmailCacheBatch(cacheRows)
-		}(res, email)
+		})
 	}
 
 	// 4. Save Job and JobResult in a separate transaction
@@ -269,7 +292,11 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 	}
 
 	// 5b. Save single verification result to local NDJSON file for exact legacy parity
-	go func(j *model.Job, rr *model.JobResult) {
+	jobCopy := job
+	rrCopy := resultRecord
+	safe.Go(func() {
+		j := jobCopy
+		rr := rrCopy
 		fileIndex := j.ID / 100000
 		singleDir := "./storage/results/single"
 		if envPath := os.Getenv("SINGLE_RESULTS_PATH"); envPath != "" {
@@ -306,12 +333,15 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 
 		if line, err := json.Marshal(ndjsonRow); err == nil {
 			line = append(line, '\n')
+			mu := getSingleMutex(uint64(fileIndex))
+			mu.Lock()
 			if f, err := os.OpenFile(resultFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640); err == nil {
 				_, _ = f.Write(line)
 				f.Close()
 			}
+			mu.Unlock()
 		}
-	}(job, resultRecord)
+	})
 
 	// Broadcast updated credit balance and clear cache
 	if updatedUser, err := s.userRepo.GetByID(userID); err == nil {
@@ -380,21 +410,42 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 		}
 	}
 
-	// 3. Idempotency Check
+	// 3. Idempotency Check & Atomic Lock
+	var lockReleased = false
 	if idempotencyKey != "" {
 		redisKey := fmt.Sprintf("idempotency:job:%s", idempotencyKey)
-		existingJobID, _ := config.Redis.Get(config.Ctx, redisKey).Result()
-		if existingJobID != "" {
-			existingJob, err := s.jobRepo.GetByID(existingJobID)
-			if err == nil {
-				return nil, nil, &IdempotencyError{
-					JobID:  existingJob.JobID,
-					Total:  existingJob.TotalEmails,
-					Queued: existingJob.TotalEmails - existingJob.InvalidSyntax,
-					Status: existingJob.Status,
+		// We set it to "in_progress" with a 60 second TTL to prevent deadlocks in case of unexpected crashes
+		success, err := config.Redis.SetNX(config.Ctx, redisKey, "in_progress", 60*time.Second).Result()
+		if err != nil {
+			logger.Warn("Redis error during idempotency check", "error", err)
+		} else if !success {
+			// If lock acquisition failed, check if the job is already completed or in progress
+			val, _ := config.Redis.Get(config.Ctx, redisKey).Result()
+			if val == "in_progress" {
+				return nil, nil, errors.New("a request with this idempotency key is already in progress")
+			} else if val != "" {
+				existingJob, err := s.jobRepo.GetByID(val)
+				if err == nil {
+					return nil, nil, &IdempotencyError{
+						JobID:  existingJob.JobID,
+						Total:  existingJob.TotalEmails,
+						Queued: existingJob.TotalEmails - existingJob.InvalidSyntax,
+						Status: existingJob.Status,
+					}
 				}
 			}
+			return nil, nil, errors.New("duplicate request detected")
 		}
+
+		// Ensure we release the lock if the function exits early with an error
+		defer func() {
+			if !lockReleased {
+				val, _ := config.Redis.Get(config.Ctx, redisKey).Result()
+				if val == "in_progress" {
+					config.Redis.Del(config.Ctx, redisKey)
+				}
+			}
+		}()
 	}
 
 	// 4. Check user
@@ -416,9 +467,10 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 
 	queuedCount := len(queueEmails)
 
-	if user.Credits < queuedCount {
-		return nil, nil, errors.New("insufficient credits for this job")
-	}
+	// C3 Fix: DO NOT do a non-atomic credit pre-check here (race condition).
+	// The definitive atomic credit deduction happens inside CreateBulkJob repo
+	// via: UPDATE users SET credits = credits - N WHERE id = ? AND credits >= N
+	// That single DB operation is the only source of truth for credit sufficiency.
 
 	// Check Redis health
 	if err := config.Redis.Ping(config.Ctx).Err(); err != nil {
@@ -430,6 +482,11 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 
 	var taskRecords []model.JobTask
 	chunkSize := 1000
+	if chunkSetting, err := s.settingsRepo.GetByKey("chunk_size"); err == nil {
+		if v, convErr := strconv.Atoi(chunkSetting.SettingValue); convErr == nil && v > 0 {
+			chunkSize = v
+		}
+	}
 	for i := 0; i < queuedCount; i += chunkSize {
 		end := i + chunkSize - 1
 		if end >= queuedCount {
@@ -449,6 +506,29 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 		return nil, nil, err
 	}
 
+	// Save original deduplicated emails to source file for retry capability
+	jobIDCopy := legacyJobID
+	emailsCopy := uniqueEmails
+	safe.Go(func() {
+		jobID := jobIDCopy
+		emails := emailsCopy
+		basePath := os.Getenv("BULK_JOBS_PATH")
+		if basePath == "" {
+			basePath = "./storage/bulk_jobs"
+		}
+		_ = os.MkdirAll(basePath, 0750)
+		sourceFile := filepath.Join(basePath, jobID+"_source.txt")
+		f, err := os.OpenFile(sourceFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
+		if err == nil {
+			writer := bufio.NewWriter(f)
+			for _, email := range emails {
+				_, _ = writer.WriteString(email + "\n")
+			}
+			_ = writer.Flush()
+			f.Close()
+		}
+	})
+
 	// Enqueue in parallel
 	var enqueuedCount int32
 	var enqueueErrors int32
@@ -461,7 +541,7 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 
 	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
-		go func() {
+		safe.Go(func() {
 			defer wg.Done()
 			for taskIdx := range chunksChan {
 				currentTask := savedTasks[taskIdx]
@@ -513,7 +593,7 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 					atomic.AddInt32(&enqueuedCount, int32(len(hits)))
 				}
 			}
-		}()
+		})
 	}
 
 	for i := 0; i < len(savedTasks); i++ {
@@ -558,6 +638,7 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 	if idempotencyKey != "" {
 		redisKey := fmt.Sprintf("idempotency:job:%s", idempotencyKey)
 		config.Redis.Set(config.Ctx, redisKey, legacyJobID, 24*time.Hour)
+		lockReleased = true
 	}
 
 	return job, savedTasks, nil
@@ -685,6 +766,11 @@ func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID u
 			return err
 		}
 
+		// Trigger risky refund check if job completes
+		if err := s.jobRepo.CheckAndApplyRiskyRefund(tx, jobID); err != nil {
+			logger.Error("Failed to check/apply risky refund on cache hits", "job_id", jobID, "error", err)
+		}
+
 		return nil
 	})
 
@@ -694,7 +780,11 @@ func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID u
 	}
 
 	// Async NDJSON append
-	go func() {
+	jobIDCopyForNDJSON := jobID
+	newRowsCopy := newRows
+	safe.Go(func() {
+		jobID := jobIDCopyForNDJSON
+		newRows := newRowsCopy
 		basePath := os.Getenv("BULK_JOBS_PATH")
 		if basePath == "" {
 			basePath = "./storage/bulk_jobs"
@@ -726,7 +816,7 @@ func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID u
 		if err != nil {
 			logger.Error("processCacheHits: failed to append batch to ndjson", "job_id", jobID, "error", err)
 		}
-	}()
+	})
 
 	var updatedJob model.Job
 	if err := s.jobRepo.DB().Where("job_id = ?", jobID).First(&updatedJob).Error; err == nil {
@@ -750,7 +840,23 @@ func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID u
 	}
 }
 
+var (
+	retentionCache struct {
+		sync.RWMutex
+		b2b, freeValid, freeInvalid int
+		expiresAt                   time.Time
+	}
+)
+
 func (s *jobService) getCacheRetentionPolicies() (b2b, freeValid, freeInvalid int) {
+	retentionCache.RLock()
+	if time.Now().Before(retentionCache.expiresAt) {
+		b, fv, fi := retentionCache.b2b, retentionCache.freeValid, retentionCache.freeInvalid
+		retentionCache.RUnlock()
+		return b, fv, fi
+	}
+	retentionCache.RUnlock()
+
 	// Defaults
 	b2b, freeValid, freeInvalid = 30, 365, 30
 
@@ -769,5 +875,271 @@ func (s *jobService) getCacheRetentionPolicies() (b2b, freeValid, freeInvalid in
 			freeInvalid = v
 		}
 	}
+
+	retentionCache.Lock()
+	retentionCache.b2b = b2b
+	retentionCache.freeValid = freeValid
+	retentionCache.freeInvalid = freeInvalid
+	retentionCache.expiresAt = time.Now().Add(5 * time.Minute)
+	retentionCache.Unlock()
+
 	return
 }
+
+func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
+	// 1. Get job
+	job, err := s.jobRepo.GetJobForUser(userID, jobID)
+	if err != nil {
+		return nil, errors.New("job not found")
+	}
+
+	// Only failed jobs can be retried
+	if job.Status != "failed" {
+		return nil, errors.New("only failed jobs can be retried")
+	}
+
+	// 2. Read source emails
+	basePath := os.Getenv("BULK_JOBS_PATH")
+	if basePath == "" {
+		basePath = "./storage/bulk_jobs"
+	}
+	sourceFilePath := filepath.Join(basePath, job.JobID+"_source.txt")
+	
+	// Check if source file exists
+	if _, err := os.Stat(sourceFilePath); os.IsNotExist(err) {
+		return nil, errors.New("original source file not found, cannot retry job. Please re-upload your list.")
+	}
+
+	file, err := os.Open(sourceFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open source file: %v", err)
+	}
+	defer file.Close()
+
+	var sourceEmails []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		email := strings.TrimSpace(scanner.Text())
+		if email != "" {
+			sourceEmails = append(sourceEmails, email)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading source file: %v", err)
+	}
+
+	// 3. Find already verified emails
+	var verifiedEmails []string
+	err = s.jobRepo.DB().Model(&model.JobResult{}).Where("job_internal_id = ?", job.ID).Pluck("email", &verifiedEmails).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch existing results: %v", err)
+	}
+
+	verifiedMap := make(map[string]bool)
+	for _, e := range verifiedEmails {
+		verifiedMap[e] = true
+	}
+
+	// Filter remaining emails
+	var remainingEmails []string
+	for _, e := range sourceEmails {
+		if !verifiedMap[e] {
+			remainingEmails = append(remainingEmails, e)
+		}
+	}
+
+	if len(remainingEmails) == 0 {
+		// All emails already verified, just mark as completed
+		job.Status = "completed"
+		if err := s.jobRepo.DB().Save(job).Error; err != nil {
+			return nil, err
+		}
+		return job, nil
+	}
+
+	// 4. Calculate credit deduction
+	// Check if any refund transactions exist for this job
+	var refundTxns []model.Transaction
+	refundSearch := "%" + job.JobID + "%"
+	s.jobRepo.DB().Where("user_id = ? AND type = 'refund' AND description LIKE ?", userID, refundSearch).Find(&refundTxns)
+	
+	refundedCredits := 0
+	for _, tx := range refundTxns {
+		// CreditsAdded is positive for refund transactions
+		refundedCredits += tx.CreditsAdded
+	}
+
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return nil, errors.New("user not found")
+	}
+
+	creditsToDeduct := refundedCredits
+	if creditsToDeduct > 0 {
+		if user.Credits < creditsToDeduct {
+			return nil, fmt.Errorf("insufficient credits to retry. Need %d credits, have %d", creditsToDeduct, user.Credits)
+		}
+	}
+
+	// 5. Database transaction to update job and recreate tasks
+	var savedTasks []model.JobTask
+	chunkSize := 1000
+	if chunkSetting, err := s.settingsRepo.GetByKey("chunk_size"); err == nil {
+		if v, convErr := strconv.Atoi(chunkSetting.SettingValue); convErr == nil && v > 0 {
+			chunkSize = v
+		}
+	}
+
+	var taskRecords []model.JobTask
+	for i := 0; i < len(remainingEmails); i += chunkSize {
+		end := i + chunkSize - 1
+		if end >= len(remainingEmails) {
+			end = len(remainingEmails) - 1
+		}
+		taskRecord := model.JobTask{
+			JobID:      job.JobID,
+			StartIndex: i,
+			EndIndex:   end,
+			Status:     "queued",
+		}
+		taskRecords = append(taskRecords, taskRecord)
+	}
+
+	err = s.jobRepo.DB().Transaction(func(tx *gorm.DB) error {
+		// Deduct credits if necessary
+		if creditsToDeduct > 0 {
+			res := tx.Model(&model.User{}).
+				Where("id = ? AND credits >= ?", userID, creditsToDeduct).
+				Update("credits", gorm.Expr("credits - ?", creditsToDeduct))
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected == 0 {
+				return fmt.Errorf("insufficient credits")
+			}
+
+			// Add transaction log
+			txnID := fmt.Sprintf("TXN_%x%s", time.Now().Unix(), helper.GenerateRandomHex(6))
+			transaction := model.Transaction{
+				UserID:        userID,
+				TransactionID: txnID,
+				Amount:        0,
+				CreditsAdded:  -creditsToDeduct,
+				Type:          "bulk_verify_retry",
+				Status:        "completed",
+				Description:   fmt.Sprintf("Retry Job: %s (%d emails resumed)", job.Filename, len(remainingEmails)),
+			}
+			if err := tx.Create(&transaction).Error; err != nil {
+				return err
+			}
+		}
+
+		// Hard delete old job tasks
+		if err := tx.Unscoped().Where("job_id = ?", job.JobID).Delete(&model.JobTask{}).Error; err != nil {
+			return err
+		}
+
+		// Save new job tasks
+		for i := range taskRecords {
+			if err := tx.Create(&taskRecords[i]).Error; err != nil {
+				return err
+			}
+			savedTasks = append(savedTasks, taskRecords[i])
+		}
+
+		// Update Job status and processed count
+		// processed_count is set to (Total - remaining)
+		processedCount := job.TotalEmails - len(remainingEmails)
+		if err := tx.Model(job).Updates(map[string]interface{}{
+			"status":          "pending",
+			"processed_count": processedCount,
+		}).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 6. Enqueue tasks in parallel
+	var enqueuedCount int32
+	var enqueueErrors int32
+	numWorkers := 10
+	chunksChan := make(chan int, len(savedTasks))
+	var wg sync.WaitGroup
+
+	b2bRet, freeValidRet, freeInvalidRet := s.getCacheRetentionPolicies()
+
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		safe.Go(func() {
+			defer wg.Done()
+			for taskIdx := range chunksChan {
+				currentTask := savedTasks[taskIdx]
+				
+				if currentTask.StartIndex >= len(remainingEmails) {
+					continue
+				}
+				endIndex := currentTask.EndIndex
+				if endIndex >= len(remainingEmails) {
+					endIndex = len(remainingEmails) - 1
+				}
+				chunkEmails := remainingEmails[currentTask.StartIndex : endIndex+1]
+
+				// Cache Check
+				cachedResults, err := s.cacheRepo.GetCachedEmailsInBatches(chunkEmails, b2bRet, freeValidRet, freeInvalidRet)
+				if err != nil {
+					cachedResults = make(map[string]model.EmailCache)
+				}
+
+				var misses []string
+				var hits []model.EmailCache
+				for _, email := range chunkEmails {
+					if hit, ok := cachedResults[email]; ok {
+						hits = append(hits, hit)
+					} else {
+						misses = append(misses, email)
+					}
+				}
+
+				// Process Hits
+				if len(hits) > 0 {
+					s.processCacheHits(job.JobID, job.ID, currentTask.ID, hits)
+				}
+
+				// Enqueue Misses
+				if len(misses) > 0 {
+					task, _ := tasks.NewEmailChunkTask(job.JobID, currentTask.ID, misses)
+					if _, err := config.AsynqClient.Enqueue(task, asynq.MaxRetry(3)); err != nil {
+						logger.Error("Failed to enqueue chunk task on retry", "job_id", job.JobID, "task_id", currentTask.ID, "error", err)
+						atomic.AddInt32(&enqueueErrors, 1)
+					} else {
+						atomic.AddInt32(&enqueuedCount, int32(len(misses)))
+					}
+				} else {
+					atomic.AddInt32(&enqueuedCount, int32(len(hits)))
+				}
+			}
+		})
+	}
+
+	for i := 0; i < len(savedTasks); i++ {
+		chunksChan <- i
+	}
+	close(chunksChan)
+	wg.Wait()
+
+	// Update user credit update broadcast
+	if updatedUser, err := s.userRepo.GetByID(userID); err == nil {
+		ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", gin.H{
+			"credits": updatedUser.Credits,
+		})
+	}
+	go ComputeAndCacheDashboardStats(userID)
+
+	return job, nil
+}
+

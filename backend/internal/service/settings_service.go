@@ -1,6 +1,7 @@
 package service
 
 import (
+	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"strconv"
@@ -55,6 +56,11 @@ func (s *settingsService) UpdateSettings(updates map[string]string, adminID uint
 			if v == "********" || strings.TrimSpace(v) == "" {
 				continue
 			}
+			enc, err := helper.EncryptSecret(v)
+			if err != nil {
+				return err
+			}
+			v = enc
 		}
 
 		if rule, ok := numericRules[k]; ok {

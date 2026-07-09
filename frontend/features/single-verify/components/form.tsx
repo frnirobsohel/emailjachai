@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Mail, Loader2, ArrowRight } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
 import { logger } from "@/lib/logger"
+import { useSettings } from "@/lib/settings-context"
 
 export interface VerificationResult {
     job_id: string;
@@ -42,10 +43,12 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
     const [email, setEmail] = useState("")
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const settings = useSettings()
+    const isMaintenance = settings?.maintenance_mode === "1"
 
     const handleVerify = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!email) return
+        if (!email || isMaintenance) return
 
         setIsLoading(true)
         setError(null)
@@ -91,10 +94,10 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
                             <Input
                                 id="email"
                                 type="email"
-                                placeholder="name@example.com"
+                                placeholder={isMaintenance ? "Verification is temporarily paused..." : "name@example.com"}
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                disabled={isLoading}
+                                disabled={isLoading || isMaintenance}
                                 className="pl-10 focus-visible:ring-indigo-500"
                                 autoComplete="email"
                                 required
@@ -112,7 +115,7 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
                     )}
                     <Button
                         type="submit"
-                        disabled={!email || isLoading}
+                        disabled={!email || isLoading || isMaintenance}
                         className="w-full bg-[#0f172b] hover:bg-[#0f172b]/90 text-white shadow-sm"
                     >
                         {isLoading ? (
@@ -120,6 +123,8 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                 Verifying...
                             </>
+                        ) : isMaintenance ? (
+                            "Verification Disabled"
                         ) : (
                             <>
                                 Verify Email

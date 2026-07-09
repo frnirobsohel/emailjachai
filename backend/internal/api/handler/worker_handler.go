@@ -13,6 +13,7 @@ import (
 	"ejp-backend/internal/service"
 	"ejp-backend/internal/storage"
 	"ejp-backend/pkg/logger"
+	"ejp-backend/pkg/safe"
 
 	"github.com/gin-gonic/gin"
 )
@@ -128,39 +129,49 @@ func (h *WorkerHandler) ReportTaskResult(c *gin.Context) {
 
 	// Async: persist result to ndjson file (bulk jobs only)
 	if job.JobType == "bulk" {
-		go func() {
+		jIDCopy := job.JobID
+		eAddrCopy := email
+		stCopy := status
+		resultPathCopy := job.ResultFilePath
+		pCopy := payload
+		safe.Go(func() {
+			jID := jIDCopy
+			eAddr := eAddrCopy
+			st := stCopy
+			resultPath := resultPathCopy
+			p := pCopy
 			basePath := os.Getenv("BULK_JOBS_PATH")
 			if basePath == "" {
 				basePath = "./storage/bulk_jobs"
 			}
 			row := storage.ResultRow{
-				JobID:      job.JobID,
-				Email:      email,
-				Status:     status,
-				Score:      payload.Score,
-				Reason:     payload.Reason,
+				JobID:      jID,
+				Email:      eAddr,
+				Status:     st,
+				Score:      p.Score,
+				Reason:     p.Reason,
 				VerifiedAt: time.Now(),
 			}
-			if payload.IsCatchAll != nil {
-				row.IsCatchAll = *payload.IsCatchAll
+			if p.IsCatchAll != nil {
+				row.IsCatchAll = *p.IsCatchAll
 			}
-			if payload.IsDeliverable != nil {
-				row.IsDeliverable = *payload.IsDeliverable
+			if p.IsDeliverable != nil {
+				row.IsDeliverable = *p.IsDeliverable
 			}
-			if payload.IsDisposable != nil {
-				row.IsDisposable = *payload.IsDisposable
+			if p.IsDisposable != nil {
+				row.IsDisposable = *p.IsDisposable
 			}
-			if payload.HasMx != nil {
-				row.HasMx = *payload.HasMx
+			if p.HasMx != nil {
+				row.HasMx = *p.HasMx
 			}
-			filePath, err := storage.AppendResult(basePath, job.JobID, row)
+			filePath, err := storage.AppendResult(basePath, jID, row)
 			if err != nil {
-				logger.Error("ndjson: failed to append result", "job_id", job.JobID, "error", err)
+				logger.Error("ndjson: failed to append result", "job_id", jID, "error", err)
 				return
 			}
 			// Update ResultFilePath in DB if not already set
-			if job.ResultFilePath == "" && filePath != "" {
-				_ = h.workerService.UpdateResultFilePath(job.JobID, filePath)
+			if resultPath == "" && filePath != "" {
+				_ = h.workerService.UpdateResultFilePath(jID, filePath)
 			}
 
 			// Upsert to Email Cache
@@ -173,14 +184,14 @@ func (h *WorkerHandler) ReportTaskResult(c *gin.Context) {
 				IsDeliverable:  row.IsDeliverable,
 				IsDisposable:   row.IsDisposable,
 				HasMx:          row.HasMx,
-				ProcessingTime: payload.TimeTaken,
+				ProcessingTime: p.TimeTaken,
 				CreatedAt:      time.Now(),
 				UpdatedAt:      time.Now(),
 			}}
 			if err := h.cacheRepo.UpsertEmailCacheBatch(cacheRows); err != nil {
 				logger.Error("failed to upsert email cache", "error", err)
 			}
-		}()
+		})
 	}
 }
 
@@ -220,7 +231,11 @@ func (h *WorkerHandler) ReportTaskResults(c *gin.Context) {
 
 	// Async: persist batch to ndjson file
 	if len(newRows) > 0 && job.JobType == "bulk" {
-		go func(jID string, rows []model.JobResult) {
+		jIDCopy := job.JobID
+		rowsCopy := newRows
+		safe.Go(func() {
+			jID := jIDCopy
+			rows := rowsCopy
 			basePath := os.Getenv("BULK_JOBS_PATH")
 			if basePath == "" {
 				basePath = "./storage/bulk_jobs"
@@ -286,7 +301,6 @@ func (h *WorkerHandler) ReportTaskResults(c *gin.Context) {
 			if err := h.cacheRepo.UpsertEmailCacheBatch(cacheRows); err != nil {
 				logger.Error("failed to upsert email cache batch", "error", err)
 			}
-
-		}(job.JobID, newRows)
+		})
 	}
 }

@@ -84,9 +84,6 @@ export function LoginForm() {
             <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? "Logging in..." : "Login"}
             </Button>
-            <Button variant="outline" type="button" className="w-full">
-                Login with Google
-            </Button>
         </form>
     )
 }

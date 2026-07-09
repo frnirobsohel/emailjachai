@@ -1,5 +1,6 @@
 "use client"
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useEffect } from 'react';
+import { useConfigStore } from '@/stores/config-store';
 
 export type PublicSettings = {
     site_title?: string;
@@ -16,12 +17,21 @@ export type PublicSettings = {
     cryptomus_enabled?: string;
     stripe_enabled?: string;
     paypal_enabled?: string;
+    maintenance_mode?: string;
+    maintenance_message?: string;
 };
 
 const SettingsContext = createContext<PublicSettings>({});
 
 export const SettingsProvider = ({ settings: initialSettings, children }: { settings: PublicSettings, children: React.ReactNode }) => {
-    const [settings] = useState<PublicSettings>(initialSettings || {});
+    useEffect(() => {
+        if (initialSettings) {
+            useConfigStore.getState().setSettings(initialSettings);
+        }
+    }, [initialSettings]);
+
+    const liveSettings = useConfigStore((state) => state.settings);
+    const settings = liveSettings || initialSettings || {};
 
     return <SettingsContext.Provider value={settings}>{children}</SettingsContext.Provider>;
 };

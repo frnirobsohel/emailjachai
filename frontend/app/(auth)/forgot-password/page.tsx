@@ -55,9 +55,13 @@ export default function ForgotPasswordPage() {
                         Try another email
                     </Button>
                 </CardContent>
-                <CardFooter>
-                    <Link href="/login" className="flex items-center text-sm underline text-slate-500 hover:text-slate-900">
-                        <ArrowLeft className="mr-2 h-4 w-4" /> Back to Login
+                <CardFooter className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm">
+                    <Link href="/login" className="inline-flex items-center gap-1 underline font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200">
+                        <ArrowLeft className="h-3.5 w-3.5" /> Back to Login
+                    </Link>
+                    <span className="text-slate-300 dark:text-slate-700 mx-1">•</span>
+                    <Link href="/" className="inline-flex items-center gap-1 hover:underline text-slate-500 hover:text-slate-900 dark:hover:text-slate-200">
+                        Back to Home
                     </Link>
                 </CardFooter>
             </Card>
@@ -88,9 +92,13 @@ export default function ForgotPasswordPage() {
                     </Button>
                 </form>
             </CardContent>
-            <CardFooter>
-                <Link href="/login" className="flex items-center text-sm underline text-slate-500 hover:text-slate-900">
-                    <ArrowLeft className="mr-2 h-4 w-4" /> Back to Login
+            <CardFooter className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm">
+                <Link href="/login" className="inline-flex items-center gap-1 underline font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200">
+                    <ArrowLeft className="h-3.5 w-3.5" /> Back to Login
+                </Link>
+                <span className="text-slate-300 dark:text-slate-700 mx-1">•</span>
+                <Link href="/" className="inline-flex items-center gap-1 hover:underline text-slate-500 hover:text-slate-900 dark:hover:text-slate-200">
+                    Back to Home
                 </Link>
             </CardFooter>
         </Card>

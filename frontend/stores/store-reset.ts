@@ -2,7 +2,7 @@ import { useDashboardStore } from '@/stores/dashboard-store';
 import { useJobsStore } from '@/stores/jobs-store';
 import { useLogsStore } from '@/stores/logs-store';
 import { useCreditStore } from '@/stores/credit-state';
-import { useSecurityStore } from '@/stores/useSecurityStore';
+import { useSecurityStore } from '@/stores/security-store';
 import { useServerStore } from '@/stores/server-store';
 import { useAdminStore } from '@/stores/admin-store';
 import { useUsersStore } from '@/stores/users-store';

@@ -35,8 +35,47 @@ type ResultRow struct {
 	VerifiedAt     time.Time `json:"verified_at"`
 }
 
-// mu guards file handles to prevent concurrent corruption on the same path.
-var mu sync.Mutex
+// --- Fix 01: Per-Job Mutex Manager ---
+// আগে একটা global sync.Mutex ছিল যেটা সব job-এর write একসাথে block করত।
+// এখন প্রতিটা job-এর জন্য আলাদা mutex রাখা হয়েছে।
+// ফলে ২০টা আলাদা job একসাথে চললেও একটা আরেকটাকে block করবে না।
+
+type jobLockManager struct {
+	mu    sync.RWMutex
+	locks map[string]*sync.Mutex
+}
+
+var jobLocks = &jobLockManager{
+	locks: make(map[string]*sync.Mutex),
+}
+
+// getLock returns a job-specific mutex, creating one if needed.
+// Double-checked locking pattern for thread safety.
+func (lm *jobLockManager) getLock(jobID string) *sync.Mutex {
+	lm.mu.RLock()
+	lock, exists := lm.locks[jobID]
+	lm.mu.RUnlock()
+	if exists {
+		return lock
+	}
+
+	lm.mu.Lock()
+	defer lm.mu.Unlock()
+	// Double-check under write lock to avoid race
+	if lock, exists = lm.locks[jobID]; !exists {
+		lock = &sync.Mutex{}
+		lm.locks[jobID] = lock
+	}
+	return lock
+}
+
+// DeleteLock removes the per-job mutex when a job is deleted.
+// Should be called from DeleteJobFile to prevent memory leaks.
+func (lm *jobLockManager) DeleteLock(jobID string) {
+	lm.mu.Lock()
+	delete(lm.locks, jobID)
+	lm.mu.Unlock()
+}
 
 // BulkJobFilePath returns the canonical path for a bulk job's ndjson results file.
 // Pattern: {BULK_JOBS_PATH}/{jobID}.ndjson
@@ -50,7 +89,7 @@ func EnsureDir(path string) error {
 }
 
 // AppendResult appends a single result row to the job's ndjson file.
-// Uses file-level locking for safe concurrent writes.
+// Uses per-job locking for safe concurrent writes across different jobs.
 // Returns the absolute path of the file written.
 func AppendResult(basePath, jobID string, row ResultRow) (string, error) {
 	if err := EnsureDir(basePath); err != nil {
@@ -65,8 +104,11 @@ func AppendResult(basePath, jobID string, row ResultRow) (string, error) {
 	}
 	line = append(line, '\n')
 
-	mu.Lock()
-	defer mu.Unlock()
+	// Per-job lock: only blocks concurrent writes to the SAME job file.
+	// Different job files can write simultaneously.
+	lock := jobLocks.getLock(jobID)
+	lock.Lock()
+	defer lock.Unlock()
 
 	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
 	if err != nil {
@@ -93,8 +135,10 @@ func AppendBatch(basePath, jobID string, rows []ResultRow) (string, error) {
 
 	filePath := BulkJobFilePath(basePath, jobID)
 
-	mu.Lock()
-	defer mu.Unlock()
+	// Per-job lock: only blocks concurrent writes to the SAME job file.
+	lock := jobLocks.getLock(jobID)
+	lock.Lock()
+	defer lock.Unlock()
 
 	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
 	if err != nil {
@@ -112,12 +156,14 @@ func AppendBatch(basePath, jobID string, rows []ResultRow) (string, error) {
 	return filePath, nil
 }
 
-// DeleteJobFile removes the ndjson file for a deleted job.
+// DeleteJobFile removes the ndjson file for a deleted job and cleans up its mutex.
 func DeleteJobFile(basePath, jobID string) error {
 	path := BulkJobFilePath(basePath, jobID)
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	// Clean up the per-job mutex to prevent memory leak
+	jobLocks.DeleteLock(jobID)
 	return nil
 }
 

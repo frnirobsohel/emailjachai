@@ -36,6 +36,41 @@ func SafeBase64Encode(b []byte) string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
+func AES256GCMEncrypt(plain []byte, key []byte) ([]byte, []byte, error) {
+	if len(key) != 32 {
+		return nil, nil, errors.New("AES-256 key must be 32 bytes")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, nil, err
+	}
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, nil, err
+	}
+	nonce := make([]byte, aesgcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, nil, err
+	}
+	ciphertext := aesgcm.Seal(nil, nonce, plain, nil)
+	return ciphertext, nonce, nil
+}
+
+func AES256GCMDecrypt(ciphertext []byte, key []byte, nonce []byte) ([]byte, error) {
+	if len(key) != 32 {
+		return nil, errors.New("AES-256 key must be 32 bytes")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	return aesgcm.Open(nil, nonce, ciphertext, nil)
+}
+
 func AES256CTREncrypt(plain []byte, key []byte, iv []byte) ([]byte, error) {
 	if len(key) != 32 {
 		return nil, errors.New("AES-256 key must be 32 bytes")
@@ -58,7 +93,7 @@ func AES256CTRDecrypt(cipherBytes []byte, key []byte, iv []byte) ([]byte, error)
 	return AES256CTREncrypt(cipherBytes, key, iv)
 }
 
-// EncryptSecret encrypts a plaintext string using AES-256-CTR with the JWT_SECRET as the key.
+// EncryptSecret encrypts a plaintext string using AES-256-GCM with the JWT_SECRET as the key.
 func EncryptSecret(plain string) (string, error) {
 	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
 	if secret == "" {
@@ -66,24 +101,52 @@ func EncryptSecret(plain string) (string, error) {
 	}
 	key := sha256.Sum256([]byte(secret))
 
-	iv := make([]byte, 16)
-	if _, err := rand.Read(iv); err != nil {
-		return "", err
-	}
-
-	cipherBytes, err := AES256CTREncrypt([]byte(plain), key[:], iv)
+	ciphertext, nonce, err := AES256GCMEncrypt([]byte(plain), key[:])
 	if err != nil {
 		return "", err
 	}
 
-	return SafeBase64Encode(cipherBytes) + ":" + hex.EncodeToString(iv), nil
+	return "gcm:" + SafeBase64Encode(ciphertext) + ":" + hex.EncodeToString(nonce), nil
 }
 
-// DecryptSecret decrypts base64(ciphertext) + ":" + hex(iv) values using JWT_SECRET-derived key.
+// DecryptSecret decrypts gcm:base64(ciphertext):hex(nonce) OR base64(ciphertext):hex(iv) using JWT_SECRET.
 func DecryptSecret(stored string) (string, error) {
 	if stored == "" {
 		return "", nil
 	}
+
+	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	if secret == "" {
+		return "", errors.New("JWT_SECRET is required")
+	}
+	key := sha256.Sum256([]byte(secret))
+
+	if strings.HasPrefix(stored, "gcm:") {
+		parts := strings.SplitN(stored[4:], ":", 2)
+		if len(parts) != 2 {
+			return "", errors.New("invalid gcm secret format")
+		}
+
+		encB64 := parts[0]
+		nonceHex := parts[1]
+
+		cipherBytes, err := SafeBase64Decode(encB64)
+		if err != nil {
+			return "", err
+		}
+		nonce, err := hex.DecodeString(nonceHex)
+		if err != nil {
+			return "", err
+		}
+
+		plainBytes, err := AES256GCMDecrypt(cipherBytes, key[:], nonce)
+		if err != nil {
+			return "", err
+		}
+		return string(plainBytes), nil
+	}
+
+	// Legacy AES-CTR fallback
 	parts := strings.SplitN(stored, ":", 2)
 	if len(parts) != 2 {
 		return "", errors.New("invalid secret format")
@@ -101,12 +164,6 @@ func DecryptSecret(stored string) (string, error) {
 		return "", err
 	}
 
-	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
-	if secret == "" {
-		return "", errors.New("JWT_SECRET is required")
-	}
-
-	key := sha256.Sum256([]byte(secret))
 	plainBytes, err := AES256CTRDecrypt(cipherBytes, key[:], iv)
 	if err != nil {
 		return "", err

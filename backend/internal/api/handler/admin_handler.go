@@ -10,6 +10,7 @@ import (
 	"ejp-backend/internal/service"
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
+	"ejp-backend/pkg/safe"
 
 	"github.com/gin-gonic/gin"
 )
@@ -65,17 +66,21 @@ func (h *AdminHandler) AdminStats(c *gin.Context) {
 
 // StartAdminStatsBroadcaster starts a background ticker to periodically recalculate and broadcast stats.
 func (h *AdminHandler) StartAdminStatsBroadcaster() {
-	go func() {
+	safe.Go(func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
+			if ws.GlobalHub == nil || !ws.GlobalHub.HasActiveConnections() {
+				continue
+			}
+
 			stats, err := h.adminService.GetAdminStats()
 			if err == nil {
 				config.SetCachedAdminStats(stats, 1*time.Minute)
 				ws.GlobalHub.BroadcastToAdmins("admin_stats_update", stats)
 			}
 		}
-	}()
+	})
 }
 
 func (h *AdminHandler) GetAllUsers(c *gin.Context) {
@@ -144,19 +149,19 @@ func (h *AdminHandler) AdminDownloadAllJobs(c *gin.Context) {
 		jobType = "all"
 	}
 
-	c.Header("Content-Type", "text/csv; charset=utf-8")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"verification-results-%s-%s.csv\"", jobType, time.Now().Format("2006-01-02")))
-	c.Writer.Write([]byte("\xEF\xBB\xBF"))
-
-	writer := csv.NewWriter(c.Writer)
-	writer.Write([]string{"Email", "Status", "Reason", "Catch-All", "Score", "Verified At", "Job ID"})
-
 	rows, err := h.adminService.AdminDownloadAllJobs(jobType)
 	if err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch results", err.Error())
 		return
 	}
 	defer rows.Close()
+
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"verification-results-%s-%s.csv\"", jobType, time.Now().Format("2006-01-02")))
+	c.Writer.Write([]byte("\xEF\xBB\xBF"))
+
+	writer := csv.NewWriter(c.Writer)
+	writer.Write([]string{"Email", "Status", "Reason", "Catch-All", "Score", "Verified At", "Job ID"})
 
 	for rows.Next() {
 		var email, status, reason, legacyJobID string

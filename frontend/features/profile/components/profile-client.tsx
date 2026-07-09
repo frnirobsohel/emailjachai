@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -31,6 +31,7 @@ export function ProfileClient({ initialProfile }: { initialProfile: any }) {
     const router = useRouter()
     const [isLoading, setIsLoading] = useState(false)
     const [user, setUser] = useState<{ id: number; name: string; email: string; role: string } | null>(initialProfile)
+    const isFirstMount = useRef(true)
 
     const nameForm = useForm<z.infer<typeof nameSchema>>({
         resolver: zodResolver(nameSchema),
@@ -43,6 +44,12 @@ export function ProfileClient({ initialProfile }: { initialProfile: any }) {
     })
 
     useEffect(() => {
+        if (isFirstMount.current) {
+            isFirstMount.current = false;
+            if (initialProfile) {
+                return;
+            }
+        }
         const fetchProfile = async () => {
             try {
                 setIsLoading(true);
@@ -59,7 +66,7 @@ export function ProfileClient({ initialProfile }: { initialProfile: any }) {
             }
         };
         fetchProfile();
-    }, [nameForm]);
+    }, [nameForm, initialProfile]);
 
     const onUpdateName = async (values: z.infer<typeof nameSchema>) => {
         try {

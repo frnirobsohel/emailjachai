@@ -96,6 +96,13 @@ func (h *AdminHandler) SaveSmtpSettings(c *gin.Context) {
 	if encryption == "" {
 		encryption = "tls"
 	}
+
+	allowedEncryptions := map[string]bool{"none": true, "ssl": true, "tls": true}
+	if !allowedEncryptions[encryption] {
+		helper.SendError(c, http.StatusBadRequest, "Invalid encryption mode. Choose none, ssl, or tls.", "")
+		return
+	}
+
 	dailyLimit, _ := strconv.Atoi(strings.TrimSpace(input.DailyLimit))
 	if dailyLimit <= 0 {
 		dailyLimit = 5000

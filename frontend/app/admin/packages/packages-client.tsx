@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useForm, useFieldArray } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -53,6 +53,7 @@ export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
     const [editingId, setEditingId] = useState<number | null>(null)
     const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
     const [isDeleting, setIsDeleting] = useState(false)
+    const isFirstMount = useRef(true)
 
     const form = useForm<PackageFormValues>({
         resolver: zodResolver(packageSchema),
@@ -84,8 +85,10 @@ export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
     }
 
     useEffect(() => {
-        fetchPackages();
-    }, []);
+        if (initialData && initialData.length > 0) {
+            setPlans(initialData)
+        }
+    }, [initialData]);
 
     const openAdd = () => {
         setEditingId(null)

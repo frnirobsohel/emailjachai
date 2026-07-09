@@ -11,9 +11,8 @@ interface User {
 
 interface UserState {
     user: User | null;
-    token: string | null;
     isAuthenticated: boolean;
-    setUser: (user: User, token: string) => void;
+    setUser: (user: User) => void;
     clearUser: () => void;
     updateUser: (user: Partial<User>) => void;
 }
@@ -22,21 +21,12 @@ export const useUserStore = create<UserState>()(
     persist(
         (set) => ({
             user: null,
-            token: null,
             isAuthenticated: false,
-            setUser: (user, token) => {
-                if (typeof window !== 'undefined') {
-                    if (token) localStorage.setItem('auth_token', token);
-                    localStorage.setItem('sidebar_role', user.role);
-                }
-                set({ user, token: token || null, isAuthenticated: true });
+            setUser: (user) => {
+                set({ user, isAuthenticated: true });
             },
             clearUser: () => {
-                if (typeof window !== 'undefined') {
-                    localStorage.removeItem('auth_token');
-                    localStorage.removeItem('sidebar_role');
-                }
-                set({ user: null, token: null, isAuthenticated: false });
+                set({ user: null, isAuthenticated: false });
             },
             updateUser: (userData) => set((state) => ({
                 user: state.user ? { ...state.user, ...userData } : null

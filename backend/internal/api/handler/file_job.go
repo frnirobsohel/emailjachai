@@ -5,7 +5,6 @@ import (
 	"errors"
 	"mime/multipart"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"ejp-backend/internal/helper"
@@ -14,8 +13,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
-
-var emailRegex = regexp.MustCompile(`(?i)^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$`)
 
 func (h *JobHandler) SubmitBulkJob(c *gin.Context) {
 	// Limit request body size to 200MB to prevent memory exhaustion / denial of service
@@ -133,35 +130,14 @@ func (h *JobHandler) SubmitBulkJob(c *gin.Context) {
 		return
 	}
 
-	// Calculate duplicates removed
-	uniqueEmails := make([]string, 0)
-	seen := make(map[string]bool)
-	for _, email := range sourceEmails {
-		email = strings.ToLower(strings.TrimSpace(email))
-		if email == "" {
-			continue
-		}
-		if !seen[email] {
-			seen[email] = true
-			uniqueEmails = append(uniqueEmails, email)
-		}
-	}
-	duplicatesRemoved := sourceCount - len(uniqueEmails)
-
-	// Calculate actual queued count
-	queueEmails := make([]string, 0)
-	for _, email := range uniqueEmails {
-		if !emailRegex.MatchString(email) {
-			continue
-		}
-		queueEmails = append(queueEmails, email)
-	}
+	queuedCount := job.TotalEmails - job.InvalidSyntax
+	duplicatesRemoved := sourceCount - job.TotalEmails
 
 	helper.SendSuccess(c, "Job created and queued successfully", gin.H{
 		"jobId":              job.JobID,
 		"total":              job.TotalEmails,
-		"queued":             len(queueEmails),
-		"pre_filtered":       job.TotalEmails - len(queueEmails),
+		"queued":             queuedCount,
+		"pre_filtered":       job.InvalidSyntax,
 		"duplicates_removed": duplicatesRemoved,
 	})
 }

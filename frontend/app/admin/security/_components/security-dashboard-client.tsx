@@ -6,8 +6,8 @@ import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ShieldAlert, ShieldCheck, Activity, Ban, RefreshCcw, Search, Eye, EyeOff, Terminal, Shield } from "lucide-react"
-import { useSecurityStore } from "@/stores/useSecurityStore"
-import { useSecurityWebSocket } from "@/hooks/useSecurityWebSocket"
+import { useSecurityStore } from "@/stores/security-store"
+import { useSecurityWebSocket } from "@/hooks/use-security-web-socket"
 
 export function SecurityDashboardClient({ initialData }: { initialData?: any }) {
     const [activeTab, setActiveTab] = useState<"stream" | "blocklist">("stream")

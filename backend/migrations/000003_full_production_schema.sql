@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     id             SERIAL PRIMARY KEY,
     user_id        INTEGER NOT NULL REFERENCES users(id),
     transaction_id VARCHAR(100) UNIQUE NOT NULL,
+    external_id    VARCHAR(255),
     amount         DECIMAL(10,2) NOT NULL,
     credits_added  INTEGER NOT NULL DEFAULT 0,
     payment_method VARCHAR(100) DEFAULT 'manual',
@@ -53,6 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_transactions_user_created_at ON transactions (use
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id         ON transactions (user_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_type            ON transactions (type);
 CREATE INDEX IF NOT EXISTS idx_transactions_created_at      ON transactions (created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_external_id ON transactions (external_id) WHERE external_id IS NOT NULL AND external_id <> '';
 -- UNIQUE idx_transactions_transaction_id is already covered by the UNIQUE constraint above.
 
 -- ============================================================
@@ -69,6 +71,7 @@ CREATE TABLE IF NOT EXISTS packages (
     features       TEXT,       -- JSON string of feature list
     status         VARCHAR(20) DEFAULT 'active',   -- active, inactive
     popular        BOOLEAN DEFAULT FALSE,
+    is_public      BOOLEAN NOT NULL DEFAULT TRUE,   -- Fix I-05: Added is_public field
     created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted_at     TIMESTAMP
@@ -300,3 +303,7 @@ CREATE INDEX IF NOT EXISTS idx_rate_limits_user_id_created_at ON rate_limits (us
 -- ============================================================
 CREATE INDEX IF NOT EXISTS idx_jobs_user_job_type_status
     ON jobs (user_id, type, status);
+
+-- Fix I-05: Ensure is_public is added if packages already existed
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT TRUE;
+CREATE INDEX IF NOT EXISTS idx_packages_is_public ON packages (is_public);

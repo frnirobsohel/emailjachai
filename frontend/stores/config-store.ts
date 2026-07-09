@@ -27,6 +27,8 @@ export interface PublicSettings {
     cryptomus_enabled?: string;
     stripe_enabled?: string;
     paypal_enabled?: string;
+    maintenance_mode?: string;
+    maintenance_message?: string;
 }
 
 interface ConfigState {

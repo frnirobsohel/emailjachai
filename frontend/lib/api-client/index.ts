@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
-import { logger } from '../logger';
+import { logger } from '@/lib/logger';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/next-api/proxy';
 
@@ -61,12 +61,12 @@ class ApiClientService {
         return response.data;
     }
 
-    public async post<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<ApiResponse<T>> {
+    public async post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<ApiResponse<T>> {
         const response = await this.instance.post<ApiResponse<T>>(url, data, config);
         return response.data;
     }
 
-    public async put<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<ApiResponse<T>> {
+    public async put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<ApiResponse<T>> {
         const response = await this.instance.put<ApiResponse<T>>(url, data, config);
         return response.data;
     }

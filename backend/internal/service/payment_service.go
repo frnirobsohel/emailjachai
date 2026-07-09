@@ -16,11 +16,14 @@ import (
 	"strings"
 	"time"
 
+	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/ws"
+	"ejp-backend/pkg/safe"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type PaymentService interface {
@@ -84,7 +87,7 @@ func (s *paymentService) ProcessWebhook(provider string, rawBody []byte, headers
 			paymentStatus, _ := session["payment_status"].(string)
 
 			if sessionID != "" && paymentStatus == "paid" {
-				return s.fulfillPaymentMapping("stripe_session_"+sessionID, sessionID, "Stripe")
+				return s.fulfillPaymentMapping("stripe_session_"+sessionID, "Stripe")
 			}
 		}
 		return nil
@@ -183,7 +186,7 @@ func (s *paymentService) ProcessWebhook(provider string, rawBody []byte, headers
 					if rel, ok := sup["related_ids"].(map[string]interface{}); ok {
 						orderID, _ := rel["order_id"].(string)
 						if orderID != "" {
-							return s.fulfillPaymentMapping("paypal_order_"+orderID, orderID, "PayPal")
+							return s.fulfillPaymentMapping("paypal_order_"+orderID, "PayPal")
 						}
 					}
 				}
@@ -236,7 +239,7 @@ func (s *paymentService) ProcessWebhook(provider string, rawBody []byte, headers
 		orderID, _ := data["order_id"].(string)
 
 		if (status == "paid" || status == "paid_over") && orderID != "" {
-			return s.fulfillPaymentMapping("cryptomus_order_"+orderID, orderID, "Cryptomus")
+			return s.fulfillPaymentMapping("cryptomus_order_"+orderID, "Cryptomus")
 		}
 		return nil
 
@@ -337,13 +340,9 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 			return "", fmt.Errorf("Stripe returned invalid checkout URL")
 		}
 
-		err = s.saveMapping("stripe_session_"+sessionID, map[string]interface{}{
-			"txn_id":  transaction.ID,
-			"user_id": userID,
-			"credits": pkg.CreditsAmount,
-		})
-		if err != nil {
-			return "", fmt.Errorf("failed to save payment mapping: %v", err)
+		transaction.ExternalID = "stripe_session_" + sessionID
+		if err := s.txRepo.Update(transaction); err != nil {
+			return "", fmt.Errorf("failed to update transaction: %v", err)
 		}
 
 		return checkoutURL, nil
@@ -419,13 +418,9 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 			return "", fmt.Errorf("PayPal order creation failed: %v", result)
 		}
 
-		err = s.saveMapping("paypal_order_"+paypalOrderID, map[string]interface{}{
-			"txn_id":  transaction.ID,
-			"user_id": userID,
-			"credits": pkg.CreditsAmount,
-		})
-		if err != nil {
-			return "", fmt.Errorf("failed to save payment mapping: %v", err)
+		transaction.ExternalID = "paypal_order_" + paypalOrderID
+		if err := s.txRepo.Update(transaction); err != nil {
+			return "", fmt.Errorf("failed to update transaction: %v", err)
 		}
 
 		var approvalURL string
@@ -519,17 +514,11 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 			return "", fmt.Errorf("Cryptomus returned no payment URL")
 		}
 
-		err = s.saveMapping("cryptomus_order_"+orderID, map[string]interface{}{
-			"txn_id":  transaction.ID,
-			"user_id": userID,
-			"credits": pkg.CreditsAmount,
-		})
-		if err != nil {
-			return "", fmt.Errorf("failed to save payment mapping: %v", err)
-		}
-
 		transaction.TransactionID = orderID
-		s.txRepo.Update(transaction)
+		transaction.ExternalID = "cryptomus_order_" + orderID
+		if err := s.txRepo.Update(transaction); err != nil {
+			return "", fmt.Errorf("failed to update transaction: %v", err)
+		}
 
 		return paymentURL, nil
 
@@ -654,9 +643,27 @@ func (s *paymentService) getBaseURL() string {
 func (s *paymentService) getGatewaySettings(prefix string) map[string]string {
 	var settings []model.Setting
 	s.settingsRepo.DB().Where("setting_key LIKE ?", prefix+"_%").Find(&settings)
+	
+	sensitiveKeys := map[string]bool{
+		"stripe_secret_key":        true,
+		"stripe_webhook_secret":    true,
+		"paypal_secret_key":        true,
+		"paypal_webhook_id":        true,
+		"cryptomus_payment_key":    true,
+		"cryptomus_secret_key":     true,
+		"cryptomus_webhook_secret": true,
+	}
+
 	res := make(map[string]string)
 	for _, sDB := range settings {
-		res[sDB.SettingKey] = sDB.SettingValue
+		val := sDB.SettingValue
+		if sensitiveKeys[sDB.SettingKey] && val != "" {
+			dec, err := helper.DecryptSecret(val)
+			if err == nil {
+				val = dec
+			}
+		}
+		res[sDB.SettingKey] = val
 	}
 	return res
 }
@@ -796,50 +803,14 @@ func verifyStripeSignature(payload []byte, sigHeader, secret string) bool {
 	return hmac.Equal([]byte(signature), []byte(expectedSignature))
 }
 
-func (s *paymentService) saveMapping(key string, val interface{}) error {
-	bytesVal, err := json.Marshal(val)
-	if err != nil {
-		return err
-	}
-	var setting model.Setting
-	err = s.settingsRepo.DB().Where("setting_key = ?", key).First(&setting).Error
-	if err == nil {
-		setting.SettingValue = string(bytesVal)
-		return s.settingsRepo.DB().Save(&setting).Error
-	}
-	setting = model.Setting{
-		SettingKey:   key,
-		SettingValue: string(bytesVal),
-	}
-	return s.settingsRepo.DB().Create(&setting).Error
-}
-
-func (s *paymentService) fulfillPaymentMapping(mapKey, externalID, gateway string) error {
-	var setting model.Setting
-	if err := s.settingsRepo.DB().Where("setting_key = ?", mapKey).First(&setting).Error; err != nil {
-		return fmt.Errorf("mapping settings not found for key: %s", mapKey)
-	}
-
-	var mapData struct {
-		TxnID   uint `json:"txn_id"`
-		UserID  uint `json:"user_id"`
-		Credits int  `json:"credits"`
-	}
-	if err := json.Unmarshal([]byte(setting.SettingValue), &mapData); err != nil {
-		return fmt.Errorf("failed to unmarshal mapping data: %v", err)
-	}
-
-	if mapData.TxnID == 0 || mapData.UserID == 0 {
-		return fmt.Errorf("invalid mapping data: %v", mapData)
-	}
-
+func (s *paymentService) fulfillPaymentMapping(mapKey, gateway string) error {
 	err := s.txRepo.DB().Transaction(func(tx *gorm.DB) error {
 		var txn model.Transaction
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("id = ? AND status = 'pending'", mapData.TxnID).First(&txn).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("external_id = ? AND status = 'pending'", mapKey).First(&txn).Error; err != nil {
 			return err
 		}
 
-		if err := tx.Model(&model.User{}).Where("id = ?", mapData.UserID).Update("credits", gorm.Expr("credits + ?", mapData.Credits)).Error; err != nil {
+		if err := tx.Model(&model.User{}).Where("id = ?", txn.UserID).Update("credits", gorm.Expr("credits + ?", txn.CreditsAdded)).Error; err != nil {
 			return err
 		}
 
@@ -848,13 +819,13 @@ func (s *paymentService) fulfillPaymentMapping(mapKey, externalID, gateway strin
 		}
 
 		logEntry := &model.ActivityLog{
-			UserID:     &mapData.UserID,
+			UserID:     &txn.UserID,
 			Level:      "INFO",
 			Source:     "Payment",
 			Event:      fmt.Sprintf("%s Webhook Fulfillment", gateway),
-			Message:    fmt.Sprintf("%s confirmed. User #%d +%d credits. Ref: %s", gateway, mapData.UserID, mapData.Credits, externalID),
+			Message:    fmt.Sprintf("%s confirmed. User #%d +%d credits. Ref: %s", gateway, txn.UserID, txn.CreditsAdded, mapKey),
 			IP:         "0.0.0.0",
-			Identifier: externalID,
+			Identifier: mapKey,
 		}
 		if err := tx.Create(logEntry).Error; err != nil {
 			return err
@@ -865,14 +836,18 @@ func (s *paymentService) fulfillPaymentMapping(mapKey, externalID, gateway strin
 
 	if err == nil {
 		// Broadcast updated credit balance and refresh stats in background
-		go func() {
-			if user, getErr := s.userRepo.GetByID(mapData.UserID); getErr == nil && user != nil {
-				ws.GlobalHub.BroadcastToUser(user.ID, "user_update", map[string]interface{}{
-					"credits": user.Credits,
-				})
-			}
-			ComputeAndCacheDashboardStats(mapData.UserID)
-		}()
+		var txn model.Transaction
+		if getErr := s.txRepo.DB().Where("external_id = ?", mapKey).First(&txn).Error; getErr == nil {
+			userIDCopy := txn.UserID
+			safe.Go(func() {
+				if user, getErr := s.userRepo.GetByID(userIDCopy); getErr == nil && user != nil {
+					ws.GlobalHub.BroadcastToUser(user.ID, "user_update", map[string]interface{}{
+						"credits": user.Credits,
+					})
+				}
+				ComputeAndCacheDashboardStats(userIDCopy)
+			})
+		}
 	}
 
 	return err

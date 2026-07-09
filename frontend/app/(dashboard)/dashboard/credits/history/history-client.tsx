@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -37,6 +37,7 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
     const [total, setTotal] = useState(initialTotal)
     const [offset, setOffset] = useState(0)
     const limit = 10
+    const isFirstMount = useRef(true)
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -63,7 +64,21 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
     }, [offset]);
 
     useEffect(() => {
-        fetchData();
+        if (initialTransactions) {
+            setTransactions(initialTransactions)
+            setStats(initialStats)
+            setTotal(initialTotal)
+        }
+    }, [initialTransactions, initialStats, initialTotal]);
+
+    useEffect(() => {
+        if (isFirstMount.current) {
+            isFirstMount.current = false
+            return
+        }
+        if (offset > 0) {
+            fetchData();
+        }
     }, [offset, fetchData]);
 
     return (

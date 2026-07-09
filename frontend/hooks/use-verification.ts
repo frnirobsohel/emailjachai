@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react';
 import { apiClient } from '@/lib/api-client';
-import { useSocket } from '@/hooks/use-socket';
 
 export function useVerification() {
     const [isVerifying, setIsVerifying] = useState(false);

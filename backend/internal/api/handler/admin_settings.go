@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -70,6 +71,10 @@ func (h *AdminHandler) UpdateSettings(c *gin.Context) {
 		"max_active_jobs_per_user": {0, 10000, 0},
 	}
 
+	hexRegex := regexp.MustCompile(`^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$`)
+	urlRegex := regexp.MustCompile(`^https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(/.*)?$`)
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+
 	for k, v := range settingsMap {
 		if rule, ok := numericRules[k]; ok {
 			num, err := strconv.Atoi(v)
@@ -83,6 +88,21 @@ func (h *AdminHandler) UpdateSettings(c *gin.Context) {
 				num = rule.max
 			}
 			settingsMap[k] = strconv.Itoa(num)
+		}
+
+		if v != "" {
+			if k == "primary_color" && !hexRegex.MatchString(v) {
+				helper.SendError(c, http.StatusBadRequest, "Invalid hex color format", "")
+				return
+			}
+			if (k == "logo_url" || k == "favicon_url" || k == "help_center_url" || k == "twitter_url" || k == "linkedin_url" || k == "github_url") && !urlRegex.MatchString(v) {
+				helper.SendError(c, http.StatusBadRequest, fmt.Sprintf("Invalid URL format for %s", k), "")
+				return
+			}
+			if k == "support_email" && !emailRegex.MatchString(v) {
+				helper.SendError(c, http.StatusBadRequest, "Invalid email address format", "")
+				return
+			}
 		}
 	}
 
@@ -117,6 +137,8 @@ func (h *AdminHandler) GetPublicSettings(c *gin.Context) {
 		"cryptomus_enabled",
 		"stripe_enabled",
 		"paypal_enabled",
+		"maintenance_mode",
+		"maintenance_message",
 	}
 
 	settings, err := h.settingsService.GetSettingsByKeys(publicKeys)
@@ -128,8 +150,8 @@ func (h *AdminHandler) GetPublicSettings(c *gin.Context) {
 	results := make(map[string]string)
 	for _, s := range settings {
 		val := s.SettingValue
-		// Parity: Ensure enabled flags are "1" or "0"
-		if strings.HasSuffix(s.SettingKey, "_enabled") {
+		// Parity: Ensure enabled flags and maintenance_mode are "1" or "0"
+		if strings.HasSuffix(s.SettingKey, "_enabled") || s.SettingKey == "maintenance_mode" {
 			if val == "true" || val == "1" || val == "active" {
 				val = "1"
 			} else {

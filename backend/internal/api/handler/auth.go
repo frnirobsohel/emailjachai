@@ -167,7 +167,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var input struct {
 		Token    string `json:"token" binding:"required"`
-		Password string `json:"password" binding:"required,min=6"`
+		Password string `json:"password" binding:"required,min=8"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {

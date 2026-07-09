@@ -17,6 +17,7 @@ import {
     Download
 } from "lucide-react"
 import Link from "next/link"
+import { useSettings } from "@/lib/settings-context"
 
 interface UploadStats {
     emailCount: number;
@@ -27,6 +28,8 @@ interface UploadStats {
 }
 
 export function BulkUploadForm() {
+    const settings = useSettings()
+    const isMaintenance = settings?.maintenance_mode === "1"
     const [isDragOver, setIsDragOver] = useState(false)
     const [isUploading, setIsUploading] = useState(false)
     const [uploadProgress, setUploadProgress] = useState(0)
@@ -147,14 +150,17 @@ export function BulkUploadForm() {
                 </CardHeader>
                 <CardContent>
                     <div
-                        className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors ${isDragOver
-                            ? 'border-indigo-500 bg-indigo-50/50'
-                            : 'border-indigo-200 hover:border-indigo-500/50 hover:bg-indigo-50/20'
+                        className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                            isMaintenance
+                                ? 'border-amber-200 bg-amber-50/10 cursor-not-allowed opacity-80'
+                                : isDragOver
+                                    ? 'border-indigo-500 bg-indigo-50/50 cursor-pointer'
+                                    : 'border-indigo-200 hover:border-indigo-500/50 hover:bg-indigo-50/20 cursor-pointer'
                             }`}
-                        onDragOver={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={handleDrop}
-                        onClick={() => !selectedFile && !isUploading && fileInputRef.current?.click()}
+                        onDragOver={isMaintenance ? undefined : handleDragOver}
+                        onDragLeave={isMaintenance ? undefined : handleDragLeave}
+                        onDrop={isMaintenance ? undefined : handleDrop}
+                        onClick={() => !isMaintenance && !selectedFile && !isUploading && fileInputRef.current?.click()}
                     >
                         <input
                             ref={fileInputRef}
@@ -167,7 +173,7 @@ export function BulkUploadForm() {
                                 }
                             }}
                             className="hidden"
-                            disabled={!!selectedFile || isUploading}
+                            disabled={!!selectedFile || isUploading || isMaintenance}
                         />
 
                         {selectedFile ? (
@@ -198,16 +204,18 @@ export function BulkUploadForm() {
                                 </Button>
                             </div>
                         ) : (
-                            <div className="space-y-4 cursor-pointer">
+                            <div className="space-y-4">
                                 <div className="flex items-center justify-center">
-                                    <div className="p-3 bg-indigo-50 rounded-full group-hover:bg-indigo-100 transition-colors">
-                                        <Upload className="h-8 w-8 text-indigo-400 group-hover:text-indigo-600 transition-colors" />
+                                    <div className={`p-3 rounded-full ${isMaintenance ? 'bg-amber-100' : 'bg-indigo-50 hover:bg-indigo-100'} transition-colors`}>
+                                        <Upload className={`h-8 w-8 ${isMaintenance ? 'text-amber-500' : 'text-indigo-400 hover:text-indigo-600'} transition-colors`} />
                                     </div>
                                 </div>
                                 <div>
-                                    <p className="text-lg font-medium text-indigo-950">Drag and drop or click to browse</p>
+                                    <p className="text-lg font-medium text-indigo-950">
+                                        {isMaintenance ? "File Upload Disabled" : "Drag and drop or click to browse"}
+                                    </p>
                                     <p className="text-sm text-indigo-600/70">
-                                        CSV or TXT files up to 200MB
+                                        {isMaintenance ? settings?.maintenance_message || "System is undergoing maintenance" : "CSV or TXT files up to 200MB"}
                                     </p>
                                 </div>
                             </div>
@@ -218,7 +226,7 @@ export function BulkUploadForm() {
                         <div className="mt-4">
                             <Button
                                 onClick={handleUpload}
-                                disabled={isUploading}
+                                disabled={isUploading || isMaintenance}
                                 className="w-full bg-[#0f172b] hover:bg-[#0f172b]/90 text-white shadow-lg shadow-slate-200"
                             >
                                 {isUploading ? (

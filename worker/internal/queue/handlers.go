@@ -16,6 +16,7 @@ import (
 	"ejp-worker/internal/engine"
 	"ejp-worker/internal/reporter"
 	"ejp-worker/pkg/logger"
+	"ejp-worker/pkg/safe"
 
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
@@ -63,19 +64,24 @@ func HandleEmailVerifyTask(ctx context.Context, t *asynq.Task) error {
 	res := engine.VerifyEmail(p.Email)
 
 	resultPayload := map[string]interface{}{
-		"email":          p.Email,
-		"status":         res.Status,
-		"score":          res.Score,
-		"is_deliverable": res.Deliverable,
-		"is_catch_all":   res.CatchAll,
-		"is_disposable":  res.Status == "disposable",
-		"is_free":        res.IsFree,
-		"is_role":        res.IsRole,
-		"is_blacklisted": res.IsBlacklisted,
-		"has_mx":         res.HasMX,
-		"mx_records":     res.MxRecords,
-		"reason":         res.Reason,
-		"time_taken":     res.ProcessingTime,
+		"email":           p.Email,
+		"status":          res.Status,
+		"score":           res.Score,
+		"is_deliverable":  res.Deliverable,
+		"is_catch_all":    res.CatchAll,
+		"is_disposable":   res.Status == "disposable",
+		"is_free":         res.IsFree,
+		"is_role":         res.IsRole,
+		"is_blacklisted":  res.IsBlacklisted,
+		"has_mx":          res.HasMX,
+		"mx_records":      res.MxRecords,
+		"reason":          res.Reason,
+		"time_taken":      res.ProcessingTime,
+		"smtp_connect":    res.SMTPConnect,
+		"user_exists":     res.Deliverable,
+		"is_syntax_valid": res.SyntaxValid,
+		"is_spam_trap":    res.IsSpamTrap,
+		"mailbox_full":    res.MailboxFull,
 	}
 
 	return reporter.ReportBatchToAPI(p.JobID, p.TaskID, []map[string]interface{}{resultPayload})
@@ -106,7 +112,9 @@ func HandleEmailChunkTask(ctx context.Context, t *asynq.Task) error {
 		wg.Add(1)
 		sem <- struct{}{} // Acquire token (blocks if 100 are already running)
 		
-		go func(idx int, emailAddr string) {
+		idx := i
+		emailAddr := email
+		safe.Go(func() {
 			defer wg.Done()
 			defer func() { <-sem }() // Release token
 
@@ -114,22 +122,27 @@ func HandleEmailChunkTask(ctx context.Context, t *asynq.Task) error {
 			
 			mu.Lock()
 			results[idx] = map[string]interface{}{
-				"email":          emailAddr,
-				"status":         res.Status,
-				"score":          res.Score,
-				"is_deliverable": res.Deliverable,
-				"is_catch_all":   res.CatchAll,
-				"is_disposable":  res.Status == "disposable",
-				"is_free":        res.IsFree,
-				"is_role":        res.IsRole,
-				"is_blacklisted": res.IsBlacklisted,
-				"has_mx":         res.HasMX,
-				"mx_records":     res.MxRecords,
-				"reason":         res.Reason,
-				"time_taken":     res.ProcessingTime,
+				"email":           emailAddr,
+				"status":          res.Status,
+				"score":           res.Score,
+				"is_deliverable":  res.Deliverable,
+				"is_catch_all":    res.CatchAll,
+				"is_disposable":   res.Status == "disposable",
+				"is_free":         res.IsFree,
+				"is_role":         res.IsRole,
+				"is_blacklisted":  res.IsBlacklisted,
+				"has_mx":          res.HasMX,
+				"mx_records":      res.MxRecords,
+				"reason":          res.Reason,
+				"time_taken":      res.ProcessingTime,
+				"smtp_connect":    res.SMTPConnect,
+				"user_exists":     res.Deliverable,
+				"is_syntax_valid": res.SyntaxValid,
+				"is_spam_trap":    res.IsSpamTrap,
+				"mailbox_full":    res.MailboxFull,
 			}
 			mu.Unlock()
-		}(i, email)
+		})
 	}
 	
 	wg.Wait()
@@ -183,5 +196,47 @@ func HandleWebhookTask(ctx context.Context, t *asynq.Task) error {
 		return nil
 	}
 
-	return fmt.Errorf("webhook delivery returned status %d", resp.StatusCode)
+	// M3 Fix: 4xx means the recipient endpoint is rejecting our payload.
+	// Retrying would be pointless and waste queue capacity.
+	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		logger.Warn("Webhook rejected by recipient (4xx) — skipping retry",
+			zap.String("url", p.URL), zap.Int("status", resp.StatusCode))
+		return fmt.Errorf("webhook rejected with status %d (client error): %w", resp.StatusCode, asynq.SkipRetry)
+	}
+
+	return fmt.Errorf("webhook delivery returned server error %d", resp.StatusCode)
+}
+
+// HandleDeadLetterTask reports permanently failed tasks back to the backend API
+func HandleDeadLetterTask(ctx context.Context, t *asynq.Task, err error) {
+	logger.Warn("Handling Dead-Letter Task", zap.String("type", t.Type()), zap.Error(err))
+	switch t.Type() {
+	case "email:verify":
+		var p EmailTaskPayload
+		if err := json.Unmarshal(t.Payload(), &p); err == nil {
+			failPayload := map[string]interface{}{
+				"email":          p.Email,
+				"status":         "unknown",
+				"score":          0,
+				"reason":         fmt.Sprintf("worker_failed: %v", err),
+				"time_taken":     0.0,
+			}
+			_ = reporter.ReportBatchToAPI(p.JobID, p.TaskID, []map[string]interface{}{failPayload})
+		}
+	case "email:chunk:verify":
+		var p EmailChunkTaskPayload
+		if err := json.Unmarshal(t.Payload(), &p); err == nil {
+			results := make([]map[string]interface{}, len(p.Emails))
+			for i, emailAddr := range p.Emails {
+				results[i] = map[string]interface{}{
+					"email":      emailAddr,
+					"status":     "unknown",
+					"score":      0,
+					"reason":     fmt.Sprintf("worker_chunk_failed: %v", err),
+					"time_taken": 0.0,
+				}
+			}
+			_ = reporter.ReportBatchToAPI(p.JobID, p.TaskID, results)
+		}
+	}
 }

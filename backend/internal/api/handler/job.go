@@ -9,6 +9,7 @@ import (
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/service"
 	"ejp-backend/internal/storage"
+	"ejp-backend/pkg/safe"
 
 	"github.com/gin-gonic/gin"
 )
@@ -143,14 +144,38 @@ func (h *JobHandler) DeleteJob(c *gin.Context) {
 	}
 
 	// Cleanup ndjson file from filesystem after successful DB deletion
-	go func() {
+	jobIDCopy := req.JobID
+	safe.Go(func() {
+		jobID := jobIDCopy
 		basePath := os.Getenv("BULK_JOBS_PATH")
 		if basePath == "" {
 			basePath = "./storage/bulk_jobs"
 		}
-		_ = storage.DeleteJobFile(basePath, req.JobID)
-	}()
+		_ = storage.DeleteJobFile(basePath, jobID)
+	})
 
 	helper.SendSuccess(c, "Job deleted successfully", nil)
+}
+
+func (h *JobHandler) RetryJob(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	var req struct {
+		JobID string `json:"job_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Invalid request", err.Error())
+		return
+	}
+
+	job, err := h.jobService.RetryJob(userID.(uint), req.JobID)
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, err.Error(), "")
+		return
+	}
+
+	helper.SendSuccess(c, "Job retried and queued successfully", gin.H{
+		"jobId":  job.JobID,
+		"status": job.Status,
+	})
 }
 

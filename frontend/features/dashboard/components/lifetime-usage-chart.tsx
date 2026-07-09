@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo } from "react"
+import { useHydrated } from "@/hooks/use-hydrated"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts"
 import { Loader2 } from "lucide-react"
@@ -19,12 +20,11 @@ type LifetimeUsageChartProps = {
 const CHART_INITIAL_DIMENSION = { width: 320, height: 192 }
 
 export function LifetimeUsageChart({ data, isLoading = false }: LifetimeUsageChartProps) {
-    const [isMounted, setIsMounted] = useState(false)
+    const isMounted = useHydrated()
 
     const total = useMemo(() => data.reduce((acc, curr) => acc + curr.value, 0), [data])
     const displayData = data.filter(d => d.value > 0).length > 0 ? data : [{ name: 'Empty', value: 1, color: '#f1f5f9' }]
 
-    useEffect(() => { setIsMounted(true) }, [])
 
     const formatValue = (val: number) => {
         if (val >= 1000) return (val / 1000).toFixed(1) + 'K';

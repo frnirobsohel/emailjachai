@@ -82,6 +82,7 @@ func ConnectDB() {
 		sqlDB.SetMaxIdleConns(10)
 		sqlDB.SetMaxOpenConns(100)
 		sqlDB.SetConnMaxLifetime(time.Hour)
+		sqlDB.SetConnMaxIdleTime(15 * time.Minute) // Prevent firewall connection drops
 	}
 
 	logger.Info("Successfully connected to PostgreSQL Database!")

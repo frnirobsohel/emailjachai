@@ -10,6 +10,7 @@ import (
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/helper"
+	"ejp-backend/pkg/safe"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -44,9 +45,13 @@ func NewAuthService(userRepo repo.UserRepo, apiKeyService APIKeyService, logRepo
 }
 
 func (s *authService) Register(firstName, lastName, email, password string) (*model.User, string, error) {
-	// Check if user exists
-	existing, _ := s.userRepo.GetByEmail(email)
-	if existing != nil {
+	firstName = strings.TrimSpace(firstName)
+	lastName = strings.TrimSpace(lastName)
+	email = strings.ToLower(strings.TrimSpace(email))
+
+	// 1. Check if email exists
+	existingUser, _ := s.userRepo.GetByEmail(email)
+	if existingUser != nil {
 		return nil, "", errors.New("user already exists")
 	}
 
@@ -73,6 +78,7 @@ func (s *authService) Register(firstName, lastName, email, password string) (*mo
 		}
 	}
 
+	// 3. Create User
 	user := &model.User{
 		Name:     firstName + " " + lastName,
 		Email:    email,
@@ -86,14 +92,17 @@ func (s *authService) Register(firstName, lastName, email, password string) (*mo
 		return nil, "", err
 	}
 
-	// Create Login Key
+	// 4. Create Default API Key
 	apiKey, err := s.apiKeyService.CreateLoginKey(user.ID)
 	if err != nil {
 		return nil, "", err
 	}
 
 	// Send Registration Email asynchronously
-	go func(isActive bool, email string) {
+	isActive := smtpConfig.IsActive
+	userEmail := user.Name
+	emailAddr := user.Email
+	safe.Go(func() {
 		frontendURL := os.Getenv("FRONTEND_URL")
 		if frontendURL == "" {
 			frontendURL = "http://localhost:3000"
@@ -105,16 +114,16 @@ func (s *authService) Register(firstName, lastName, email, password string) (*mo
 
 		verificationLink := fmt.Sprintf("%s/login", frontendURL)
 		if isActive {
-			token, _ := helper.GenerateVerificationToken(email)
+			token, _ := helper.GenerateVerificationToken(emailAddr)
 			verificationLink = fmt.Sprintf("%s/api/v1/auth/verify-email?token=%s", apiUrl, token)
 		}
 
 		placeholders := map[string]string{
-			"name":              user.Name,
+			"name":              userEmail,
 			"verification_link": verificationLink,
 		}
-		s.emailService.SendTemplateEmail(email, "register", placeholders)
-	}(smtpConfig.IsActive, user.Email)
+		s.emailService.SendTemplateEmail(emailAddr, "register", placeholders)
+	})
 
 	return user, apiKey, nil
 }
@@ -219,7 +228,7 @@ func (s *authService) ForgotPassword(email string) error {
 	}
 
 	// Send Forgot Password Email asynchronously
-	go func() {
+	safe.Go(func() {
 		frontendURL := os.Getenv("FRONTEND_URL")
 		if frontendURL == "" {
 			frontendURL = "http://localhost:3000"
@@ -229,7 +238,7 @@ func (s *authService) ForgotPassword(email string) error {
 			"reset_link": fmt.Sprintf("%s/reset-password?token=%s", frontendURL, token),
 		}
 		s.emailService.SendTemplateEmail(user.Email, "forgot", placeholders)
-	}()
+	})
 
 	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/helper"
+	"ejp-backend/pkg/config"
 )
 
 type APIKeyService interface {
@@ -18,6 +19,9 @@ type APIKeyService interface {
 	Create(userID uint, name string) (*model.APIKey, error)
 	Delete(id uint, userID uint) error
 	Rotate(id uint, userID uint) (*model.APIKey, error)
+	// InvalidateCacheByKeyID immediately removes the given key from the auth cache
+	// so a revoked/rotated key stops working without waiting for TTL expiry.
+	InvalidateCacheByKeyID(keyID uint)
 }
 
 type apiKeyService struct {
@@ -125,6 +129,12 @@ func (s *apiKeyService) Create(userID uint, name string) (*model.APIKey, error) 
 
 func (s *apiKeyService) Delete(id uint, userID uint) error {
 	return s.repo.Delete(id, userID)
+}
+
+// InvalidateCacheByKeyID immediately evicts the auth cache entries for the
+// given key ID so the key stops being accepted within the same process.
+func (s *apiKeyService) InvalidateCacheByKeyID(keyID uint) {
+	config.ClearCachedAPIAuthByKeyID(keyID)
 }
 
 func (s *apiKeyService) Rotate(id uint, userID uint) (*model.APIKey, error) {

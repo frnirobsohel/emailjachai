@@ -1,15 +1,17 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-const geistSans = Geist({
+const geistSans = localFont({
+  src: "../public/fonts/Geist-Variable.woff2",
   variable: "--font-geist-sans",
-  subsets: ["latin"],
+  weight: "100 900",
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
+  src: "../public/fonts/GeistMono-Variable.woff2",
   variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: "100 900",
 });
 
 import Providers from "@/providers";
@@ -20,16 +22,25 @@ import { getPublicSettings } from "@/lib/services/settings";
 export async function generateMetadata(): Promise<Metadata> {
   let title = "EmailJachai Pro";
   let tagline = "Professional Email Verification Platform";
+  let favicon = "/icon.svg";
   
   const settings = await getPublicSettings();
   if (settings) {
       title = settings.site_title || title;
       tagline = settings.site_tagline || tagline;
+      if (settings.favicon_url) {
+          favicon = settings.favicon_url;
+      }
   }
   
   return {
     title: { default: title, template: "%s | " + title },
     description: tagline,
+    icons: {
+      icon: favicon,
+      shortcut: favicon,
+      apple: favicon,
+    },
   };
 }
 

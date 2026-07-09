@@ -1,3 +1,9 @@
+import { Metadata } from "next"
+
+export const metadata: Metadata = {
+    title: "Job Details",
+}
+
 import { fetchServer } from "@/lib/fetch-server"
 import { JobDetailsClient } from "./job-details-client"
 

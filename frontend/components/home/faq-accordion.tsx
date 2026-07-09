@@ -45,10 +45,7 @@ export function FAQAccordion() {
           >
             <button
               onClick={() => {
-                // If it's already open, do nothing (to prevent all from collapsing)
-                if (!isOpen) {
-                  setOpenIndex(i)
-                }
+                setOpenIndex(isOpen ? -1 : i)
               }}
               className="w-full flex items-center justify-between px-5 py-4 text-left font-medium hover:bg-white/[0.02] transition-colors text-sm md:text-base cursor-pointer focus:outline-none"
             >

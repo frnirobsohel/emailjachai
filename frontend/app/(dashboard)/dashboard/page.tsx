@@ -1,3 +1,9 @@
+import { Metadata } from "next"
+
+export const metadata: Metadata = {
+    title: "Dashboard",
+}
+
 import { fetchServer } from "@/lib/fetch-server"
 import type { DashboardStats } from "@/stores/dashboard-store"
 import { DashboardClient } from "./dashboard-client"
@@ -33,7 +39,7 @@ export default async function DashboardPage() {
     // Fetch stats + recent jobs in parallel on the server for fast initial load
     const [statsResult, jobsResult] = await Promise.all([
         fetchServer('/dashboard/stats'),
-        fetchServer('/jobs/list?limit=4&type=bulk'),
+        fetchServer('/jobs/list?limit=4&type=all'),
     ]);
 
     if (statsResult.status === 'success' && statsResult.data) {

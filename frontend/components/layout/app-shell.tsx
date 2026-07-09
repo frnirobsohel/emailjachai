@@ -4,7 +4,7 @@ import { useSocket } from "@/hooks/use-socket";
 import { useEffect } from "react";
 import { useCreditStore } from "@/stores/credit-state";
 import { useDashboardStore } from "@/stores/dashboard-store";
-import { useDashboardWebSocket } from "@/hooks/useDashboardWebSocket";
+import { useDashboardWebSocket } from "@/hooks/use-dashboard-web-socket";
 import { logger } from "@/lib/logger";
 import { usePathname } from "next/navigation";
 
@@ -18,6 +18,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     // Call the dashboard WebSocket hook globally to ensure stats are updated in real-time
     useDashboardWebSocket();
+
+
 
     useEffect(() => {
         // Handle credit updates globally via WebSocket (legacy/fallback)

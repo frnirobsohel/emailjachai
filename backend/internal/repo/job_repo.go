@@ -29,6 +29,7 @@ type JobRepository interface {
 	GetJobResultsRows(jobInternalID uint) (*sql.Rows, error)
 	CountAllActiveJobs() (int64, error)
 	DB() *gorm.DB
+	CheckAndApplyRiskyRefund(tx *gorm.DB, jobID string) error
 }
 
 type DownloadResultRow struct {
@@ -300,4 +301,50 @@ func (r *jobRepository) CountAllActiveJobs() (int64, error) {
 	var count int64
 	err := r.db.Model(&model.Job{}).Where("status IN ?", []string{"pending", "processing"}).Count(&count).Error
 	return count, err
+}
+
+func (r *jobRepository) CheckAndApplyRiskyRefund(tx *gorm.DB, jobID string) error {
+	var job model.Job
+	// Lock the row to prevent race conditions
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("job_id = ?", jobID).First(&job).Error; err != nil {
+		return err
+	}
+
+	if job.Status == "completed" && job.JobType == "bulk" && job.Risky > 0 {
+		var refundCount int64
+		refundSearch := "%" + job.JobID + "%"
+		if err := tx.Model(&model.Transaction{}).
+			Where("user_id = ? AND type = 'refund' AND description LIKE ?", job.UserID, refundSearch).
+			Count(&refundCount).Error; err != nil {
+			return err
+		}
+
+		if refundCount > 0 {
+			return nil // Already refunded
+		}
+
+		// Calculate refund: 80% of Risky count rounded
+		refundCredits := (job.Risky*80 + 50) / 100
+		if refundCredits > 0 {
+			if err := tx.Model(&model.User{}).Where("id = ?", job.UserID).Update("credits", gorm.Expr("credits + ?", refundCredits)).Error; err != nil {
+				return err
+			}
+
+			refundTxnID := fmt.Sprintf("REFUND_RISKY_%x%s", time.Now().Unix(), helper.GenerateRandomHex(4))
+			refundTxn := model.Transaction{
+				UserID:        job.UserID,
+				TransactionID: refundTxnID,
+				Amount:        0,
+				CreditsAdded:  refundCredits,
+				Type:          "refund",
+				Status:        "completed",
+				Description:   fmt.Sprintf("80%% partial refund for %d unknown emails in job %s", job.Risky, job.JobID),
+				Provider:      "system",
+			}
+			if err := tx.Create(&refundTxn).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

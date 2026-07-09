@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -14,10 +15,67 @@ import (
 	"ejp-backend/internal/verifier"
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
+	"ejp-backend/pkg/safe"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+var emailRegex = regexp.MustCompile(`(?i)^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$`)
+
+// --- Fix I-04: Strong email regex ---
+// আগে শুধু '@' আছে কিনা দেখা হত — a@b বা test@ পাস হয়ে যেত।
+// এখন file_job.go-তে ডিক্লেয়ার করা RFC-compliant emailRegex ব্যবহার করে সঠিকভাবে validate করা হয়।
+
+// --- Fix I-08: Cache retention settings ---
+// আগে প্রতিটা verify request-এ DB থেকে retention settings পড়া হত (3 queries)।
+// এখন 5 মিনিটের in-memory cache ব্যবহার করা হয়।
+var retentionCache struct {
+	mu           sync.RWMutex
+	b2b          int
+	freeValid    int
+	freeInvalid  int
+	expiresAt    time.Time
+}
+
+func getCachedRetentionSettings() (b2b, freeValid, freeInvalid int) {
+	retentionCache.mu.RLock()
+	if time.Now().Before(retentionCache.expiresAt) {
+		b, fv, fi := retentionCache.b2b, retentionCache.freeValid, retentionCache.freeInvalid
+		retentionCache.mu.RUnlock()
+		return b, fv, fi
+	}
+	retentionCache.mu.RUnlock()
+
+	// Defaults
+	b2bRet, freeValidRet, freeInvalidRet := 30, 365, 30
+	var settings []model.Setting
+	if err := config.DB.Where("setting_key IN ?", []string{
+		"b2b_retention", "free_valid_retention", "free_invalid_retention",
+	}).Find(&settings).Error; err == nil {
+		for _, s := range settings {
+			if v, e := helper.SafeAtoi(s.SettingValue); e == nil && v > 0 {
+				switch s.SettingKey {
+				case "b2b_retention":
+					b2bRet = v
+				case "free_valid_retention":
+					freeValidRet = v
+				case "free_invalid_retention":
+					freeInvalidRet = v
+				}
+			}
+		}
+	}
+
+	retentionCache.mu.Lock()
+	retentionCache.b2b = b2bRet
+	retentionCache.freeValid = freeValidRet
+	retentionCache.freeInvalid = freeInvalidRet
+	retentionCache.expiresAt = time.Now().Add(5 * time.Minute)
+	retentionCache.mu.Unlock()
+
+	return b2bRet, freeValidRet, freeInvalidRet
+}
 
 var publicVerifierEnabledCache struct {
 	mu        sync.RWMutex
@@ -86,7 +144,8 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 	}
 
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if email == "" || !strings.Contains(email, "@") {
+	// Fix I-04: Regex validation rejects malformed emails like a@b, test@, @domain.com
+	if email == "" || !emailRegex.MatchString(email) {
 		helper.SendError(c, http.StatusBadRequest, "Invalid email address", "ERR_INVALID_EMAIL")
 		return
 	}
@@ -116,25 +175,8 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 	var res verifier.VerifyResult
 	fromCache := false
 
-	// Fetch dynamic retention policies from settings table
-	b2bRet, freeValidRet, freeInvalidRet := 30, 365, 30
-	var settings []model.Setting
-	if err := config.DB.Where("setting_key IN ?", []string{
-		"b2b_retention", "free_valid_retention", "free_invalid_retention",
-	}).Find(&settings).Error; err == nil {
-		for _, s := range settings {
-			if v, e := helper.SafeAtoi(s.SettingValue); e == nil && v > 0 {
-				switch s.SettingKey {
-				case "b2b_retention":
-					b2bRet = v
-				case "free_valid_retention":
-					freeValidRet = v
-				case "free_invalid_retention":
-					freeInvalidRet = v
-				}
-			}
-		}
-	}
+	// Fix I-08: Use cached retention settings instead of 3 DB queries per request
+	b2bRet, freeValidRet, freeInvalidRet := getCachedRetentionSettings()
 
 	cachedResults, err := h.cacheRepo.GetCachedEmailsInBatches([]string{email}, b2bRet, freeValidRet, freeInvalidRet)
 	if err == nil {
@@ -165,7 +207,11 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 		res = verifier.VerifyEmail(email)
 
 		// Async cache upsert so future requests benefit from cache
-		go func(r verifier.VerifyResult, e string) {
+		resCopy := res
+		emailCopy := email
+		safe.Go(func() {
+			r := resCopy
+			e := emailCopy
 			cacheRows := []model.EmailCache{{
 				Email:          e,
 				Status:         r.Status,
@@ -189,7 +235,7 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 				UpdatedAt:      time.Now(),
 			}}
 			_ = h.cacheRepo.UpsertEmailCacheBatch(cacheRows)
-		}(res, email)
+		})
 	}
 
 	// 3. Return result — same shape as authenticated verify for frontend compatibility
@@ -218,7 +264,17 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 	})
 
 	// 4. Save Public Verification Log asynchronously
-	go func(e, i, cook, brow, stat string) {
+	emailLogCopy := email
+	ipLogCopy := ip
+	cookieLogCopy := cookieId
+	browserLogCopy := browser
+	statusLogCopy := res.Status
+	safe.Go(func() {
+		e := emailLogCopy
+		i := ipLogCopy
+		cook := cookieLogCopy
+		brow := browserLogCopy
+		stat := statusLogCopy
 		logEntry := model.PublicVerifyLog{
 			Email:    e,
 			IP:       i,
@@ -229,7 +285,7 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 		if err := config.DB.Create(&logEntry).Error; err == nil {
 			ws.GlobalHub.BroadcastToAdmins("security_log", logEntry)
 		}
-	}(email, ip, cookieId, browser, res.Status)
+	})
 }
 
 // GetPublicStatus returns the remaining verifications based on the user's IP and Cookie tracking.

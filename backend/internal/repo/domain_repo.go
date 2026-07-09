@@ -10,7 +10,7 @@ import (
 
 type DomainRepo interface {
 	Create(domain *model.Domain) error
-	BulkCreate(domains []*model.Domain) error
+	BulkCreate(domains []*model.Domain) (int64, error)
 	List(search, domainType string, limit, offset int) ([]model.Domain, int64, error)
 	Delete(id uint) error
 	ToggleStatus(id uint) (bool, error)
@@ -29,9 +29,10 @@ func (r *domainRepo) Create(domain *model.Domain) error {
 	return r.db.Create(domain).Error
 }
 
-func (r *domainRepo) BulkCreate(domains []*model.Domain) error {
+func (r *domainRepo) BulkCreate(domains []*model.Domain) (int64, error) {
 	// Use CreateInBatches with OnConflict DoNothing to ignore duplicates
-	return r.db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(domains, 1000).Error
+	res := r.db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(domains, 1000)
+	return res.RowsAffected, res.Error
 }
 
 func (r *domainRepo) List(search, domainType string, limit, offset int) ([]model.Domain, int64, error) {

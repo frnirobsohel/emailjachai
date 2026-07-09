@@ -63,6 +63,9 @@ func ReportBatchToAPI(jobID string, taskID uint, results []map[string]interface{
 	}
 	defer resp.Body.Close()
 
+	// Drain remainder of body to enable connection reuse
+	_, _ = io.Copy(io.Discard, resp.Body)
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return fmt.Errorf("batch report returned status %d: %s", resp.StatusCode, string(body))

@@ -135,10 +135,15 @@ func (h *AdminHandler) UploadDomains(c *gin.Context) {
 	// 1. Handle File Upload (Multipart Form)
 	file, err := c.FormFile("file")
 	if err == nil {
+		const maxDomainUploadSize = 20 * 1024 * 1024 // 20MB
+		if file.Size > maxDomainUploadSize {
+			helper.SendError(c, http.StatusBadRequest, "File size exceeds maximum limit of 20MB", "")
+			return
+		}
 		f, err := file.Open()
 		if err == nil {
 			defer f.Close()
-			bytes, err := io.ReadAll(f)
+			bytes, err := io.ReadAll(io.LimitReader(f, maxDomainUploadSize))
 			if err == nil {
 				content = string(bytes)
 			}

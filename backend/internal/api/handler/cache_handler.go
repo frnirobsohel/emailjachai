@@ -225,7 +225,19 @@ func (h *CacheHandler) UploadBulkCache(c *gin.Context) {
 			}
 		}
 
-
+		// Basic Free email detection
+		isFree := false
+		freeDomains := []string{"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com"}
+		parts := strings.Split(email, "@")
+		if len(parts) == 2 {
+			domain := strings.ToLower(strings.TrimSpace(parts[1]))
+			for _, d := range freeDomains {
+				if domain == d {
+					isFree = true
+					break
+				}
+			}
+		}
 
 		caches = append(caches, model.EmailCache{
 			Email:          email,
@@ -234,6 +246,7 @@ func (h *CacheHandler) UploadBulkCache(c *gin.Context) {
 			Reason:         "bulk_import",
 			IsDeliverable:  status == "valid",
 			IsSyntaxValid:  true,
+			IsFree:         isFree,
 		})
 
 		if len(caches) >= batchSize {

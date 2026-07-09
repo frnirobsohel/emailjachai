@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useSecurityStore } from '@/stores/useSecurityStore'
+import { useSecurityStore } from '@/stores/security-store'
 import { WsMessage } from '@/hooks/use-socket'
 
 export function useSecurityWebSocket() {

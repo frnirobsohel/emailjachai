@@ -3,10 +3,12 @@ package service
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/ws"
+	"ejp-backend/pkg/safe"
 
 	"gorm.io/gorm"
 )
@@ -16,14 +18,16 @@ type ResellerService interface {
 }
 
 type resellerService struct {
-	userRepo repo.UserRepo
-	txRepo   repo.TransactionRepo
+	userRepo     repo.UserRepo
+	txRepo       repo.TransactionRepo
+	settingsRepo repo.SettingsRepo
 }
 
-func NewResellerService(userRepo repo.UserRepo, txRepo repo.TransactionRepo) ResellerService {
+func NewResellerService(userRepo repo.UserRepo, txRepo repo.TransactionRepo, settingsRepo repo.SettingsRepo) ResellerService {
 	return &resellerService{
-		userRepo: userRepo,
-		txRepo:   txRepo,
+		userRepo:     userRepo,
+		txRepo:       txRepo,
+		settingsRepo: settingsRepo,
 	}
 }
 
@@ -31,6 +35,8 @@ func (s *resellerService) TransferCredits(resellerID uint, recipientEmail string
 	if amount <= 0 {
 		return errors.New("transfer amount must be greater than zero")
 	}
+
+	recipientEmail = strings.ToLower(strings.TrimSpace(recipientEmail))
 
 	err := s.txRepo.DB().Transaction(func(tx *gorm.DB) error {
 		// 1. Get Recipient first to verify role and ID without locking
@@ -124,24 +130,24 @@ func (s *resellerService) TransferCredits(resellerID uint, recipientEmail string
 
 	if err == nil {
 		// Broadcast updated credit balance for reseller (sender) and refresh stats
-		go func() {
+		safe.Go(func() {
 			if updatedReseller, getErr := s.userRepo.GetByID(resellerID); getErr == nil && updatedReseller != nil {
 				ws.GlobalHub.BroadcastToUser(updatedReseller.ID, "user_update", map[string]interface{}{
 					"credits": updatedReseller.Credits,
 				})
 			}
 			ComputeAndCacheDashboardStats(resellerID)
-		}()
+		})
 
 		// Broadcast updated credit balance for recipient and refresh stats
-		go func() {
+		safe.Go(func() {
 			if recipient, getErr := s.userRepo.GetByEmail(recipientEmail); getErr == nil && recipient != nil {
 				ws.GlobalHub.BroadcastToUser(recipient.ID, "user_update", map[string]interface{}{
 					"credits": recipient.Credits,
 				})
 				ComputeAndCacheDashboardStats(recipient.ID)
 			}
-		}()
+		})
 	}
 
 	return err

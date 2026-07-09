@@ -13,8 +13,14 @@ import (
 
 // GetLogs returns real activity logs from the database.
 func (h *AdminHandler) GetLogs(c *gin.Context) {
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if offset < 0 {
+		offset = 0
+	}
 
 	logs, total, err := h.logService.GetLogs(limit, offset)
 	if err != nil {

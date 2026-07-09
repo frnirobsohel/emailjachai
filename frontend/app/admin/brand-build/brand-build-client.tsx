@@ -88,8 +88,10 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
     };
 
     useEffect(() => {
-        fetchSettings();
-    }, []);
+        if (!initialData || Object.keys(initialData).length === 0) {
+            fetchSettings();
+        }
+    }, [initialData]);
 
     const handleSaveSubmit = async (values: BrandSettingsValues) => {
         try {

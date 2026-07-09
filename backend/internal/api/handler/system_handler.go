@@ -5,6 +5,8 @@ import (
 	"ejp-backend/internal/ws"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -14,7 +16,21 @@ var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // Allow non-browser clients
+		}
+		allowedOriginsEnv := os.Getenv("CORS_ORIGINS")
+		if allowedOriginsEnv == "" {
+			allowedOriginsEnv = "http://localhost:3000,http://localhost:8000"
+		}
+		for _, allowed := range strings.Split(allowedOriginsEnv, ",") {
+			if strings.TrimSpace(allowed) == origin {
+				return true
+			}
+		}
+		log.Printf("WebSocket: rejected origin %s", origin)
+		return false
 	},
 }
 

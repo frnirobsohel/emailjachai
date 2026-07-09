@@ -17,6 +17,7 @@ import (
 	"ejp-backend/pkg/logger"
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/repo"
+	"ejp-backend/pkg/safe"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -226,11 +227,11 @@ func (h *AdminHandler) ListServers(c *gin.Context) {
 
 // StartServerListBroadcaster polls server list and broadcasts via WebSocket
 func (h *AdminHandler) StartServerListBroadcaster() {
-	go func() {
+	safe.Go(func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			if ws.GlobalHub == nil || len(ws.GlobalHub.Clients) == 0 {
+			if ws.GlobalHub == nil || !ws.GlobalHub.HasActiveConnections() {
 				continue
 			}
 
@@ -241,7 +242,7 @@ func (h *AdminHandler) StartServerListBroadcaster() {
 
 			ws.GlobalHub.BroadcastToAdmins("server_list_update", servers)
 		}
-	}()
+	})
 }
 
 // GetWorkerKey returns the currently configured worker API key (masked or plain)
@@ -287,7 +288,7 @@ func (h *AdminHandler) AddServer(c *gin.Context) {
 
 	input.ServerName = strings.TrimSpace(input.ServerName)
 	input.IPAddress = strings.TrimSpace(input.IPAddress)
-	if input.Port <= 0 {
+	if input.Port <= 0 || input.Port > 65535 {
 		input.Port = 80
 	}
 
@@ -388,17 +389,17 @@ func (h *AdminHandler) UpdateServer(c *gin.Context) {
 
 	// Config payload from UI takes precedence
 	if input.Config != nil {
-		if input.Config.DailyLimit != nil {
+		if input.Config.DailyLimit != nil && *input.Config.DailyLimit >= 1 {
 			updates["daily_limit"] = *input.Config.DailyLimit
 		}
-		if input.Config.RateLimit != nil {
+		if input.Config.RateLimit != nil && *input.Config.RateLimit >= 1 {
 			updates["rate_limit"] = *input.Config.RateLimit
 		}
 	}
-	if input.DailyLimit != nil {
+	if input.DailyLimit != nil && *input.DailyLimit >= 1 {
 		updates["daily_limit"] = *input.DailyLimit
 	}
-	if input.RateLimit != nil {
+	if input.RateLimit != nil && *input.RateLimit >= 1 {
 		updates["rate_limit"] = *input.RateLimit
 	}
 	if input.IPReputation != nil && strings.TrimSpace(*input.IPReputation) != "" {

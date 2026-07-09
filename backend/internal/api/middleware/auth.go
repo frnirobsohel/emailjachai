@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"ejp-backend/pkg/config"
+	"ejp-backend/pkg/safe"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/helper"
 
@@ -19,14 +20,14 @@ func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			helper.SendError(c, http.StatusUnauthorized, "Authorization header is required", "ERR_UNAUTHORIZED")
+			helper.SendError(c, http.StatusUnauthorized, "Missing Authorization header.", "ERR_MISSING_AUTH_HEADER")
 			c.Abort()
 			return
 		}
 
 		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			helper.SendError(c, http.StatusUnauthorized, "Authorization header format must be Bearer {token}", "ERR_BAD_AUTH_FORMAT")
+		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+			helper.SendError(c, http.StatusUnauthorized, "Invalid Authorization header format. Expected 'Bearer <key>'.", "ERR_INVALID_AUTH_FORMAT")
 			c.Abort()
 			return
 		}
@@ -52,64 +53,34 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		var k model.APIKey
-		if err := config.DB.
-			Select("id", "user_id", "api_key", "status", "last_used_at", "expires_at").
-			Where("key_prefix = ? AND key = ?", prefix, hashedKey).
-			First(&k).Error; err == nil {
-			// 1. Check Key Status
-			if k.Status != "active" {
-				helper.SendError(c, http.StatusUnauthorized, "This API key has been revoked or expired.", "ERR_KEY_NOT_ACTIVE")
+		if err := config.DB.Select("id", "user_id", "api_key", "status", "expires_at", "last_used_at").
+			Where("key_prefix = ? AND key = ?", prefix, hashedKey).First(&k).Error; err == nil {
+			if k.Status != "active" || (k.ExpiresAt != nil && k.ExpiresAt.Before(time.Now())) {
+				helper.SendError(c, http.StatusUnauthorized, "Invalid token", "ERR_AUTH_INVALID")
 				c.Abort()
 				return
 			}
-
-			// 2. Check Expiry
-			if k.ExpiresAt != nil && k.ExpiresAt.Before(time.Now()) {
-				helper.SendError(c, http.StatusUnauthorized, "This API key has expired.", "ERR_KEY_EXPIRED")
-				c.Abort()
-				return
-			}
-
-			// 3. Check User
 			var user model.User
-			if err := config.DB.First(&user, k.UserID).Error; err != nil {
-				helper.SendError(c, http.StatusUnauthorized, "User associated with this key not found.", "ERR_USER_NOT_FOUND")
-				c.Abort()
-				return
-			}
-
-			// 4. Check User Status (Legacy Parity)
-			if strings.ToLower(user.Status) == "suspended" {
-				helper.SendError(c, http.StatusForbidden, "Your account has been suspended.", "ERR_USER_SUSPENDED")
-				c.Abort()
-				return
-			}
-
-			// Success: Update last used and set context
-			now := time.Now()
-			if k.LastUsedAt == nil || k.LastUsedAt.Before(now.Add(-10*time.Minute)) {
-				go func(apiKeyID uint, ts time.Time) {
-					config.DB.Model(&model.APIKey{}).Where("id = ?", apiKeyID).Update("last_used_at", &ts)
-				}(k.ID, now)
-			}
-
-			cacheTTL := 2 * time.Minute
-			if k.ExpiresAt != nil {
-				if remaining := time.Until(*k.ExpiresAt); remaining > 0 && remaining < cacheTTL {
-					cacheTTL = remaining
+			if err := config.DB.First(&user, k.UserID).Error; err == nil && strings.ToLower(user.Status) != "suspended" {
+				now := time.Now()
+				if k.LastUsedAt == nil || k.LastUsedAt.Before(now.Add(-10*time.Minute)) {
+					apiKeyID := k.ID
+					ts := now
+					safe.Go(func() {
+						config.DB.Model(&model.APIKey{}).Where("id = ?", apiKeyID).Update("last_used_at", &ts)
+					})
 				}
-			}
-			config.SetCachedAPIAuth(tokenString, config.CachedAPIAuth{
-				UserID:   user.ID,
-				Role:     user.Role,
-				APIKeyID: k.ID,
-			}, cacheTTL)
 
-			c.Set("userID", user.ID)
-			c.Set("role", user.Role)
-			c.Set("apiKeyID", k.ID)
-			c.Next()
-			return
+				config.SetCachedAPIAuth(tokenString, config.CachedAPIAuth{
+					UserID: user.ID, Role: user.Role, APIKeyID: k.ID,
+				}, 2*time.Minute)
+
+				c.Set("userID", user.ID)
+				c.Set("role", user.Role)
+				c.Set("apiKeyID", k.ID)
+				c.Next()
+				return
+			}
 		}
 
 		helper.SendError(c, http.StatusUnauthorized, "Invalid Authorization token", "ERR_AUTH_INVALID")

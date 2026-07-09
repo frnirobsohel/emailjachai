@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Upload, RefreshCcw, MoreHorizontal, Eye, Download, Trash2 } from "lucide-react"
@@ -30,7 +30,7 @@ export interface Job {
 }
 
 import { useJobsStore } from "@/stores/jobs-store"
-import { useJobsWebSocket } from "@/hooks/useJobsWebSocket"
+import { useJobsWebSocket } from "@/hooks/use-jobs-web-socket"
 
 /**
  * JobsClient Component
@@ -40,10 +40,13 @@ import { useJobsWebSocket } from "@/hooks/useJobsWebSocket"
  */
 export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], initialTotal: number }) {
     const store = useJobsStore()
-    const { jobs, total } = store
+    // Fall back to server-side initialJobs during hydration render to prevent flickering
+    const jobs = store.jobs.length > 0 ? store.jobs : initialJobs;
+    const total = store.jobs.length > 0 ? store.total : initialTotal;
 
     const [isLoading, setIsLoading] = useState(false)
     const [isDeleting, setIsDeleting] = useState<string | null>(null)
+    const [isRetrying, setIsRetrying] = useState<string | null>(null)
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
     const [offset, setOffset] = useState(0)
     const limit = 20
@@ -51,17 +54,10 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
     // Connect to WebSocket to receive real-time job_update events
     useJobsWebSocket()
 
-    // Initialize store on mount with server-fetched data ONLY if empty, otherwise fetch fresh
-    useEffect(() => {
-        if (store.jobs.length === 0) {
-            store.setJobs(initialJobs, initialTotal)
-        } else {
-            fetchJobs()
+    const fetchJobs = async (showSkeleton = false) => {
+        if (showSkeleton || store.jobs.length === 0) {
+            setIsLoading(true);
         }
-    }, [initialJobs, initialTotal])
-
-    const fetchJobs = async () => {
-        setIsLoading(true);
         try {
             const data = await ApiClient.get(`/jobs/list?limit=${limit}&offset=${offset}&type=bulk`);
             if (data.status === 'success') {
@@ -82,7 +78,7 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
             const data = await ApiClient.post('/jobs/delete', { job_id: jobId });
             if (data.status === 'success') {
                 toast.success("Job deleted successfully", { id: toastId });
-                fetchJobs(); // Refetch to correct pagination
+                fetchJobs(false); // Refetch in background
                 setConfirmDelete(null);
             } else {
                 toast.error(data.message || 'Failed to delete job', { id: toastId });
@@ -95,11 +91,40 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
         }
     }
 
-    useEffect(() => {
-        // Fetch when navigating pages (offset > 0)
-        if (offset > 0) {
-            fetchJobs();
+    const handleRetryJob = async (jobId: string) => {
+        setIsRetrying(jobId);
+        const toastId = toast.loading("Queuing retry for job...");
+        try {
+            const data = await ApiClient.post('/jobs/retry', { job_id: jobId });
+            if (data.status === 'success') {
+                toast.success("Job retry queued successfully", { id: toastId });
+                fetchJobs(false); // Refetch in background
+            } else {
+                toast.error(data.message || 'Failed to retry job', { id: toastId });
+            }
+        } catch (error: any) {
+            logger.error("Failed to retry job technical error:", error);
+            toast.error(error.message || 'An unexpected error occurred while retrying the job.', { id: toastId });
+        } finally {
+            setIsRetrying(null);
         }
+    }
+
+    const isFirstMount = useRef(true);
+
+    // Sync initial server-fetched jobs to the store on mount
+    useEffect(() => {
+        if (initialJobs) {
+            store.setJobs(initialJobs, initialTotal);
+        }
+    }, [initialJobs, initialTotal]);
+
+    useEffect(() => {
+        if (isFirstMount.current) {
+            isFirstMount.current = false;
+            return; // Skip duplicate fetch on initial mount
+        }
+        fetchJobs(true);
     }, [offset]);
 
     const columns = [
@@ -164,6 +189,11 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
                                 <Download className="mr-2 h-4 w-4 text-slate-500" /> Download
                             </a>
                         </DropdownMenuItem>
+                        {job.status === "failed" && (
+                            <DropdownMenuItem onClick={() => handleRetryJob(job.job_id)} disabled={isRetrying === job.job_id}>
+                                <RefreshCcw className="mr-2 h-4 w-4 text-slate-500" /> Retry Job
+                            </DropdownMenuItem>
+                        )}
                         {confirmDelete === job.job_id ? (
                             <DropdownMenuItem onClick={() => handleDeleteJob(job.job_id)} className="text-red-600 bg-red-50 focus:bg-red-100 font-bold">
                                 <Trash2 className="mr-2 h-4 w-4 animate-bounce" /> Confirm Delete
@@ -190,7 +220,7 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
                 <div className="flex items-center space-x-4">
                     <CreditBadge />
                     <div className="flex items-center space-x-2">
-                        <Button variant="outline" size="sm" onClick={fetchJobs} className="border-indigo-100">
+                        <Button variant="outline" size="sm" onClick={() => fetchJobs(true)} className="border-indigo-100">
                             <RefreshCcw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
                         </Button>
                         <Button className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white shadow-sm" asChild>

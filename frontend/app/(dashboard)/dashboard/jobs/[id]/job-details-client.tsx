@@ -4,10 +4,11 @@ import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowLeft, Download, Trash2, Loader2 } from "lucide-react"
+import { ArrowLeft, Download, Trash2, Loader2, RefreshCcw } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
 import { useJobsStore } from "@/stores/jobs-store"
-import { useJobsWebSocket } from "@/hooks/useJobsWebSocket"
+import { useJobsWebSocket } from "@/hooks/use-jobs-web-socket"
+import { toast } from "react-hot-toast"
 
 export function JobDetailsClient({ initialJob }: { initialJob: any }) {
     const params = useParams()
@@ -19,6 +20,26 @@ export function JobDetailsClient({ initialJob }: { initialJob: any }) {
 
     const [isLoading, setIsLoading] = useState(false)
     const [isDeleting, setIsDeleting] = useState(false)
+    const [isRetrying, setIsRetrying] = useState(false)
+
+    const handleRetryJob = async () => {
+        setIsRetrying(true);
+        const toastId = toast.loading("Queuing retry for job...");
+        try {
+            const data = await ApiClient.post('/jobs/retry', { job_id: jobId });
+            if (data.status === 'success') {
+                toast.success("Job retry queued successfully", { id: toastId });
+                fetchJobDetails(); // Refetch job details to show new status
+            } else {
+                toast.error(data.message || 'Failed to retry job', { id: toastId });
+            }
+        } catch (error: any) {
+            console.error("Failed to retry job:", error);
+            toast.error(error.message || 'An unexpected error occurred while retrying the job.', { id: toastId });
+        } finally {
+            setIsRetrying(false);
+        }
+    }
 
     // Connect to WebSocket to receive real-time job_update events
     useJobsWebSocket()
@@ -146,6 +167,13 @@ export function JobDetailsClient({ initialJob }: { initialJob: any }) {
                             Download Results
                         </Button>
                     </a>
+
+                    {job.status === "failed" && (
+                        <Button onClick={handleRetryJob} disabled={isRetrying || isDeleting} className="bg-amber-600 hover:bg-amber-700 text-white shadow-sm">
+                            {isRetrying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
+                            Retry Job
+                        </Button>
+                    )}
 
                     <Button variant="destructive" onClick={handleDeleteJob} disabled={isDeleting}>
                         {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}

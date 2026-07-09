@@ -5,11 +5,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/service"
-	"ejp-backend/pkg/config"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,124 +26,6 @@ func NewUserHandler(userService service.UserService, jobService service.JobServi
 		paymentService:  paymentService,
 		resellerService: resellerService,
 	}
-}
-
-func (h *UserHandler) DashboardStats(c *gin.Context) {
-	userIDVal, _ := c.Get("userID")
-	userID := userIDVal.(uint)
-
-	if cached, ok := config.GetCachedStats(userID); ok {
-		helper.SendSuccess(c, "Dashboard stats retrieved (cached)", cached)
-		return
-	}
-
-	// Fetch user for credits
-	user, _ := h.userService.GetByID(userID)
-	credits := "0"
-	if user != nil {
-		credits = helper.FormatNumber(int64(user.Credits))
-	}
-
-	// Fetch jobs for stats
-	// Fetch jobs for stats
-	jobs, _, _ := h.jobService.GetJobs(userID, "", 10000, 0)
-	totalJobs := len(jobs)
-	activeJobs := 0
-	lifetimeVerifications := 0
-	todayVerifications := 0
-	apiVerifications := 0
-
-	// Get user's legitimate API keys (not Login/Impersonation keys)
-	var validAPIKeyIDs []uint
-	config.DB.Table("api_keys").Where("user_id = ? AND name NOT IN ('Login Key', 'Impersonation Key')", userID).Pluck("id", &validAPIKeyIDs)
-	apiKeySet := make(map[uint]bool)
-	for _, id := range validAPIKeyIDs {
-		apiKeySet[id] = true
-	}
-
-	var deliverable, risky, undeliverable, catchAll, disposable, invalid int
-
-	y, m, d := time.Now().Date()
-	todayBegin := time.Date(y, m, d, 0, 0, 0, 0, time.Local)
-
-	// last 7 days calculation (including today)
-	weeklyStats := make(map[string]*struct{ Emails, Jobs int })
-	daysOrder := make([]string, 0, 7)
-	now := time.Now()
-	for i := 6; i >= 0; i-- {
-		dateKey := now.AddDate(0, 0, -i).Format("2006-01-02")
-		daysOrder = append(daysOrder, dateKey)
-		weeklyStats[dateKey] = &struct{ Emails, Jobs int }{0, 0}
-	}
-
-	for _, j := range jobs {
-		if j.Status == "processing" {
-			activeJobs++
-		}
-		lifetimeVerifications += j.TotalEmails
-
-		if j.APIKeyID != nil && apiKeySet[*j.APIKeyID] {
-			apiVerifications += j.TotalEmails
-		}
-
-		deliverable += j.Deliverable
-		risky += j.Risky
-		undeliverable += j.Undeliverable
-		catchAll += j.CatchAll
-		disposable += j.Disposable
-		invalid += j.InvalidSyntax
-
-		if j.CreatedAt.After(todayBegin) {
-			todayVerifications += j.TotalEmails
-		}
-
-		// Group by DATE string to avoid collisions across different weeks
-		dateKey := j.CreatedAt.Format("2006-01-02")
-		if stats, ok := weeklyStats[dateKey]; ok {
-			stats.Emails += j.TotalEmails
-			stats.Jobs++
-		}
-	}
-
-	weeklyActivity := make([]map[string]interface{}, 0, 7)
-	for _, dateKey := range daysOrder {
-		t, _ := time.Parse("2006-01-02", dateKey)
-		dayName := t.Format("Mon")
-		weeklyActivity = append(weeklyActivity, map[string]interface{}{
-			"name":   dayName,
-			"emails": weeklyStats[dateKey].Emails,
-			"jobs":   weeklyStats[dateKey].Jobs,
-		})
-	}
-
-	usageBreakdown := []map[string]interface{}{
-		{"name": "Valid", "value": deliverable, "color": "#22c55e"},
-		{"name": "Invalid", "value": undeliverable + invalid, "color": "#ef4444"},
-		{"name": "Unknown", "value": risky, "color": "#f59e0b"},
-		{"name": "Catch-All", "value": catchAll, "color": "#cbd5e1"},
-		{"name": "Disposable", "value": disposable, "color": "#3b82f6"},
-	}
-
-
-
-	// Fetch transaction summary
-	totalPurchased, totalRefunds, _ := h.paymentService.GetTransactionSummary(userID)
-
-	statsData := gin.H{
-		"credits_remaining":      credits,
-		"total_purchased":        helper.FormatNumber(totalPurchased),
-		"total_refunds":          helper.FormatNumber(totalRefunds),
-		"today_verifications":    helper.FormatNumber(int64(todayVerifications)),
-		"lifetime_verifications": helper.FormatNumber(int64(lifetimeVerifications)),
-		"api_verifications":      helper.FormatNumber(int64(apiVerifications)),
-		"total_jobs":             totalJobs,
-		"active_jobs":            activeJobs,
-		"weekly_activity":        weeklyActivity,
-		"usage_breakdown":        usageBreakdown,
-	}
-
-	config.SetCachedStats(userID, statsData, 1*time.Minute)
-	helper.SendSuccess(c, "Dashboard stats retrieved", statsData)
 }
 
 func (h *UserHandler) DashboardHistory(c *gin.Context) {
@@ -192,8 +72,8 @@ func (h *UserHandler) DashboardHistory(c *gin.Context) {
 			"id":          txnID,
 			"date":        tx.CreatedAt.Format("2006-01-02 15:04:05"),
 			"amount":      fmt.Sprintf("%s%d Credits", amountPrefix, tx.CreditsAdded),
-			"type":        strings.Title(strings.ReplaceAll(tx.Type, "_", " ")),
-			"status":      strings.Title(tx.Status),
+			"type":        toTitleCase(strings.ReplaceAll(tx.Type, "_", " ")),
+			"status":      toTitleCase(tx.Status),
 			"cost":        fmt.Sprintf("$%.2f", tx.Amount),
 			"package":     tx.Package,
 			"description": tx.Description,
@@ -263,4 +143,19 @@ func (h *UserHandler) TransferCredits(c *gin.Context) {
 	}
 
 	helper.SendSuccess(c, fmt.Sprintf("Successfully transferred %d credits to %s", input.Amount, input.Email), nil)
+}
+
+// toTitleCase converts "transfer_out" → "Transfer Out" without using
+// the deprecated strings.Title function.
+func toTitleCase(s string) string {
+	if s == "" {
+		return ""
+	}
+	words := strings.Fields(s)
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + strings.ToLower(w[1:])
+		}
+	}
+	return strings.Join(words, " ")
 }

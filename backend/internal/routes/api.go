@@ -48,7 +48,7 @@ func SetupRoutes(router *gin.Engine) {
 	workerService := service.NewWorkerService(workerRepo, jobRepo, serverRepo, settingsRepo)
 	adminService := service.NewAdminService(adminRepo, userRepo, jobRepo, logRepo, txRepo, emailService)
 	systemService := service.NewSystemService(systemRepo)
-	resellerService := service.NewResellerService(userRepo, txRepo)
+	resellerService := service.NewResellerService(userRepo, txRepo, settingsRepo)
 
 	// Initialize Handlers
 	authHandler := handler.NewAuthHandler(authService, userService)
@@ -68,18 +68,17 @@ func SetupRoutes(router *gin.Engine) {
 
 	// Global API v1 Group
 	v1 := router.Group("/api/v1")
-	v1.Use(middleware.RateLimiter())
 	{
 		// ==========================================
 		// 1. PUBLIC / GENERAL ROUTES
 		// ==========================================
-		v1.GET("/", systemHandler.Ping)
-		v1.GET("/health", systemHandler.HealthCheck)
-		v1.GET("/ping", systemHandler.Ping)
-		v1.GET("/settings/public", adminHandler.GetPublicSettings)
-		v1.GET("/packages/list", adminHandler.GetActivePackages)
+		v1.GET("/", middleware.RateLimiter(), systemHandler.Ping)
+		v1.GET("/health", middleware.RateLimiter(), systemHandler.HealthCheck)
+		v1.GET("/ping", middleware.RateLimiter(), systemHandler.Ping)
+		v1.GET("/settings/public", middleware.RateLimiter(), adminHandler.GetPublicSettings)
+		v1.GET("/packages/list", middleware.RateLimiter(), adminHandler.GetActivePackages)
 		// Public email verify (no auth, no credits, strict IP rate limit)
-		v1.POST("/jobs/verify-public", middleware.PublicRateLimiter(), publicVerifyHandler.VerifyPublic)
+		v1.POST("/jobs/verify-public", middleware.PublicRateLimiter(), middleware.MaintenanceMiddleware(), publicVerifyHandler.VerifyPublic)
 		v1.GET("/jobs/verify-public/status", publicVerifyHandler.GetPublicStatus)
 		// WebSocket Route
 		v1.GET("/ws", middleware.WSAuthMiddleware(), systemHandler.ServeWS)
@@ -139,14 +138,17 @@ func SetupRoutes(router *gin.Engine) {
 		// ==========================================
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware())
+		protected.Use(middleware.RateLimiter())
 		{
 			// Jobs & Verification
-			protected.POST("/jobs/submit", jobHandler.SubmitBulkJob)        // Primary bulk submit endpoint
-			protected.POST("/jobs/verify-single", jobHandler.SubmitSingleVerify)
+			protected.POST("/jobs/submit", middleware.MaintenanceMiddleware(), jobHandler.SubmitBulkJob)        // Primary bulk submit endpoint
+			protected.POST("/jobs/submit-file", middleware.MaintenanceMiddleware(), jobHandler.SubmitBulkJob)   // Support frontend & loadtest file uploads
+			protected.POST("/jobs/verify-single", middleware.MaintenanceMiddleware(), jobHandler.SubmitSingleVerify)
 			protected.GET("/jobs/download", jobHandler.DownloadJobResults)
 			protected.GET("/jobs/list", jobHandler.GetJobs)
 			protected.GET("/jobs/status", jobHandler.GetJobStatus)
 			protected.POST("/jobs/delete", jobHandler.DeleteJob)
+			protected.POST("/jobs/retry", jobHandler.RetryJob)
 
 			// User API Keys
 			userKeys := protected.Group("/user/keys")
@@ -175,8 +177,13 @@ func SetupRoutes(router *gin.Engine) {
 				payments.GET("/verify", paymentHandler.VerifyPayment)
 			}
 
+			// Compatibility endpoints for direct frontend gateway calls
+			protected.POST("/payment/stripe/create", paymentHandler.CreateSession)
+			protected.POST("/payment/paypal/create", paymentHandler.CreateSession)
+			protected.POST("/payment/cryptomus/create", paymentHandler.CreateSession)
+
 			// Reseller
-			protected.POST("/reseller/transfer", userHandler.TransferCredits)
+			protected.POST("/reseller/transfer", middleware.MaintenanceMiddleware(), userHandler.TransferCredits)
 		}
 
 		// ==========================================
@@ -200,6 +207,7 @@ func SetupRoutes(router *gin.Engine) {
 			admin.POST("/packages/create", adminHandler.CreatePackage)
 			admin.POST("/packages/update", adminHandler.UpdatePackage)
 			admin.POST("/packages/delete", adminHandler.DeletePackage)
+			admin.POST("/packages/toggle-public", adminHandler.TogglePackagePublic)
 
 			admin.GET("/jobs/stats", adminHandler.AdminJobStats)
 			admin.POST("/jobs/cleanup", adminHandler.AdminJobCleanup)
@@ -239,6 +247,7 @@ func SetupRoutes(router *gin.Engine) {
 			admin.GET("/system/backups", adminHandler.ListBackups)
 			admin.POST("/system/backups", adminHandler.CreateBackup)
 			admin.DELETE("/system/backups", adminHandler.DeleteBackup)
+			admin.POST("/system/backups/restore", adminHandler.RestoreBackup)
 
 			// SMTP Settings
 			admin.GET("/smtp/settings", adminHandler.GetSmtpSettings)
@@ -253,7 +262,6 @@ func SetupRoutes(router *gin.Engine) {
 			admin.GET("/security/blocklist", adminHandler.GetSecurityBlocklist)
 			admin.POST("/security/unblock", adminHandler.SecurityUnblock)
 			admin.POST("/security/settings", adminHandler.UpdateSecuritySettings)
-			admin.POST("/packages/toggle-public", adminHandler.TogglePackagePublic)
 		}
 	}
 

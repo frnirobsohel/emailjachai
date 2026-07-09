@@ -77,9 +77,6 @@ export function RegisterForm() {
             <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? "Creating account..." : "Create an account"}
             </Button>
-            <Button variant="outline" type="button" className="w-full">
-                Sign up with GitHub
-            </Button>
         </form>
     )
 }

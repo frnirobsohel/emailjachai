@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -144,6 +144,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
 
     const [isAddModalOpen, setIsAddModalOpen] = useState(false)
     const [editUserTarget, setEditUserTarget] = useState<User | null>(null)
+    const isFirstMount = useRef(true)
 
     const addForm = useForm<AddUserValues>({
         resolver: zodResolver(addUserSchema),
@@ -227,6 +228,10 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
     }, [initialData, setUsers]);
 
     useEffect(() => {
+        if (isFirstMount.current) {
+            isFirstMount.current = false;
+            return;
+        }
         if (hasInitialized || initialData.length === 0) {
             fetchUsers();
         }

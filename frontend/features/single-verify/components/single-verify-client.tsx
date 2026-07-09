@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { SingleVerifyForm, VerificationResult } from "./form"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -8,7 +8,6 @@ import { Progress } from "@/components/ui/progress"
 import { Shield, Zap, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp, Copy, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CreditBadge } from "@/features/dashboard/components/credit-badge"
-import { ApiClient } from "@/lib/api-client"
 import { logger } from "@/lib/logger"
 
 /**
@@ -20,7 +19,6 @@ import { logger } from "@/lib/logger"
 export function SingleVerifyClient() {
     const [result, setResult] = useState<VerificationResult | null>(null)
     const [isJsonOpen, setIsJsonOpen] = useState(false)
-    const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
     /**
      * Real-time WebSocket Listener & Fallback Timeout

@@ -139,7 +139,11 @@ func VerifyEmail(email string) VerifyResult {
 	if isSpamTrap || isBlacklisted {
 		result.Status = "invalid"
 		result.Score = 0
-		result.Reason = "policy"
+		if isSpamTrap {
+			result.Reason = "spamtrap"
+		} else {
+			result.Reason = "blacklist"
+		}
 		return result
 	}
 
@@ -205,9 +209,15 @@ func VerifyEmail(email string) VerifyResult {
 				if res.CatchAll {
 					result.Status = "catch_all"
 					result.CatchAll = true
+					// Fix I-09: Catch-all score consistent with backend verifier (55)
+					result.Score = 55
 					return result
 				}
+				// Fix I-09: Valid emails must get Score=100, not the default 35
+				// আগে: defer শুধু ProcessingTime সেট করত, Score এর মান 35-এ থেকে যেত।
+				// Dashboard-এ bulk job-এর valid email সব স্কোর 35 দেখাত যেটা স্পষ্ট ভুল।
 				result.Status = "valid"
+				result.Score = 100
 				result.Deliverable = true
 				return result
 			}
@@ -219,17 +229,19 @@ func VerifyEmail(email string) VerifyResult {
 			}
 			if res.HardFail {
 				result.Status = "invalid"
+				result.Score = 0
 				result.Reason = "rejected"
 				return result
 			}
 			if res.TempFail {
-				result.Status = "unknown"
+				// Record temp fail, but let the loop try other MX records
 				result.Reason = "temp_fail"
-				return result
 			}
 		}
 	}
 
+	result.Status = "unknown"
+	result.Reason = "smtp"
 	return result
 }
 
@@ -257,8 +269,11 @@ func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
 	res.Connected = true
 	client, err := smtp.NewClient(conn, mxHost)
 	if err != nil { return res }
-	defer client.Close()
-	defer client.Quit()
+	defer func() {
+		_ = conn.SetDeadline(time.Now().Add(1 * time.Second))
+		_ = client.Quit()
+		_ = client.Close()
+	}()
 
 	if err = client.Hello(hostname); err != nil { return res }
 	// Legacy Parity: Use Null Sender (<>) for verification probes

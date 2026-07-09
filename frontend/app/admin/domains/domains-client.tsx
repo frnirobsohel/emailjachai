@@ -90,6 +90,18 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
     }, [page, search, typeFilter])
 
     useEffect(() => {
+        if (initialData) {
+            setDomains(initialData.domains || [])
+            setStats(initialData.stats || null)
+            setTotal(initialData.total || 0)
+        }
+    }, [initialData])
+
+    useEffect(() => {
+        if (isInitialMount.current) {
+            isInitialMount.current = false
+            return
+        }
         const timer = setTimeout(() => {
             fetchDomains()
         }, 300)

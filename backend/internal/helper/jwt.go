@@ -3,17 +3,26 @@ package helper
 import (
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
+var (
+	jwtSecretOnce sync.Once
+	jwtSecret     []byte
+)
+
 func getSecretKey() []byte {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		log.Fatalf("FATAL: JWT_SECRET environment variable is missing!")
-	}
-	return []byte(secret)
+	jwtSecretOnce.Do(func() {
+		secret := os.Getenv("JWT_SECRET")
+		if secret == "" {
+			log.Fatalf("FATAL: JWT_SECRET environment variable is missing!")
+		}
+		jwtSecret = []byte(secret)
+	})
+	return jwtSecret
 }
 
 // GenerateToken creates a new JWT token for a user.

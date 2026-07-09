@@ -134,7 +134,7 @@ func (h *AdminHandler) SaveLicenseKey(c *gin.Context) {
 	})
 }
 
-// UploadUpdate handles file upload and updates system version info based on manifest.json
+	// UploadUpdate handles file upload and updates system version info based on manifest.json
 func (h *AdminHandler) UploadUpdate(c *gin.Context) {
 	adminID, _ := c.Get("userID")
 	file, header, err := c.Request.FormFile("file")
@@ -143,6 +143,13 @@ func (h *AdminHandler) UploadUpdate(c *gin.Context) {
 		return
 	}
 	defer file.Close()
+
+	// Enforce size limit on update packages
+	const maxUpdateSize = 50 * 1024 * 1024 // 50MB
+	if header.Size > maxUpdateSize {
+		helper.SendError(c, http.StatusBadRequest, "Update package size exceeds maximum limit of 50MB", "")
+		return
+	}
 
 	if !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
 		helper.SendError(c, http.StatusBadRequest, "Invalid file format. Only .zip updates allowed", "")
@@ -172,7 +179,8 @@ func (h *AdminHandler) UploadUpdate(c *gin.Context) {
 			}
 			defer rc.Close()
 
-			manifestBytes, err := io.ReadAll(rc)
+			// Safety Guard: Limit manifest.json reading to 1MB to prevent zip bomb / memory exhaustion
+			manifestBytes, err := io.ReadAll(io.LimitReader(rc, 1*1024*1024))
 			if err != nil {
 				helper.SendError(c, http.StatusInternalServerError, "Failed to read manifest.json in package", err.Error())
 				return
@@ -322,6 +330,65 @@ func (h *AdminHandler) DeleteBackup(c *gin.Context) {
 	helper.SendSuccess(c, "Backup deleted", nil)
 }
 
+// RestoreBackup restores a database backup SQL file
+func (h *AdminHandler) RestoreBackup(c *gin.Context) {
+	adminID, _ := c.Get("userID")
+	var input struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		return
+	}
+
+	// Clean and extract base name to prevent directory traversal attacks
+	cleanFileName := filepath.Base(filepath.Clean(input.Name))
+	if cleanFileName == "." || cleanFileName == ".." || strings.Contains(input.Name, "..") {
+		helper.SendError(c, http.StatusBadRequest, "Invalid backup file name path", "")
+		return
+	}
+
+	if !strings.HasSuffix(cleanFileName, ".sql") {
+		helper.SendError(c, http.StatusBadRequest, "Only SQL database backups can be restored online", "")
+		return
+	}
+
+	path := filepath.Join(BackupDir, cleanFileName)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		helper.SendError(c, http.StatusNotFound, "Backup file not found", "")
+		return
+	}
+
+	err := restoreDatabase(path)
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Database restore failed", err.Error())
+		return
+	}
+
+	logAction(adminID.(uint), "WARN", "Admin", fmt.Sprintf("Restored database from backup: %s", cleanFileName))
+	helper.SendSuccess(c, "Database restored successfully.", nil)
+}
+
+// Helper: Restore database from SQL using psql.exe
+func restoreDatabase(targetPath string) error {
+	psqlPath := os.Getenv("PSQL_PATH")
+	if psqlPath == "" {
+		psqlPath = `C:\Program Files\PostgreSQL\18\bin\psql.exe`
+	}
+	
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		return fmt.Errorf("DATABASE_URL environment variable is not set")
+	}
+
+	cmd := exec.Command(psqlPath, "--dbname="+dbURL, "--file="+targetPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("psql failed: %v, output: %s", err, string(output))
+	}
+	return nil
+}
+
 // Helper: Format file size
 func formatSize(size int64) string {
 	const unit = 1024
@@ -376,10 +443,14 @@ func zipDirectory(source, target string) error {
 			return err
 		}
 
-		// Skip the backups directory itself and .git, node_modules etc.
-		// Explicitly skip .env and configuration secret files to prevent credentials disclosure
 		baseName := filepath.Base(path)
-		if strings.Contains(path, "backups") || strings.Contains(path, ".git") || strings.Contains(path, "node_modules") || strings.Contains(path, "tmp") || baseName == ".env" || strings.HasSuffix(baseName, ".env.production") {
+		if info.IsDir() {
+			if baseName == "backups" || baseName == ".git" || baseName == "node_modules" || baseName == "tmp" {
+				return filepath.SkipDir
+			}
+		}
+
+		if baseName == ".env" || strings.HasSuffix(baseName, ".env.production") {
 			return nil
 		}
 

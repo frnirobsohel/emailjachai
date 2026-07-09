@@ -21,7 +21,7 @@ import * as z from "zod"
 import { toast } from "react-hot-toast"
 import { ApiClient } from "@/lib/api-client"
 import { useServerStore } from "@/stores/server-store"
-import { useServerWebSocket } from "@/hooks/useServerWebSocket"
+import { useServerWebSocket } from "@/hooks/use-server-web-socket"
 
 export interface ServerNode {
     id: number
@@ -95,6 +95,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
         defaultValues: { password: "" }
     })
 
+    const isFirstMount = useRef(true)
+
     useEffect(() => {
         if (initialData && initialData.length > 0) {
             setServers(initialData)
@@ -102,6 +104,10 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
     }, [initialData])
 
     useEffect(() => {
+        if (isFirstMount.current) {
+            isFirstMount.current = false;
+            return;
+        }
         fetchServers();
     }, []);
 

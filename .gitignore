@@ -72,6 +72,7 @@ frontend/coverage/
 # ─── IDE & OS ────────────────────────────────────────────────
 .vscode/
 .idea/
+.agents/
 *.swp
 *.swo
 *~

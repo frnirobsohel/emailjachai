@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
+	"ejp-backend/pkg/safe"
 
 	"github.com/gin-gonic/gin"
 )
@@ -47,22 +49,30 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 	wg.Add(5)
 
 	// Goroutine 1: User Credits & Transaction Summary
-	go func() {
+	safe.Go(func() {
 		defer wg.Done()
-		config.DB.Select("credits").First(&user, uID)
-		config.DB.Model(&model.Transaction{}).
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		db := config.DB.WithContext(ctx)
+
+		db.Select("credits").First(&user, uID)
+		db.Model(&model.Transaction{}).
 			Select(`
 				SUM(CASE WHEN type = 'purchase' AND status = 'completed' THEN credits_added ELSE 0 END) as total_purchased,
 				ABS(SUM(CASE WHEN type = 'refund' AND status = 'completed' THEN credits_added ELSE 0 END)) as total_refunds
 			`).
 			Where("user_id = ?", uID).
 			Scan(&transSummary)
-	}()
+	})
 
 	// Goroutine 2: Job Summary & Today's Verifications
-	go func() {
+	safe.Go(func() {
 		defer wg.Done()
-		config.DB.Model(&model.Job{}).
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		db := config.DB.WithContext(ctx)
+
+		db.Model(&model.Job{}).
 			Select(`
 				SUM(processed_count) as total_verifications,
 				COUNT(CASE WHEN type = 'bulk' THEN 1 END) as total_jobs,
@@ -78,24 +88,32 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 			`).
 			Where("user_id = ?", uID).
 			Scan(&jobSummary)
-	}()
+	})
 
 	// Goroutine 3: Deleted Job Summary & Today's Deleted Verifications
-	go func() {
+	safe.Go(func() {
 		defer wg.Done()
-		config.DB.Where("user_id = ?", uID).First(&deletedSummary)
-		config.DB.Raw(`SELECT COALESCE(SUM(emails), 0) FROM deleted_job_daily_stats WHERE user_id = ? AND activity_date = CURRENT_DATE`, uID).Scan(&todayDeleted)
-	}()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		db := config.DB.WithContext(ctx)
+
+		db.Where("user_id = ?", uID).First(&deletedSummary)
+		db.Raw(`SELECT COALESCE(SUM(emails), 0) FROM deleted_job_daily_stats WHERE user_id = ? AND activity_date = CURRENT_DATE`, uID).Scan(&todayDeleted)
+	})
 
 	// Goroutine 4: Weekly Activity & DB Time
-	go func() {
+	safe.Go(func() {
 		defer wg.Done()
-		config.DB.Raw("SELECT CURRENT_DATE").Scan(&dbToday)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		db := config.DB.WithContext(ctx)
+
+		db.Raw("SELECT CURRENT_DATE").Scan(&dbToday)
 		if dbToday.IsZero() {
 			dbToday = time.Now()
 		}
 
-		config.DB.Raw(`
+		db.Raw(`
 			SELECT
 				TO_CHAR(created_at, 'YYYY-MM-DD') as day,
 				COALESCE(SUM(processed_count), 0) as emails,
@@ -105,7 +123,7 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 			GROUP BY TO_CHAR(created_at, 'YYYY-MM-DD')
 		`, uID).Scan(&jobsDaily)
 
-		config.DB.Raw(`
+		db.Raw(`
 			SELECT
 				TO_CHAR(activity_date, 'YYYY-MM-DD') as day,
 				COALESCE(SUM(emails), 0) as emails,
@@ -114,21 +132,20 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 			WHERE user_id = ? AND activity_date >= CURRENT_DATE - INTERVAL '6 days'
 			GROUP BY activity_date
 		`, uID).Scan(&deletedDaily)
-	}()
+	})
 
-	// Goroutine 5: API Verifications count
-	go func() {
+	// Goroutine 5: API Verifications count (Optimized single subquery instead of N+1 pluck + IN)
+	safe.Go(func() {
 		defer wg.Done()
-		var validAPIKeyIDs []uint
-		config.DB.Table("api_keys").Where("user_id = ? AND name NOT IN ('Login Key', 'Impersonation Key')", uID).Pluck("id", &validAPIKeyIDs)
-		
-		if len(validAPIKeyIDs) > 0 {
-			config.DB.Model(&model.Job{}).
-				Select("COALESCE(SUM(processed_count), 0)").
-				Where("user_id = ? AND api_key_id IN ?", uID, validAPIKeyIDs).
-				Scan(&apiVerifications)
-		}
-	}()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		db := config.DB.WithContext(ctx)
+
+		db.Model(&model.Job{}).
+			Select("COALESCE(SUM(processed_count), 0)").
+			Where("user_id = ? AND api_key_id IN (SELECT id FROM api_keys WHERE user_id = ? AND name NOT IN ('Login Key', 'Impersonation Key'))", uID, uID).
+			Scan(&apiVerifications)
+	})
 
 	// Wait for all database queries to complete in parallel
 	wg.Wait()
