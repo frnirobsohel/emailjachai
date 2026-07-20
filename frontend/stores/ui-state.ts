@@ -18,13 +18,24 @@ export const useUIStore = create<UIState>()(
             isSidebarCollapsed: false,
             activeModal: null,
             toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
-            toggleSidebarCollapse: () => set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
+            toggleSidebarCollapse: () => set((state) => {
+                const nextState = !state.isSidebarCollapsed;
+                if (typeof document !== 'undefined') {
+                    document.cookie = `sidebar_collapsed=${nextState}; path=/; max-age=31536000; SameSite=Lax`;
+                }
+                return { isSidebarCollapsed: nextState };
+            }),
             setSidebarOpen: (isOpen) => set({ isSidebarOpen: isOpen }),
             setActiveModal: (modalId) => set({ activeModal: modalId }),
         }),
         {
             name: 'ui-state-storage',
             partialize: (state) => ({ isSidebarCollapsed: state.isSidebarCollapsed }),
+            onRehydrateStorage: () => (state) => {
+                if (state && typeof document !== 'undefined') {
+                    document.cookie = `sidebar_collapsed=${state.isSidebarCollapsed}; path=/; max-age=31536000; SameSite=Lax`;
+                }
+            },
         }
     )
 );

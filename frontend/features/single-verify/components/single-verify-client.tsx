@@ -9,6 +9,7 @@ import { Shield, Zap, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp
 import { Button } from "@/components/ui/button"
 import { CreditBadge } from "@/features/dashboard/components/credit-badge"
 import { logger } from "@/lib/logger"
+import { cn } from "@/lib/utils"
 
 /**
  * SingleVerifyClient Component
@@ -129,7 +130,7 @@ export function SingleVerifyClient() {
                             Verification Results
                         </CardTitle>
                         <CardDescription>
-                            {result ? (['completed', 'valid', 'invalid', 'unknown', 'catch_all', 'disposable'].includes(result.status.toLowerCase()) ? 'Verification completed' : 'Verification in progress...') : 'Ready to verify'}
+                            {result ? (!['pending', 'processing', 'na'].includes(result.status.toLowerCase()) ? 'Verification completed' : 'Verification in progress...') : 'Ready to verify'}
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
@@ -137,8 +138,20 @@ export function SingleVerifyClient() {
                             <span className="text-sm font-medium">Status:</span>
                             <div className="flex items-center gap-2">
                                 {getStatusIcon(displayResult.status)}
-                                <Badge variant={getStatusBadgeClass(displayResult.status) as "default" | "destructive" | "secondary"} className="capitalize">
-                                    {displayResult.status}
+                                <Badge
+                                    variant={getStatusBadgeClass(displayResult.status) as any}
+                                    className={cn(
+                                        "capitalize font-bold px-2.5 py-0.5 border shadow-sm",
+                                        displayResult.status.toLowerCase() === 'valid' || displayResult.status.toLowerCase() === 'deliverable'
+                                            ? "bg-green-50 text-green-700 border-green-200 hover:bg-green-50"
+                                            : displayResult.status.toLowerCase() === 'invalid' || displayResult.status.toLowerCase() === 'undeliverable'
+                                            ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-50"
+                                            : !result
+                                            ? "bg-slate-50 text-slate-400 border-slate-100 hover:bg-slate-50"
+                                            : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-50"
+                                    )}
+                                >
+                                    {result ? displayResult.status : "Awaiting Verification"}
                                 </Badge>
                             </div>
                         </div>
@@ -146,14 +159,35 @@ export function SingleVerifyClient() {
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
                                 <span className="text-sm font-medium">Deliverability Score:</span>
-                                <span className="text-lg font-bold">{displayResult.score}/100</span>
+                                <span className={cn(
+                                    "text-lg font-bold",
+                                    !result ? "text-slate-400" :
+                                    displayResult.score >= 80 ? "text-green-600" :
+                                    displayResult.score >= 50 ? "text-amber-600" :
+                                    "text-red-600"
+                                )}>
+                                    {result ? `${displayResult.score}/100` : "--/100"}
+                                </span>
                             </div>
-                            <Progress value={displayResult.score} className="h-2 bg-slate-100" />
+                            <div className="relative h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                <div
+                                    className={cn(
+                                        "h-full transition-all rounded-full",
+                                        !result ? "bg-slate-200" :
+                                        displayResult.score >= 80 ? "bg-green-500" :
+                                        displayResult.score >= 50 ? "bg-amber-500" :
+                                        "bg-red-500"
+                                    )}
+                                    style={{ width: `${displayResult.score}%` }}
+                                />
+                            </div>
                         </div>
 
                         <div className="flex items-center justify-between pt-2 border-t border-slate-50">
                             <span className="text-sm text-slate-500">Processing time:</span>
-                            <span className="text-sm font-medium">{displayResult.processingTime}s</span>
+                            <span className="text-sm font-medium">
+                                {result ? `${displayResult.processingTime}s` : "--"}
+                            </span>
                         </div>
                     </CardContent>
                 </Card>
@@ -173,7 +207,7 @@ export function SingleVerifyClient() {
                 <CardContent>
                     <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-4">
                         {Object.entries(displayResult.detailedChecks || defaultDetailedChecks).map(([key, value]) => {
-                            const isFinished = result && ['completed', 'valid', 'invalid', 'unknown', 'catch_all', 'disposable'].includes(result.status.toLowerCase());
+                            const isFinished = result && !['pending', 'processing', 'na'].includes(result.status.toLowerCase());
                             return (
                                 <div key={key} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors">
                                     <span className="text-xs font-medium capitalize text-slate-600">

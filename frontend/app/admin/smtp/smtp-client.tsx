@@ -102,6 +102,7 @@ export function SmtpClient({
     const [hasStoredPassword, setHasStoredPassword] = useState(initialHasStoredPassword)
     const [isConnectionVerified, setIsConnectionVerified] = useState(initialIsConnectionVerified)
     const isFirstMount = useRef(true)
+    const isProgrammaticUpdate = useRef(false)
 
     const smtpForm = useForm<z.infer<typeof smtpSettingsSchema>>({
         resolver: zodResolver(smtpSettingsSchema),
@@ -133,6 +134,7 @@ export function SmtpClient({
             ]);
             if (smtpData.status === 'success' && smtpData.data) {
                 const smtpResponse = smtpData.data as SmtpSettings;
+                isProgrammaticUpdate.current = true;
                 smtpForm.reset({
                     host: smtpResponse.host || "",
                     port: smtpResponse.port || "587",
@@ -144,6 +146,7 @@ export function SmtpClient({
                 });
                 setHasStoredPassword(Boolean(smtpResponse.has_password));
                 setIsConnectionVerified(Boolean(smtpResponse.is_active));
+                setTimeout(() => { isProgrammaticUpdate.current = false; }, 100);
             }
             if (tplData.status === 'success' && tplData.data) {
                 const rows = tplData.data as ApiTemplateRow[];
@@ -186,13 +189,17 @@ export function SmtpClient({
     // Clean up forms when fields change
     useEffect(() => {
         const subscription = smtpForm.watch((value, { name }) => {
+            if (isProgrammaticUpdate.current) return;
             if (name && ['host', 'port', 'encryption', 'username', 'password'].includes(name)) {
+                if (name === 'password' && (value.password === "" || !value.password) && hasStoredPassword) {
+                    return;
+                }
                 setIsConnectionVerified(false);
                 smtpForm.setValue('is_active', false);
             }
         });
         return () => subscription.unsubscribe();
-    }, [smtpForm.watch]);
+    }, [smtpForm.watch, hasStoredPassword]);
 
     const handleSaveSettings = async (values: z.infer<typeof smtpSettingsSchema>) => {
         try {
@@ -204,8 +211,10 @@ export function SmtpClient({
             const result = await ApiClient.post('/admin/smtp/settings', payload);
 
             if (result.status === 'success') {
+                isProgrammaticUpdate.current = true;
                 setHasStoredPassword(hasStoredPassword || (payload.password?.trim() !== ""));
                 smtpForm.setValue('password', "");
+                setTimeout(() => { isProgrammaticUpdate.current = false; }, 100);
                 toast.success("SMTP settings saved successfully.");
             } else {
                 toast.error(result.message || "Failed to save settings.");
@@ -222,6 +231,7 @@ export function SmtpClient({
             const result = await ApiClient.post('/admin/smtp/test', values);
             if (result.status === 'success') {
                 setIsConnectionVerified(true);
+                smtpForm.setValue('is_active', true);
                 toast.success("Connection successful.", { id: toastId });
             } else {
                 toast.error(result.message || "Connection failed.", { id: toastId });
@@ -370,11 +380,19 @@ export function SmtpClient({
                                 Templates
                             </div>
                             <div className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
-                                <span>{templateForm.watch('is_active') !== false && isGlobalSmtpActive ? 'Active' : 'Disabled'}</span>
+                                <span>{templateForm.watch('is_active') !== false ? 'Active' : 'Disabled'}</span>
                                 <Switch
-                                    checked={Boolean(templateForm.watch('is_active') !== false && isGlobalSmtpActive)}
-                                    onCheckedChange={(checked) => templateForm.setValue('is_active', checked)}
-                                    disabled={!isGlobalSmtpActive}
+                                    checked={Boolean(templateForm.watch('is_active') !== false)}
+                                    onCheckedChange={(checked) => {
+                                        templateForm.setValue('is_active', checked);
+                                        setTemplates(prev => ({
+                                            ...prev,
+                                            [selectedTpl]: {
+                                                ...prev[selectedTpl],
+                                                is_active: checked
+                                            }
+                                        }));
+                                    }}
                                 />
                             </div>
                         </CardTitle>

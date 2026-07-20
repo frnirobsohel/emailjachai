@@ -8,6 +8,7 @@ import { QuickActions } from "@/features/dashboard/components/quick-actions"
 import { StatsCards } from "@/features/dashboard/components/stats-cards"
 import { useDashboardStore, type DashboardStats, type RecentDashboardJob } from "@/stores/dashboard-store"
 import { ApiClient } from "@/lib/api-client"
+import { CreditBadge } from "@/features/dashboard/components/credit-badge"
 
 interface DashboardClientProps {
     initialStats: DashboardStats
@@ -54,12 +55,15 @@ export function DashboardClient({ initialStats, initialRecentJobs }: DashboardCl
         <div className="flex-1 space-y-4">
             <div className="flex items-center justify-between space-y-2">
                 <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-                <div className="flex items-center gap-2">
-                    <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                    </span>
-                    <span className="text-xs text-slate-500 font-mono tracking-wider">LIVE</span>
+                <div className="flex items-center gap-4">
+                    <CreditBadge />
+                    <div className="flex items-center gap-2">
+                        <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        </span>
+                        <span className="text-xs text-slate-500 font-mono tracking-wider">LIVE</span>
+                    </div>
                 </div>
             </div>
 

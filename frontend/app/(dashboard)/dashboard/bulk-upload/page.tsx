@@ -12,15 +12,15 @@ import { CreditBadge } from "@/features/dashboard/components/credit-badge"
 export default function BulkUploadPage() {
     return (
         <div className="flex-1 space-y-6">
-            <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Bulk Email Verification</h2>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-3xl font-bold tracking-tight">Bulk Email Verification</h2>
+                    <p className="text-slate-500 mt-1 text-sm">
+                        Upload a CSV or TXT file — processing starts automatically after upload.
+                    </p>
+                </div>
                 <CreditBadge />
             </div>
-
-            <p className="text-slate-500 max-w-2xl">
-                Upload and verify multiple email addresses in bulk using CSV or TXT files.
-                Processing starts automatically after upload.
-            </p>
 
             <div className="mt-8">
                 <BulkUploadForm />

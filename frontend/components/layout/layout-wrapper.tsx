@@ -1,31 +1,54 @@
 "use client"
 
+import { useEffect } from "react"
 import { useUIStore } from "@/stores/ui-state"
 import { useHydrated } from "@/hooks/use-hydrated"
 import { cn } from "@/lib/utils"
 import { useSettings } from "@/lib/settings-context"
 import { AlertTriangle } from "lucide-react"
 
-export function LayoutWrapper({ children, sidebar }: { children: React.ReactNode, sidebar: React.ReactNode }) {
+export function LayoutWrapper({ 
+    children, 
+    sidebar,
+    defaultCollapsed = false
+}: { 
+    children: React.ReactNode
+    sidebar: React.ReactNode
+    defaultCollapsed?: boolean
+}) {
     const { isSidebarCollapsed } = useUIStore()
     const hydrated = useHydrated()
-    const isCollapsed = hydrated ? isSidebarCollapsed : false
+    const isCollapsed = hydrated ? isSidebarCollapsed : defaultCollapsed
     const settings = useSettings()
     const isMaintenance = settings?.maintenance_mode === "1"
+
+    useEffect(() => {
+        try {
+            const item = localStorage.getItem('ui-state-storage')
+            if (item) {
+                const parsed = JSON.parse(item)
+                if (parsed?.state && typeof parsed.state.isSidebarCollapsed === 'boolean') {
+                    document.cookie = `sidebar_collapsed=${parsed.state.isSidebarCollapsed}; path=/; max-age=31536000; SameSite=Lax`
+                }
+            }
+        } catch (e) {}
+    }, [isCollapsed])
 
     return (
         <div className="flex h-screen bg-slate-50 dark:bg-slate-950 overflow-hidden">
             <div 
+                suppressHydrationWarning
                 className={cn(
-                    "hidden md:flex flex-col fixed inset-y-0 z-50 transition-all duration-300 ease-in-out border-r bg-[#0F172A]",
+                    "hidden md:flex flex-col fixed inset-y-0 z-50 border-r bg-[#0F172A] transition-[width] duration-300 ease-in-out",
                     isCollapsed ? "w-16" : "w-64"
                 )}
             >
                 {sidebar}
             </div>
             <main 
+                suppressHydrationWarning
                 className={cn(
-                    "flex-1 h-full overflow-y-auto transition-all duration-300 ease-in-out",
+                    "flex-1 h-full overflow-y-auto transition-[padding-left] duration-300 ease-in-out",
                     isCollapsed ? "md:pl-16" : "md:pl-64"
                 )}
             >

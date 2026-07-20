@@ -39,7 +39,8 @@ import {
     RefreshCcw,
     Plus,
     Minus,
-    Filter
+    Filter,
+    UserX
 } from "lucide-react"
 import {
     DropdownMenu,
@@ -63,7 +64,7 @@ interface User {
     name: string
     email: string
     plan: string
-    status: "Active" | "Suspended"
+    status: "Active" | "Suspended" | "Inactive"
     role: Role
     credits: number
     joined: string
@@ -79,9 +80,11 @@ export type ApiUser = {
     created_at: string
 }
 
-const normalizeStatus = (status: string): "Active" | "Suspended" => {
+const normalizeStatus = (status: string): "Active" | "Suspended" | "Inactive" => {
     const s = (status || "").toLowerCase()
-    return s === "suspended" ? "Suspended" : "Active"
+    if (s === "suspended") return "Suspended"
+    if (s === "inactive") return "Inactive"
+    return "Active"
 }
 
 const normalizeUser = (u: ApiUser): User => ({
@@ -310,6 +313,46 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                 </div>
             </div>
 
+            {/* Summary Cards */}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <Card className="shadow-sm border-slate-200">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-medium text-slate-600">Total Users</CardTitle>
+                        <Users className="h-4 w-4 text-slate-400" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{users.length}</div>
+                    </CardContent>
+                </Card>
+                <Card className="shadow-sm border-slate-200">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-medium text-slate-600">Inactive Users</CardTitle>
+                        <UserX className="h-4 w-4 text-amber-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{users.filter(u => u.status === 'Inactive').length}</div>
+                    </CardContent>
+                </Card>
+                <Card className="shadow-sm border-slate-200">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-medium text-slate-600">Suspended</CardTitle>
+                        <Ban className="h-4 w-4 text-red-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{users.filter(u => u.status === 'Suspended').length}</div>
+                    </CardContent>
+                </Card>
+                <Card className="shadow-sm border-slate-200">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-medium text-slate-600">Paid Members</CardTitle>
+                        <CreditCard className="h-4 w-4 text-green-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{users.filter(u => u.credits > 100 || (u.role && u.role !== 'user' && u.role !== 'demo')).length}</div>
+                        <p className="text-xs text-slate-400 font-normal">Credits &gt; 100 or higher role</p>
+                    </CardContent>
+                </Card>
+            </div>
 
             {/* User Table */}
             <Card className="shadow-lg border-indigo-50 overflow-hidden ring-1 ring-slate-100">
@@ -427,7 +470,9 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                                 <Badge variant="secondary" className={
                                                     user.status === "Active"
                                                         ? "bg-green-100 text-green-700 ring-1 ring-inset ring-green-600/20 shadow-none font-medium"
-                                                        : "bg-red-100 text-red-700 ring-1 ring-inset ring-red-600/20 shadow-none font-medium"
+                                                        : user.status === "Inactive"
+                                                            ? "bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-600/20 shadow-none font-medium"
+                                                            : "bg-red-100 text-red-700 ring-1 ring-inset ring-red-600/20 shadow-none font-medium"
                                                 }>
                                                     {user.status}
                                                 </Badge>
@@ -555,7 +600,9 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                                                     >
                                                                         {user.status === "Active"
                                                                             ? <><Ban className="mr-2 h-4 w-4" /> Suspend Account</>
-                                                                            : <><CheckCheck className="mr-2 h-4 w-4" /> Reopen Account</>}
+                                                                            : user.status === "Inactive"
+                                                                                ? <><CheckCheck className="mr-2 h-4 w-4" /> Activate Account</>
+                                                                                : <><CheckCheck className="mr-2 h-4 w-4" /> Reopen Account</>}
                                                                     </DropdownMenuItem>
                                                                     <DropdownMenuItem
                                                                         className="cursor-pointer mx-1 rounded-md text-red-600 focus:text-red-600 focus:bg-red-50"

@@ -2,7 +2,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { ArrowRight, Mail, Upload, List, Activity, Zap } from "lucide-react"
+import { ArrowRight, Mail, Upload, List, Activity, Zap, Coins } from "lucide-react"
 
 export function QuickActions() {
     return (
@@ -26,6 +26,15 @@ export function QuickActions() {
                         </Link>
                     </Button>
                 </div>
+
+                <Button variant="outline" className="w-full justify-between h-10 text-xs font-medium border-slate-200 hover:bg-slate-50 hover:border-amber-200 hover:text-amber-600 hover:bg-amber-50/30 group" asChild>
+                    <Link href="/dashboard/credits">
+                        <span className="flex items-center text-slate-600 group-hover:text-amber-600 transition-colors">
+                            <Coins className="mr-2 h-3.5 w-3.5 text-amber-500 group-hover:text-amber-600" /> Buy / Top-up Credits
+                        </span>
+                        <ArrowRight className="h-3.5 w-3.5 text-slate-400 group-hover:text-amber-600 transition-colors" />
+                    </Link>
+                </Button>
 
                 <Button variant="outline" className="w-full justify-between h-10 text-xs font-medium border-slate-200 hover:bg-slate-50 hover:border-indigo-200 group" asChild>
                     <Link href="/dashboard/jobs">

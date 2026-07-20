@@ -484,10 +484,10 @@ func WorkerHeartbeat(c *gin.Context) {
 		ip = strings.TrimSpace(c.ClientIP())
 	}
 
-	var chunkSetting model.Setting
+	var chunkSettings []model.Setting
 	chunkSize := 1000 // default
-	if err := config.DB.Where("setting_key = ?", "chunk_size").First(&chunkSetting).Error; err == nil {
-		if val, err := strconv.Atoi(chunkSetting.SettingValue); err == nil && val > 0 {
+	if err := config.DB.Where("setting_key = ?", "chunk_size").Find(&chunkSettings).Error; err == nil && len(chunkSettings) > 0 {
+		if val, err := strconv.Atoi(chunkSettings[0].SettingValue); err == nil && val > 0 {
 			chunkSize = val
 		}
 	}

@@ -42,7 +42,7 @@ export function RecentActivity() {
                                             {job.type === 'single' ? 'Single Verification' : (job.filename || 'Bulk Job')}
                                         </p>
                                         <p className="text-xs text-slate-500 font-medium">
-                                            #{job.job_id.substring(0, 8)} • {job.total_emails} {job.total_emails === 1 ? 'email' : 'emails'}
+                                            #{job.job_id ? job.job_id.substring(0, 8) : 'unknown'} • {job.total_emails} {job.total_emails === 1 ? 'email' : 'emails'}
                                         </p>
                                     </div>
                                 </div>

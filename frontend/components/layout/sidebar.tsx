@@ -14,12 +14,16 @@ import { resetAllStores } from "@/stores/store-reset"
 import { SidebarNavigation } from "./sidebar/sidebar-navigation"
 import { SidebarProfile } from "./sidebar/sidebar-profile"
 
-export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
+interface SidebarProps extends HTMLAttributes<HTMLDivElement> {
+    defaultCollapsed?: boolean
+}
+
+export function Sidebar({ className, defaultCollapsed = false }: SidebarProps) {
     const pathname = usePathname()
     const { isSidebarCollapsed, toggleSidebarCollapse } = useUIStore()
     const { user } = useUserStore()
     const hydrated = useHydrated()
-    const isCollapsed = hydrated ? isSidebarCollapsed : false
+    const isCollapsed = hydrated ? isSidebarCollapsed : defaultCollapsed
     const safeUser = hydrated ? user : null
     const userRole = safeUser?.role || 'user'
     
@@ -89,7 +93,7 @@ export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
     }, []) // mount-এ একবারই
 
     return (
-        <div className={cn("flex flex-col h-screen bg-[#0F172A] text-slate-300", className)}>
+        <div suppressHydrationWarning className={cn("flex flex-col h-screen bg-[#0F172A] text-slate-300", className)}>
             {/* Brand Header */}
             <div className="h-16 flex items-center border-b border-slate-800/50 relative overflow-hidden">
                 {/* Fixed Logo Container */}
@@ -120,8 +124,8 @@ export function Sidebar({ className }: HTMLAttributes<HTMLDivElement>) {
 
                 {/* Shrinking Title & Collapse Button Container */}
                 <div className={cn(
-                    "flex items-center justify-between overflow-hidden transition-all duration-300 flex-1",
-                    isCollapsed ? "w-0 opacity-0 pr-0" : "w-auto opacity-100 pr-4"
+                    "flex items-center justify-between overflow-hidden flex-1",
+                    isCollapsed ? "hidden" : "w-auto opacity-100 pr-4"
                 )}>
                     {/* Site Title */}
                     <span className="text-lg font-bold text-white tracking-tight truncate">

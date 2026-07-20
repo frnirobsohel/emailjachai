@@ -82,10 +82,10 @@ export default function MonitoringPage() {
                     <CardTitle className="text-lg font-semibold text-slate-900">Performance Metrics</CardTitle>
                     <CardDescription>Live visualization of server performance over time.</CardDescription>
                 </CardHeader>
-                <CardContent className="pt-6">
-                    <div className="h-[350px] w-full">
+                <CardContent className="pt-6 overflow-hidden">
+                    <div className="h-[350px] w-full overflow-hidden">
                         {metrics.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" debounce={300}>
                                 <AreaChart data={metrics}>
                                     <defs>
                                         <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">

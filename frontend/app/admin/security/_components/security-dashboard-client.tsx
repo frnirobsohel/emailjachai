@@ -41,7 +41,7 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
         <div className="flex-1 space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-slate-900">Security Shield</h2>
+                    <h2 className="text-3xl font-bold tracking-tight text-slate-900">Public Verifier</h2>
                     <p className="text-sm text-slate-500 mt-1">Manage public verifier security, fraud detection, and frontend packages.</p>
                 </div>
                 <div className="flex items-center gap-4">
@@ -234,25 +234,25 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
             </Card>
 
             {/* Package Visibility Manager */}
-            <Card className="border-indigo-100 shadow-sm">
-                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                    <CardTitle className="text-lg font-semibold text-slate-900">Frontend Pricing Packages</CardTitle>
-                    <CardDescription>Select which packages should be visible on the public landing page.</CardDescription>
+            <Card className="bg-white dark:bg-slate-900/50 border-indigo-100 dark:border-slate-800 shadow-sm overflow-hidden backdrop-blur-sm">
+                <CardHeader className="bg-slate-50/50 dark:bg-slate-950/40 border-b border-indigo-50/50 dark:border-slate-800">
+                    <CardTitle className="text-lg font-semibold text-slate-900 dark:text-white">Frontend Pricing Packages</CardTitle>
+                    <CardDescription className="text-slate-500 dark:text-slate-400">Select which packages should be visible on the public landing page.</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6">
                     <div className="grid gap-4 md:grid-cols-3">
                         {currentPackages.map((pkg: any) => (
-                            <div key={pkg.id} className="border border-slate-200 rounded-lg p-4 flex items-center justify-between hover:border-indigo-200 transition-colors bg-white">
+                            <div key={pkg.id} className="border border-slate-200 dark:border-slate-800 rounded-lg p-4 flex items-center justify-between hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors bg-white dark:bg-slate-950">
                                 <div>
-                                    <h4 className="font-medium text-slate-900">{pkg.name}</h4>
-                                    <p className="text-sm text-slate-500">{pkg.price}</p>
+                                    <h4 className="font-medium text-slate-900 dark:text-white">{pkg.name}</h4>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">{pkg.price}</p>
                                 </div>
                                 <div className="flex flex-col items-center gap-2">
                                     <Switch 
                                         checked={pkg.is_public ?? true} 
                                         onCheckedChange={() => store.togglePackage(pkg.id)}
                                     />
-                                    <span className="text-[10px] font-medium text-slate-500 flex items-center gap-1">
+                                    <span className="text-[10px] font-medium text-slate-550 dark:text-slate-400 flex items-center gap-1">
                                         {pkg.is_public ?? true ? <Eye className="h-3 w-3 text-indigo-500" /> : <EyeOff className="h-3 w-3" />}
                                         {pkg.is_public ?? true ? "Visible" : "Hidden"}
                                     </span>

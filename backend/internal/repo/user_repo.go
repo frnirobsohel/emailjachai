@@ -63,27 +63,14 @@ func (r *userRepo) GetAll() ([]model.User, error) {
 
 func (r *userRepo) Delete(id uint) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		tx.Where("user_id = ?", id).Delete(&model.APIKey{})
-		tx.Where("user_id = ?", id).Delete(&model.Transaction{})
+		tx.Exec("DELETE FROM api_keys WHERE user_id = ?", id)
+		tx.Exec("DELETE FROM transactions WHERE user_id = ?", id)
+		tx.Exec("DELETE FROM job_results WHERE job_internal_id IN (SELECT id FROM jobs WHERE user_id = ?)", id)
+		tx.Exec("DELETE FROM job_tasks WHERE job_id IN (SELECT job_id FROM jobs WHERE user_id = ?)", id)
+		tx.Exec("DELETE FROM jobs WHERE user_id = ?", id)
 		
-		// Cleanup Jobs and their massive sub-records
-		var jobInternalIDs []uint
-		tx.Model(&model.Job{}).Where("user_id = ?", id).Pluck("id", &jobInternalIDs)
-		var jobIDs []string
-		tx.Model(&model.Job{}).Where("user_id = ?", id).Pluck("job_id", &jobIDs)
-		
-		if len(jobInternalIDs) > 0 {
-			tx.Unscoped().Where("job_internal_id IN ?", jobInternalIDs).Delete(&model.JobResult{})
-		}
-		if len(jobIDs) > 0 {
-			tx.Unscoped().Where("job_id IN ?", jobIDs).Delete(&model.JobTask{})
-		}
-		
-		// Hard delete the jobs themselves
-		tx.Unscoped().Where("user_id = ?", id).Delete(&model.Job{})
-		
-		// Finally, delete the user
-		return tx.Delete(&model.User{}, id).Error
+		// Hard delete the user so their email can be reused
+		return tx.Exec("DELETE FROM users WHERE id = ?", id).Error
 	})
 }
 

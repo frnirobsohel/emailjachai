@@ -14,7 +14,9 @@ import {
     Clock,
     FileCheck,
     Eye,
-    Download
+    Download,
+    Loader2,
+    CheckCircle2
 } from "lucide-react"
 import Link from "next/link"
 import { useSettings } from "@/lib/settings-context"
@@ -231,7 +233,7 @@ export function BulkUploadForm() {
                             >
                                 {isUploading ? (
                                     <>
-                                        <Clock className="mr-2 h-4 w-4 animate-spin" />
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                         Uploading...
                                     </>
                                 ) : (
@@ -272,42 +274,57 @@ export function BulkUploadForm() {
                                     <span className="text-blue-900 font-medium">Upload Progress</span>
                                     <span className="text-blue-700 font-bold">{Math.round(uploadProgress)}%</span>
                                 </div>
-                                <Progress value={uploadProgress} className="w-full h-2 bg-blue-100" />
+                                <div className="relative h-2 w-full overflow-hidden rounded-full bg-blue-100">
+                                    <div
+                                        className="h-full bg-blue-500 transition-all rounded-full"
+                                        style={{ width: `${uploadProgress}%` }}
+                                    />
+                                </div>
                             </div>
-                            <div className="text-sm text-blue-600/80 animate-pulse">
+                            <div className="text-sm text-blue-600/80 animate-pulse flex items-center gap-2">
+                                <Loader2 className="h-3 w-3 animate-spin" />
                                 Analyzing records and preparing for queue...
                             </div>
                         </div>
                     ) : uploadStats ? (
                         <div className="space-y-4">
-                            <div className="grid gap-3">
-                                <div className="flex items-center justify-between p-2 bg-blue-50/50 rounded-md border border-blue-100/50">
-                                    <span className="text-sm font-medium text-blue-900">Email Count:</span>
+                            {/* Success Banner */}
+                            <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-100 rounded-lg">
+                                <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
+                                <div>
+                                    <p className="text-sm font-semibold text-green-800">Upload Successful!</p>
+                                    <p className="text-xs text-green-600">{uploadStats.fileName} is now queued for processing.</p>
+                                </div>
+                            </div>
+
+                            <div className="grid gap-2">
+                                <div className="flex items-center justify-between p-2 bg-slate-50 rounded-md border border-slate-100">
+                                    <span className="text-sm font-medium text-slate-700">Email Count:</span>
                                     <Badge variant="outline" className="bg-white border-blue-200 text-blue-700 font-bold">
                                         {uploadStats.emailCount.toLocaleString()}
                                     </Badge>
                                 </div>
-                                <div className="flex items-center justify-between p-2 bg-blue-50/50 rounded-md border border-blue-100/50">
-                                    <span className="text-sm font-medium text-blue-900">Duplicates Removed:</span>
-                                    <Badge variant="outline" className="bg-white border-blue-200 text-blue-700 font-bold">
+                                <div className="flex items-center justify-between p-2 bg-slate-50 rounded-md border border-slate-100">
+                                    <span className="text-sm font-medium text-slate-700">Duplicates Removed:</span>
+                                    <Badge variant="outline" className="bg-white border-amber-200 text-amber-700 font-bold">
                                         {uploadStats.duplicateCount.toLocaleString()}
                                     </Badge>
                                 </div>
-                                <div className="flex items-center justify-between p-2 bg-blue-50/50 rounded-md border border-blue-100/50">
-                                    <span className="text-sm font-medium text-blue-900">Job Reference:</span>
-                                    <Badge variant="secondary" className="bg-blue-100 text-blue-800 font-mono">
-                                        {uploadStats.jobId}
+                                <div className="flex items-center justify-between p-2 bg-slate-50 rounded-md border border-slate-100">
+                                    <span className="text-sm font-medium text-slate-700">Job ID:</span>
+                                    <Badge variant="secondary" className="bg-slate-100 text-slate-700 font-mono text-[10px]">
+                                        #{uploadStats.jobId.substring(0, 12)}...
                                     </Badge>
                                 </div>
-                                <div className="flex items-center justify-between p-2 bg-blue-50/50 rounded-md border border-blue-100/50">
-                                    <span className="text-sm font-medium text-blue-900">Original File:</span>
-                                    <span className="text-xs text-blue-600 truncate max-w-[150px] font-medium">
+                                <div className="flex items-center justify-between p-2 bg-slate-50 rounded-md border border-slate-100">
+                                    <span className="text-sm font-medium text-slate-700">File:</span>
+                                    <span className="text-xs text-slate-500 truncate max-w-[150px] font-medium">
                                         {uploadStats.fileName}
                                     </span>
                                 </div>
                             </div>
 
-                            <div className="pt-4 flex gap-2">
+                            <div className="flex gap-2">
                                 <Button variant="outline" size="sm" asChild className="flex-1 border-blue-200 text-blue-700 hover:bg-blue-50">
                                     <Link href="/dashboard/jobs">
                                         <Eye className="mr-2 h-4 w-4" /> View Jobs
@@ -319,6 +336,15 @@ export function BulkUploadForm() {
                                     </a>
                                 </Button>
                             </div>
+
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="w-full text-slate-500 hover:text-slate-700 hover:bg-slate-50 border border-dashed border-slate-200"
+                                onClick={() => setUploadStats(null)}
+                            >
+                                <Upload className="mr-2 h-3.5 w-3.5" /> Upload Another File
+                            </Button>
                         </div>
                     ) : (
                         <div className="text-center py-12">

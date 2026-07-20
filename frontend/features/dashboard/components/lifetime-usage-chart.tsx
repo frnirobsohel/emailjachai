@@ -37,20 +37,21 @@ export function LifetimeUsageChart({ data, isLoading = false }: LifetimeUsageCha
                 <CardTitle className="text-lg font-semibold text-slate-900">Lifetime Usage Statistics</CardTitle>
                 <CardDescription>Total verification results breakdown</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-0 pt-4">
+            <CardContent className="space-y-0 pt-4 overflow-hidden">
                 {isLoading ? (
                     <div className="h-48 w-full flex items-center justify-center">
                         <Loader2 className="h-8 w-8 animate-spin text-slate-300" />
                     </div>
                 ) : (
                     <>
-                        <div className="relative h-48 w-full flex items-center justify-center">
+                        <div className="relative h-48 w-full flex items-center justify-center overflow-hidden">
                             {isMounted && (
                                 <ResponsiveContainer
                                     width="100%"
                                     height="100%"
                                     minWidth={1}
                                     minHeight={1}
+                                    debounce={300}
                                     initialDimension={CHART_INITIAL_DIMENSION}
                                 >
                                     <PieChart>
