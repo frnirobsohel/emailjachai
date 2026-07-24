@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log"
 	"os"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	gormLogger "gorm.io/gorm/logger"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -18,7 +20,7 @@ var Redis *redis.Client
 
 func LoadConfig() {
 	err := godotenv.Load()
-	if err != nil {
+	if err != nil && os.Getenv("GO_ENV") != "production" {
 		logger.Warn("Error loading .env file, using system environment variables")
 	}
 }
@@ -30,7 +32,20 @@ func ConnectDB() {
 		os.Exit(1)
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	newLogger := gormLogger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags),
+		gormLogger.Config{
+			SlowThreshold:             500 * time.Millisecond,
+			LogLevel:                  gormLogger.Warn,
+			IgnoreRecordNotFoundError: true,
+			ParameterizedQueries:      true,
+			Colorful:                  false,
+		},
+	)
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: newLogger,
+	})
 	if err != nil {
 		logger.Error("Failed to connect to PostgreSQL", "error", err)
 		os.Exit(1)

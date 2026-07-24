@@ -2,6 +2,8 @@
 -- Defines all core tables, columns, constraints, and indexes for EmailJachai-Pro.
 -- Safe for fresh installs and existing production databases (uses IF NOT EXISTS).
 
+SET client_min_messages TO WARNING;
+
 -- 1. users
 CREATE TABLE IF NOT EXISTS users (
     id             SERIAL PRIMARY KEY,

@@ -1,6 +1,8 @@
 -- Migration 000002: Monthly Partitions for job_results
 -- Creates partition tables for 2026 and 2027, plus a default fallback partition.
 
+SET client_min_messages TO WARNING;
+
 -- Partitions for 2026
 CREATE TABLE IF NOT EXISTS job_results_y2026m01 PARTITION OF job_results FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
 CREATE TABLE IF NOT EXISTS job_results_y2026m02 PARTITION OF job_results FOR VALUES FROM ('2026-02-01') TO ('2026-03-01');

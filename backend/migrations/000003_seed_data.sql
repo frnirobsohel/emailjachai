@@ -1,6 +1,8 @@
 -- Migration 000003: Seed Application Settings
 -- Inserts default system settings. Safe to re-run (uses ON CONFLICT DO NOTHING).
 
+SET client_min_messages TO WARNING;
+
 INSERT INTO settings (setting_key, setting_value, created_at, updated_at)
 VALUES
     ('max_emails_per_job',            '100000', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
