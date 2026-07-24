@@ -309,12 +309,11 @@ func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
 		}
 	} else {
 		errStr := err.Error()
-		// Exact error code mapping from legacy PHP
-		if strings.Contains(errStr, "550") || strings.Contains(errStr, "551") || strings.Contains(errStr, "553") {
+		errMsg := strings.ToLower(errStr)
+		if strings.Contains(errMsg, "550") || strings.Contains(errMsg, "551") || strings.Contains(errMsg, "553") {
 			res.HardFail = true
-		} else if strings.Contains(errStr, "552") {
+		} else if strings.Contains(errMsg, "552") || strings.Contains(errMsg, "storage limit") || strings.Contains(errMsg, "over quota") {
 			res.MailboxFull = true
-			// Mailbox full is a temp fail in legacy context (unknown status)
 		} else if strings.HasPrefix(errStr, "4") {
 			// Explicitly handle 4xx as temporary failures (already handled by defaults but good to be explicit)
 			res.HardFail = false

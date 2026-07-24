@@ -188,6 +188,9 @@ func VerifyEmail(email string) VerifyResult {
 	}
 
 	sort.Slice(mxRecords, func(i, j int) bool {
+		if mxRecords[i].Pref == mxRecords[j].Pref {
+			return mxRecords[i].Host < mxRecords[j].Host
+		}
 		return mxRecords[i].Pref < mxRecords[j].Pref
 	})
 
@@ -198,7 +201,7 @@ func VerifyEmail(email string) VerifyResult {
 	result.MxRecords = mxList
 
 	for i, mx := range mxRecords {
-		if i >= 3 {
+		if i >= 5 {
 			break
 		}
 		host := strings.TrimSuffix(mx.Host, ".")
@@ -260,7 +263,7 @@ func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
 		hostname = hostname + ".local"
 	}
 
-	conn, err := net.DialTimeout("tcp", mxHost+":25", 5*time.Second)
+	conn, err := net.DialTimeout("tcp", mxHost+":25", 8*time.Second)
 	if err != nil { return res }
 	defer conn.Close()
 	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
@@ -284,7 +287,7 @@ func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
 	if err == nil {
 		res.Accepted = true
 		// Quick catch-all check
-		randomEmail := "probe_" + randomString(6) + "@" + domain
+		randomEmail := "probe_" + randomString(8) + "@" + domain
 		if errC := client.Rcpt(randomEmail); errC == nil {
 			res.CatchAll = true
 		}
