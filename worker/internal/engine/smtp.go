@@ -282,22 +282,35 @@ func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
 	err = client.Rcpt(fullEmail)
 	if err == nil {
 		res.Accepted = true
-		// Quick catch-all check
+		// Catch-all probe: send a random impossible email to detect catch-all domains
 		randomEmail := "probe_" + randomString(8) + "@" + domain
 		errCatch := client.Rcpt(randomEmail)
 		if errCatch == nil {
+			// Random email accepted → definite catch-all
 			res.CatchAll = true
 		} else {
-			// If random probe failed without an explicit 550 hard bounce (e.g., connection reset or 4xx limit),
-			// treat as Catch-All to prevent false positive valid results.
 			errStr := strings.ToLower(errCatch.Error())
-			if !strings.Contains(errStr, "550") && !strings.Contains(errStr, "551") && !strings.Contains(errStr, "553") && !strings.Contains(errStr, "no such user") {
+			// 550 5.1.1 / 5.1.0 = user not found → NOT catch-all, original email is truly valid
+			// 550 5.7.1 / 5.7.0 = IP/policy block → treat as catch-all (can't confirm)
+			// Any other error (timeout, 4xx, reset) → treat as catch-all (can't confirm)
+			isUserNotFound := (strings.Contains(errStr, "5.1.1") || strings.Contains(errStr, "5.1.0") ||
+				strings.Contains(errStr, "user unknown") || strings.Contains(errStr, "no such user") ||
+				strings.Contains(errStr, "does not exist") || strings.Contains(errStr, "invalid address"))
+			if !isUserNotFound {
 				res.CatchAll = true
 			}
 		}
 	} else {
 		errMsg := strings.ToLower(err.Error())
-		if strings.Contains(errMsg, "550") || strings.Contains(errMsg, "551") || strings.Contains(errMsg, "553") {
+		// 550 5.7.1 = IP blocked / policy → NOT a user rejection → TempFail (unknown)
+		// 550 5.1.1 = user not found → HardFail (invalid)
+		isIPBlock := strings.Contains(errMsg, "5.7.1") || strings.Contains(errMsg, "5.7.0") ||
+			strings.Contains(errMsg, "blocked") || strings.Contains(errMsg, "blacklist") ||
+			strings.Contains(errMsg, "service unavailable") || strings.Contains(errMsg, "access denied")
+		if isIPBlock {
+			// IP/policy block — we cannot determine if the user exists
+			res.TempFail = true
+		} else if strings.Contains(errMsg, "550") || strings.Contains(errMsg, "551") || strings.Contains(errMsg, "553") {
 			res.HardFail = true
 		} else if strings.Contains(errMsg, "552") || strings.Contains(errMsg, "storage limit") || strings.Contains(errMsg, "over quota") {
 			res.MailboxFull = true
