@@ -4,12 +4,16 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 
 	_ "github.com/lib/pq"
 )
 
 func main() {
-	connStr := "postgres://postgres:Pass321@localhost:5432/emailjachaipro?sslmode=disable"
+	connStr := os.Getenv("DATABASE_URL")
+	if connStr == "" {
+		connStr = "postgres://postgres:Pass321@localhost:5432/emailjachaipro?sslmode=disable"
+	}
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
