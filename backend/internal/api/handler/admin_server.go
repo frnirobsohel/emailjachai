@@ -542,15 +542,11 @@ func WorkerHeartbeat(c *gin.Context) {
 		return
 	}
 
-	if !server.Enabled {
-		helper.SendError(c, http.StatusForbidden, "Worker server is disabled", "ERR_WORKER_SERVER_DISABLED")
-		return
-	}
-
 	updates := map[string]interface{}{
 		"ip_address":   ip,
 		"last_ping":    &now,
 		"status":       "online",
+		"enabled":      true,
 		"worker_count": input.WorkerCount,
 	}
 	if input.Port != nil && *input.Port > 0 && *input.Port <= 65535 {
