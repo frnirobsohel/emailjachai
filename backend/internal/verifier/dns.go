@@ -30,6 +30,10 @@ func init() {
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
 		if p != "" {
+			// Ensure host:port format — append :53 if no port specified
+			if !strings.Contains(p, ":") {
+				p = p + ":53"
+			}
 			resolvers = append(resolvers, p)
 		}
 	}
