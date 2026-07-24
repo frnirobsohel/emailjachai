@@ -306,6 +306,13 @@ func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
 		errCatch := client.Rcpt(randomEmail)
 		if errCatch == nil {
 			res.CatchAll = true
+		} else {
+			// If random probe failed without an explicit 550 hard bounce (e.g., connection reset or 4xx limit),
+			// treat as Catch-All to prevent false positive valid results.
+			errStr := strings.ToLower(errCatch.Error())
+			if !strings.Contains(errStr, "550") && !strings.Contains(errStr, "551") && !strings.Contains(errStr, "553") && !strings.Contains(errStr, "no such user") {
+				res.CatchAll = true
+			}
 		}
 	} else {
 		errStr := err.Error()
