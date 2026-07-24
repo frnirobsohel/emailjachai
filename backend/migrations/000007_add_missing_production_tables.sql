@@ -1,6 +1,7 @@
 -- Migration 000007: Add missing production tables and columns
 -- Creates public_verify_logs, blocked_clients, and email_caches tables,
--- and adds missing api_key_id column to jobs table.
+-- adds missing api_key_id column to jobs table,
+-- and adds missing mx_records, updated_at, deleted_at columns to job_results table.
 
 CREATE TABLE IF NOT EXISTS public_verify_logs (
     id          BIGSERIAL PRIMARY KEY,
@@ -63,3 +64,8 @@ CREATE INDEX IF NOT EXISTS idx_email_caches_created_at ON email_caches (created_
 -- Fix jobs table: Add missing api_key_id column & index for API-based verifications
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS api_key_id INTEGER;
 CREATE INDEX IF NOT EXISTS idx_jobs_api_key_id ON jobs (api_key_id);
+
+-- Fix job_results partitioned table: Add missing mx_records, updated_at, and deleted_at columns
+ALTER TABLE job_results ADD COLUMN IF NOT EXISTS mx_records TEXT;
+ALTER TABLE job_results ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE job_results ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
