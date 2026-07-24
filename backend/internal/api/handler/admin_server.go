@@ -499,10 +499,7 @@ func WorkerHeartbeat(c *gin.Context) {
 		First(&server).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			if strings.EqualFold(os.Getenv("ENVIRONMENT"), "production") || strings.EqualFold(os.Getenv("GO_ENV"), "production") {
-				helper.SendError(c, http.StatusForbidden, "Unknown worker server", "ERR_WORKER_SERVER_FORBIDDEN")
-				return
-			}
+			logger.Info("Auto-provisioning new worker server", "server_name", input.ServerName, "ip", ip)
 
 			port := 80
 			if input.Port != nil && *input.Port > 0 && *input.Port <= 65535 {

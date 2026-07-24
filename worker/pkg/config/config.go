@@ -63,13 +63,16 @@ func LoadConfig() {
 		}
 	}
 
-	cfg.WorkerServerName = os.Getenv("WORKER_SERVER_NAME")
+	cfg.WorkerServerName = strings.TrimSpace(os.Getenv("WORKER_SERVER_NAME"))
 	if cfg.WorkerServerName == "" {
-		if hn, err := os.Hostname(); err == nil {
-			cfg.WorkerServerName = hn
+		if hn, err := os.Hostname(); err == nil && strings.TrimSpace(hn) != "" {
+			cleaned := strings.TrimSpace(hn)
+			cleaned = strings.ReplaceAll(cleaned, " ", "-")
+			cfg.WorkerServerName = cleaned
 		} else {
-			cfg.WorkerServerName = "unknown-go-worker"
+			cfg.WorkerServerName = "worker-auto"
 		}
+		logger.Info("WORKER_SERVER_NAME not set, automatically assigned server name", zap.String("server_name", cfg.WorkerServerName))
 	}
 
 	Cfg = cfg
