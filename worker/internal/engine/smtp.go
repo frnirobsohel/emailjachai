@@ -209,16 +209,14 @@ func VerifyEmail(email string) VerifyResult {
 				if res.CatchAll {
 					result.Status = "catch_all"
 					result.CatchAll = true
-					// Fix I-09: Catch-all score consistent with backend verifier (55)
 					result.Score = 55
+					result.Reason = "catch_all"
 					return result
 				}
-				// Fix I-09: Valid emails must get Score=100, not the default 35
-				// আগে: defer শুধু ProcessingTime সেট করত, Score এর মান 35-এ থেকে যেত।
-				// Dashboard-এ bulk job-এর valid email সব স্কোর 35 দেখাত যেটা স্পষ্ট ভুল।
 				result.Status = "valid"
 				result.Score = 100
 				result.Deliverable = true
+				result.Reason = "accepted"
 				return result
 			}
 			if res.MailboxFull {
@@ -234,7 +232,6 @@ func VerifyEmail(email string) VerifyResult {
 				return result
 			}
 			if res.TempFail {
-				// Record temp fail, but let the loop try other MX records
 				result.Reason = "temp_fail"
 			}
 		}
@@ -257,7 +254,11 @@ type smtpProbe struct {
 func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
 	res := smtpProbe{}
 	hostname, _ := os.Hostname()
-	if hostname == "" { hostname = "worker.local" }
+	if hostname == "" {
+		hostname = "worker.local"
+	} else if !strings.Contains(hostname, ".") {
+		hostname = hostname + ".local"
+	}
 
 	conn, err := net.DialTimeout("tcp", mxHost+":25", 5*time.Second)
 	if err != nil { return res }
