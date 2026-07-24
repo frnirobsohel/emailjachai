@@ -286,10 +286,18 @@ func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
 	err = client.Rcpt(fullEmail)
 	if err == nil {
 		res.Accepted = true
-		// Quick catch-all check
-		randomEmail := "probe_" + randomString(8) + "@" + domain
-		if errC := client.Rcpt(randomEmail); errC == nil {
-			res.CatchAll = true
+		// Probe for Catch-All (use clean RSET transaction and non-suspicious random string)
+		randomEmail := randomString(12) + "@" + domain
+		if errR := client.Reset(); errR == nil {
+			if errM := client.Mail(""); errM == nil {
+				if errC := client.Rcpt(randomEmail); errC == nil {
+					res.CatchAll = true
+				}
+			}
+		} else {
+			if errC := client.Rcpt(randomEmail); errC == nil {
+				res.CatchAll = true
+			}
 		}
 	} else {
 		errMsg := strings.ToLower(err.Error())

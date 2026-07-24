@@ -301,11 +301,18 @@ func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
 	if err == nil {
 		res.Accepted = true
 
-		// Probe for Catch-All (Legacy logic)
-		randomEmail := "probe_" + randomString(8) + "@" + domain
-		errCatch := client.Rcpt(randomEmail)
-		if errCatch == nil {
-			res.CatchAll = true
+		// Probe for Catch-All (use clean RSET transaction and non-suspicious random string)
+		randomEmail := randomString(12) + "@" + domain
+		if errR := client.Reset(); errR == nil {
+			if errM := client.Mail(""); errM == nil {
+				if errC := client.Rcpt(randomEmail); errC == nil {
+					res.CatchAll = true
+				}
+			}
+		} else {
+			if errC := client.Rcpt(randomEmail); errC == nil {
+				res.CatchAll = true
+			}
 		}
 	} else {
 		errStr := err.Error()
