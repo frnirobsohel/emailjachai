@@ -1,6 +1,6 @@
--- Migration 000007: Add missing production tables
--- Creates public_verify_logs, blocked_clients, and email_caches tables
--- which were missing in production explicit SQL migrations.
+-- Migration 000007: Add missing production tables and columns
+-- Creates public_verify_logs, blocked_clients, and email_caches tables,
+-- and adds missing api_key_id column to jobs table.
 
 CREATE TABLE IF NOT EXISTS public_verify_logs (
     id          BIGSERIAL PRIMARY KEY,
@@ -59,3 +59,7 @@ CREATE TABLE IF NOT EXISTS email_caches (
 
 CREATE INDEX IF NOT EXISTS idx_email_caches_status     ON email_caches (status);
 CREATE INDEX IF NOT EXISTS idx_email_caches_created_at ON email_caches (created_at);
+
+-- Fix jobs table: Add missing api_key_id column & index for API-based verifications
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS api_key_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_jobs_api_key_id ON jobs (api_key_id);
