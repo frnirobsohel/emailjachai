@@ -113,7 +113,7 @@ func (r *transactionRepo) SumCreditsSold(from, to *time.Time) (int64, error) {
 
 func (r *transactionRepo) SumRevenue(from, to *time.Time) (float64, error) {
 	var total float64
-	query := r.db.Model(&model.Transaction{}).Where("type = ? AND status = ?", "purchase", "completed")
+	query := r.db.Model(&model.Transaction{}).Where("status = ? AND amount > 0 AND type != ?", "completed", "refund")
 	if from != nil {
 		query = query.Where("created_at >= ?", *from)
 	}
