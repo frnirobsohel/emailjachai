@@ -63,3 +63,87 @@ html {
 .animate-error-shake {
   animation: error-shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
+
+/* Landing page motion */
+@keyframes landing-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-wash {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2%, -1%, 0) scale(1.04);
+  }
+}
+
+@keyframes landing-scan {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes landing-result-pop {
+  0% {
+    transform: scale(0.97);
+  }
+  60% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.landing-brand {
+  animation: landing-fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.landing-hero-copy > p {
+  animation: landing-fade-up 0.75s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+}
+
+.landing-hero-cta {
+  animation: landing-fade-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.16s both;
+}
+
+.landing-hero-wash {
+  animation: landing-wash 14s ease-in-out infinite;
+}
+
+.landing-hero-wash-delay {
+  animation: landing-wash 18s ease-in-out infinite reverse;
+}
+
+.landing-scan-line {
+  animation: landing-scan 3.6s ease-in-out infinite;
+}
+
+.landing-result-pop {
+  animation: landing-result-pop 0.35s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-brand,
+  .landing-hero-copy > p,
+  .landing-hero-cta,
+  .landing-hero-wash,
+  .landing-hero-wash-delay,
+  .landing-scan-line,
+  .landing-result-pop {
+    animation: none !important;
+  }
+}

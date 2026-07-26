@@ -13,6 +13,9 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { resetPasswordSchema, ResetPasswordValues } from "@/features/auth/schemas/reset-password.schema"
 import { cn } from "@/lib/utils"
 
+const cardClass =
+    "border-[#0b1f1c]/10 bg-white/90 shadow-[0_16px_48px_-24px_rgba(11,31,28,0.35)] backdrop-blur-sm"
+
 function ResetPasswordForm() {
     const router = useRouter()
     const searchParams = useSearchParams()
@@ -23,7 +26,7 @@ function ResetPasswordForm() {
     const [error, setError] = useState<string | null>(null)
     const [showPassword, setShowPassword] = useState(false)
     const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-    const [shakeKey, setShakeKey] = useState(0)
+    const [shake, setShake] = useState(false)
 
     useEffect(() => {
         if (!token) {
@@ -36,11 +39,12 @@ function ResetPasswordForm() {
         defaultValues: {
             password: "",
             confirmPassword: "",
-        }
+        },
     })
 
     function triggerShake() {
-        setShakeKey(prev => prev + 1)
+        setShake(false)
+        requestAnimationFrame(() => setShake(true))
     }
 
     async function onSubmit(values: ResetPasswordValues) {
@@ -55,15 +59,15 @@ function ResetPasswordForm() {
         setIsLoading(true)
 
         try {
-            const res = await ApiClient.post('/auth/reset-password', { token, password: values.password })
-            if (res.status === 'success') {
+            const res = await ApiClient.post("/auth/reset-password", { token, password: values.password })
+            if (res.status === "success") {
                 setSubmitted(true)
             } else {
                 setError(res.message || "Failed to reset password")
                 triggerShake()
             }
-        } catch (err: any) {
-            setError(err.message || "An unexpected error occurred")
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An unexpected error occurred")
             triggerShake()
         } finally {
             setIsLoading(false)
@@ -76,23 +80,26 @@ function ResetPasswordForm() {
 
     if (submitted) {
         return (
-            <Card>
+            <Card className={cardClass}>
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <CheckCircle2 className="h-6 w-6 text-green-500" />
+                    <CardTitle className="flex items-center gap-2 text-[#0b1f1c]">
+                        <CheckCircle2 className="h-6 w-6 text-emerald-600" />
                         Password Reset
                     </CardTitle>
-                    <CardDescription>
+                    <CardDescription className="text-[#5a736c]">
                         Your password has been successfully reset. You can now login with your new credentials.
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <Button className="w-full" onClick={() => router.push("/login")}>
+                    <Button
+                        className="w-full rounded-md border border-[#08352f] bg-[#0f5c52] font-semibold text-white shadow-none hover:bg-[#0b4a42]"
+                        onClick={() => router.push("/login")}
+                    >
                         Go to Login
                     </Button>
                 </CardContent>
                 <CardFooter className="flex justify-center text-sm">
-                    <Link href="/login" className="inline-flex items-center gap-1 underline font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200">
+                    <Link href="/login" className="inline-flex items-center gap-1 font-semibold text-[#0f5c52] underline-offset-2 hover:underline">
                         <ArrowLeft className="h-3.5 w-3.5" /> Back to Login
                     </Link>
                 </CardFooter>
@@ -101,77 +108,96 @@ function ResetPasswordForm() {
     }
 
     return (
-        <Card>
-            <CardHeader>
-                <CardTitle className="text-2xl">Reset Password</CardTitle>
-                <CardDescription>
+        <Card className={cardClass}>
+            <CardHeader className="space-y-1.5">
+                <CardTitle className="text-2xl tracking-tight text-[#0b1f1c]">Reset Password</CardTitle>
+                <CardDescription className="text-[#5a736c]">
                     Enter your new password below.
                 </CardDescription>
             </CardHeader>
             <CardContent>
-                <form 
-                    key={shakeKey}
-                    onSubmit={form.handleSubmit(onSubmit, onInvalid)} 
-                    className={cn("grid gap-4 transition-all duration-200", shakeKey > 0 && "animate-error-shake")}
+                <form
+                    onSubmit={form.handleSubmit(onSubmit, onInvalid)}
+                    className={cn("grid gap-4", shake && "animate-error-shake")}
+                    onAnimationEnd={() => setShake(false)}
                 >
                     {error && (
-                        <div className="rounded-lg border border-red-500/30 bg-red-50/90 p-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-950/50 dark:text-red-300 flex items-start gap-2.5 animate-in fade-in zoom-in-95 duration-200 shadow-sm">
-                            <AlertCircle className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
+                        <div
+                            role="alert"
+                            className="flex items-start gap-2.5 rounded-md border border-rose-700/20 bg-rose-50 p-3 text-sm text-rose-800"
+                        >
+                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
                             <span className="font-medium leading-tight">{error}</span>
                         </div>
                     )}
-                    <div className="flex flex-col gap-1.5 min-h-[72px]">
-                        <label htmlFor="password" className="text-sm font-medium leading-none">New Password</label>
+                    <div className="flex min-h-[72px] flex-col gap-1.5">
+                        <label htmlFor="password" className="text-sm font-medium leading-none text-[#3d564f]">
+                            New Password
+                        </label>
                         <div className="relative">
-                            <Input 
+                            <Input
                                 {...form.register("password")}
-                                id="password" 
-                                type={showPassword ? "text" : "password"} 
-                                disabled={isLoading || !token} 
-                                className={cn("pr-10", form.formState.errors.password && "border-red-500 focus-visible:ring-red-500")}
+                                id="password"
+                                type={showPassword ? "text" : "password"}
+                                disabled={isLoading || !token}
+                                className={cn(
+                                    "border-[#0b1f1c]/12 pr-10 focus-visible:ring-[#0f5c52]/30",
+                                    form.formState.errors.password && "border-rose-500 focus-visible:ring-rose-500"
+                                )}
                             />
                             <button
                                 type="button"
                                 onClick={() => setShowPassword(!showPassword)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 focus:outline-none transition-colors"
+                                aria-label={showPassword ? "Hide password" : "Show password"}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8aa099] transition-colors hover:text-[#0b1f1c] focus:outline-none"
                             >
                                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                             </button>
                         </div>
                         {form.formState.errors.password ? (
-                            <span className="text-xs font-medium text-red-500 flex items-center gap-1 animate-in fade-in duration-150">
+                            <span className="text-xs font-medium text-rose-600">
                                 {form.formState.errors.password.message}
                             </span>
                         ) : null}
                     </div>
-                    <div className="flex flex-col gap-1.5 min-h-[72px]">
-                        <label htmlFor="confirmPassword" className="text-sm font-medium leading-none">Confirm New Password</label>
+                    <div className="flex min-h-[72px] flex-col gap-1.5">
+                        <label htmlFor="confirmPassword" className="text-sm font-medium leading-none text-[#3d564f]">
+                            Confirm New Password
+                        </label>
                         <div className="relative">
-                            <Input 
+                            <Input
                                 {...form.register("confirmPassword")}
-                                id="confirmPassword" 
-                                type={showConfirmPassword ? "text" : "password"} 
-                                disabled={isLoading || !token} 
-                                className={cn("pr-10", form.formState.errors.confirmPassword && "border-red-500 focus-visible:ring-red-500")}
+                                id="confirmPassword"
+                                type={showConfirmPassword ? "text" : "password"}
+                                disabled={isLoading || !token}
+                                className={cn(
+                                    "border-[#0b1f1c]/12 pr-10 focus-visible:ring-[#0f5c52]/30",
+                                    form.formState.errors.confirmPassword && "border-rose-500 focus-visible:ring-rose-500"
+                                )}
                             />
                             <button
                                 type="button"
                                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 focus:outline-none transition-colors"
+                                aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8aa099] transition-colors hover:text-[#0b1f1c] focus:outline-none"
                             >
                                 {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                             </button>
                         </div>
                         {form.formState.errors.confirmPassword ? (
-                            <span className="text-xs font-medium text-red-500 flex items-center gap-1 animate-in fade-in duration-150">
+                            <span className="text-xs font-medium text-rose-600">
                                 {form.formState.errors.confirmPassword.message}
                             </span>
                         ) : null}
                     </div>
-                    <Button type="submit" className="w-full mt-1 font-medium shadow-sm" disabled={isLoading || !token}>
+                    <Button
+                        type="submit"
+                        disabled={isLoading || !token}
+                        className="mt-1 w-full rounded-md border border-[#08352f] bg-[#0f5c52] font-semibold text-white shadow-none hover:bg-[#0b4a42]"
+                    >
                         {isLoading ? (
                             <>
-                                <Loader2 className="h-4 w-4 animate-spin mr-2" /> Resetting...
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Resetting...
                             </>
                         ) : (
                             "Reset Password"
@@ -179,12 +205,12 @@ function ResetPasswordForm() {
                     </Button>
                 </form>
             </CardContent>
-            <CardFooter className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm">
-                <Link href="/login" className="inline-flex items-center gap-1 underline font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200">
+            <CardFooter className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-[#4a635c]">
+                <Link href="/login" className="inline-flex items-center gap-1 font-semibold text-[#0f5c52] underline-offset-2 hover:underline">
                     <ArrowLeft className="h-3.5 w-3.5" /> Back to Login
                 </Link>
-                <span className="text-slate-300 dark:text-slate-700 mx-1">•</span>
-                <Link href="/" className="inline-flex items-center gap-1 hover:underline text-slate-500 hover:text-slate-900 dark:hover:text-slate-200">
+                <span className="mx-1 text-[#0b1f1c]/20">•</span>
+                <Link href="/" className="text-[#5a736c] transition-colors hover:text-[#0b1f1c]">
                     Back to Home
                 </Link>
             </CardFooter>
@@ -194,7 +220,16 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
     return (
-        <Suspense fallback={<div className="flex justify-center p-8">Loading...</div>}>
+        <Suspense
+            fallback={
+                <div className="grid animate-pulse gap-4 rounded-lg border border-[#0b1f1c]/10 bg-white/90 p-6" aria-hidden>
+                    <div className="h-8 w-40 rounded bg-[#0b1f1c]/5" />
+                    <div className="h-[72px] rounded-md bg-[#0b1f1c]/5" />
+                    <div className="h-[72px] rounded-md bg-[#0b1f1c]/5" />
+                    <div className="h-10 rounded-md bg-[#0b1f1c]/8" />
+                </div>
+            }
+        >
             <ResetPasswordForm />
         </Suspense>
     )

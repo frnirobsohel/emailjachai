@@ -67,7 +67,10 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function Home() {
   let siteTitle = "EmailJachai Pro"
   let siteTagline = "Verify Emails with Precision"
-  let logoUrl = ""
+  let logoUrl = "/logo.svg"
+  let twitterUrl = ""
+  let linkedinUrl = ""
+  let githubUrl = ""
 
   let packages: PackageRow[] = []
 
@@ -77,7 +80,10 @@ export default async function Home() {
     if (json.status === 'success' && json.data) {
       siteTitle = json.data.site_title || siteTitle
       siteTagline = json.data.site_tagline || siteTagline
-      logoUrl = json.data.logo_url || ""
+      logoUrl = json.data.logo_url || json.data.favicon_url || "/logo.svg"
+      twitterUrl = json.data.twitter_url || ""
+      linkedinUrl = json.data.linkedin_url || ""
+      githubUrl = json.data.github_url || ""
     }
   } catch {}
 
@@ -129,84 +135,76 @@ export default async function Home() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#030712] text-slate-200 overflow-x-hidden selection:bg-indigo-500/30">
-      {/* JSON-LD Structured Data for AI & Search Engine Crawlers */}
+    <div className="flex min-h-screen flex-col overflow-x-hidden bg-[#f0f4f2] text-[#0b1f1c] selection:bg-[#0f5c52]/20">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
 
-      {/* ─── NAVBAR ─── */}
       <Navbar siteTitle={siteTitle} logoUrl={logoUrl} />
 
       <main className="flex-1">
-        {/* ─── HERO SECTION ─── */}
         <Hero siteTagline={siteTagline} />
-
-        {/* ─── HOW IT WORKS / FEATURES ─── */}
         <Features />
-
-        {/* ─── PRICING SECTION ─── */}
         <Pricing packages={packages} />
 
-        {/* ─── FAQ & CONTACT SECTION ─── */}
-        <section id="support" className="relative py-20 md:py-32 border-t border-white/5 bg-gradient-to-b from-[#030712] via-purple-950/20 to-[#030712]">
-          <div className="relative z-10 mx-auto max-w-7xl px-6">
-            
-            <div className="text-center mb-16">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.03] text-slate-300 text-xs font-medium mb-6">
+        <section id="support" className="relative bg-[#eef3f0] py-16 md:py-28">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6">
+            <div className="mx-auto mb-10 max-w-xl text-center md:mb-12">
+              <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#0b1f1c]/10 bg-white/70 px-3 py-1 text-xs font-medium text-[#3d564f]">
                 Help Center
               </div>
-              <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">
+              <h2 className="mb-3 text-[1.65rem] font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl md:text-4xl">
                 Support & FAQ
               </h2>
-              <p className="text-base text-slate-400 max-w-xl mx-auto">
+              <p className="text-sm leading-relaxed text-[#4a635c] sm:text-base">
                 Have questions or need a custom plan? Browse our FAQs or send us a message directly.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10 items-start">
-              
-              {/* FAQ Column */}
-              <div>
-                <FAQAccordion />
-              </div>
-
-              {/* Contact Column */}
-              <div>
-                <ContactForm />
-              </div>
-
+            <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-2 lg:gap-14">
+              <FAQAccordion />
+              <ContactForm />
             </div>
           </div>
         </section>
 
-        {/* ─── CTA SECTION ─── */}
-        <section className="relative py-24 md:py-32 border-t border-white/5 bg-gradient-to-br from-indigo-900/20 via-[#030712] to-purple-900/20">
-          <div className="relative z-10 mx-auto max-w-2xl px-6 text-center">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.03] text-slate-300 text-xs font-medium mb-6">
+        <section className="relative bg-[#0f5c52] py-14 md:py-24">
+          <div className="mx-auto max-w-3xl px-4 text-center sm:px-6">
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-medium text-white/90">
               Get Started
             </div>
-            <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">
+            <h2 className="mb-3 text-[1.65rem] font-semibold tracking-tight text-white sm:text-3xl md:text-4xl">
               Ready to Clean Your Email Lists?
             </h2>
-            <p className="text-base text-slate-400 mb-8">
+            <p className="mb-8 text-sm text-white/75 sm:text-base">
               Join thousands of marketers who trust our platform. Start verifying emails for free today.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link href="/register" className="px-6 py-3 rounded-xl bg-slate-200 text-slate-900 font-medium hover:bg-slate-300 transition-colors text-sm">
-                Start Free — 100 Credits
+            <div className="flex flex-col justify-center gap-3 sm:flex-row">
+              <Link
+                href="/register"
+                className="rounded-md border border-[#0b1f1c]/25 bg-white px-6 py-3 text-sm font-semibold text-[#0b1f1c] transition-colors hover:bg-[#e8f2ef]"
+              >
+                Start free — 100 credits
               </Link>
-              <Link href="#features" className="px-6 py-3 rounded-xl border border-white/10 text-slate-200 font-medium hover:bg-white/5 transition-colors text-sm">
-                Learn More
+              <Link
+                href="#pricing"
+                className="rounded-md border border-white/50 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-white/10"
+              >
+                View pricing
               </Link>
             </div>
           </div>
         </section>
       </main>
 
-      {/* ─── FOOTER ─── */}
-      <Footer siteTitle={siteTitle} logoUrl={logoUrl} />
+      <Footer
+        siteTitle={siteTitle}
+        logoUrl={logoUrl}
+        twitterUrl={twitterUrl}
+        linkedinUrl={linkedinUrl}
+        githubUrl={githubUrl}
+      />
     </div>
   )
 }

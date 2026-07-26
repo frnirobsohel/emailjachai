@@ -17,44 +17,67 @@ interface PricingProps {
 
 export function Pricing({ packages }: PricingProps) {
     return (
-        <section id="pricing" className="relative py-20 md:py-32 border-t border-white/5 bg-slate-900/20">
-            <div className="relative z-10 mx-auto max-w-5xl px-6">
-                <div className="text-center mb-16">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.03] text-slate-300 text-xs font-medium mb-6">
+        <section id="pricing" className="relative bg-white py-16 md:py-28">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6">
+                <div className="mx-auto mb-10 max-w-xl text-center md:mb-14">
+                    <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#0b1f1c]/10 bg-[#f7faf8] px-3 py-1 text-xs font-medium text-[#3d564f]">
                         Pricing
                     </div>
-                    <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">
+                    <h2 className="mb-3 text-[1.65rem] font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl md:text-4xl">
                         Pay Only for What You Use
                     </h2>
-                    <p className="text-base text-slate-400 max-w-xl mx-auto">
+                    <p className="text-sm leading-relaxed text-[#4a635c] sm:text-base">
                         No monthly fees, no hidden charges. Buy credits and verify emails at your own pace.
                     </p>
                 </div>
 
-                <div className="grid gap-6 md:grid-cols-3">
-                    {packages.map(pkg => (
-                        <div key={pkg.id} className={`relative p-8 rounded-2xl border transition-colors ${pkg.popular ? 'border-indigo-500/30 bg-indigo-500/[0.03]' : 'border-white/5 bg-white/[0.01] hover:bg-white/[0.03]'}`}>
-                            {pkg.popular && (
-                                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-indigo-500 text-[10px] font-bold text-slate-200 tracking-wider uppercase">
-                                    Most Popular
-                                </div>
-                            )}
-                            <h3 className={`text-base font-medium mb-2 ${pkg.popular ? 'text-indigo-300' : 'text-slate-300'}`}>{pkg.name}</h3>
-                            <div className="flex items-baseline gap-1 mb-1">
-                                <span className="text-4xl font-bold text-slate-200">${pkg.price}</span>
+                <div className="grid gap-4 sm:gap-6 md:grid-cols-3">
+                    {packages.map((pkg) => (
+                        <div
+                            key={pkg.id}
+                            className={`flex flex-col border p-5 sm:p-7 ${
+                                pkg.popular
+                                    ? "border-[#0f5c52] bg-[#f0f7f5]"
+                                    : "border-[#0b1f1c]/10 bg-[#fafbfa]"
+                            }`}
+                        >
+                            <div className="mb-6 flex items-baseline justify-between gap-2">
+                                <h3 className="text-base font-semibold text-[#0b1f1c]">{pkg.name}</h3>
+                                {pkg.popular && (
+                                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#0f5c52]">
+                                        Popular
+                                    </span>
+                                )}
                             </div>
-                            <p className="text-sm text-slate-500 mb-8">{pkg.credits_amount.toLocaleString()} credits</p>
-                            
-                            <ul className="space-y-4 mb-8">
+                            <div className="mb-1 flex items-baseline gap-1">
+                                <span className="text-4xl font-semibold tracking-tight text-[#0b1f1c]">
+                                    ${pkg.price}
+                                </span>
+                            </div>
+                            <p className="mb-8 text-sm text-[#5a736c]">
+                                {pkg.credits_amount.toLocaleString()} credits
+                            </p>
+
+                            <ul className="mb-8 flex-1 space-y-3">
                                 {pkg.features?.map((feature, idx) => (
-                                    <li key={idx} className={`flex items-center gap-3 text-sm ${pkg.popular ? 'text-slate-300' : 'text-slate-400'}`}>
-                                        <svg className="h-4 w-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                                    <li
+                                        key={idx}
+                                        className="flex gap-2 text-sm text-[#3d564f]"
+                                    >
+                                        <span className="mt-1.5 h-1 w-1 shrink-0 bg-[#0f5c52]" aria-hidden />
                                         {feature}
                                     </li>
                                 ))}
                             </ul>
-                            
-                            <Link href="/register" className={`block w-full text-center py-2.5 rounded-xl text-sm font-medium transition-colors ${pkg.popular ? 'bg-indigo-600 hover:bg-indigo-500 text-slate-200' : 'border border-white/10 hover:bg-white/5 text-slate-200'}`}>
+
+                            <Link
+                                href="/register"
+                                className={`block w-full rounded-md border py-2.5 text-center text-sm font-semibold transition-colors ${
+                                    pkg.popular
+                                        ? "border-[#08352f] bg-[#0f5c52] text-white hover:bg-[#0b4a42]"
+                                        : "border-[#0b1f1c]/25 bg-white text-[#0b1f1c] hover:border-[#0f5c52] hover:text-[#0f5c52]"
+                                }`}
+                            >
                                 Get Started
                             </Link>
                         </div>

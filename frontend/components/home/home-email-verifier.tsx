@@ -14,15 +14,15 @@ export function HomeEmailVerifier() {
     const [isLoading, setIsLoading] = useState(false)
     const [status, setStatus] = useState<string | null>(null)
     const [limit, setLimit] = useState<number | null>(() => {
-        if (typeof window !== 'undefined') {
-            const cached = localStorage.getItem('free_verify_limit')
+        if (typeof window !== "undefined") {
+            const cached = localStorage.getItem("free_verify_limit")
             return cached ? Number(cached) : null
         }
         return null
     })
     const [remaining, setRemaining] = useState<number | null>(() => {
-        if (typeof window !== 'undefined') {
-            const cached = localStorage.getItem('free_verify_remaining')
+        if (typeof window !== "undefined") {
+            const cached = localStorage.getItem("free_verify_remaining")
             return cached ? Number(cached) : null
         }
         return null
@@ -31,17 +31,16 @@ export function HomeEmailVerifier() {
 
     const fetchStatus = async () => {
         try {
-            const res = await ApiClient.get<any>('/jobs/verify-public/status', {
-                withCredentials: true // Axios setting to include cookies
+            const res = await ApiClient.get<any>("/jobs/verify-public/status", {
+                withCredentials: true,
             })
-            if (res.status === 'success') {
+            if (res.status === "success") {
                 setLimit(res.data.limit)
                 setRemaining(res.data.remaining)
-                // Cache it so next reload doesn't flash 15
-                localStorage.setItem('free_verify_limit', res.data.limit)
-                localStorage.setItem('free_verify_remaining', res.data.remaining)
+                localStorage.setItem("free_verify_limit", res.data.limit)
+                localStorage.setItem("free_verify_remaining", res.data.remaining)
             }
-        } catch (e) {
+        } catch {
             console.error("Failed to load verifier status")
         } finally {
             setIsInitializing(false)
@@ -56,7 +55,6 @@ export function HomeEmailVerifier() {
         e.preventDefault()
         if (!email.trim() || isMaintenance) return
 
-        // Check limit
         if (!isInitializing && remaining !== null && remaining <= 0) {
             router.push("/register")
             return
@@ -66,24 +64,25 @@ export function HomeEmailVerifier() {
         setStatus(null)
 
         try {
-            const res = await ApiClient.post<any>('/jobs/verify-public', { email }, {
-                withCredentials: true,
-                timeout: 60000
-            })
-            
-            if (res?.status === 'success' && res.data) {
-                setStatus(res.data.status || 'Verified')
-                
-                // Refresh the remaining count from server
-                fetchStatus()
-            } else if (res?.status === 'error') {
-                setStatus(res.message || 'Error')
-            } else {
-                setStatus(res?.message || 'Unknown')
-            }
+            const res = await ApiClient.post<any>(
+                "/jobs/verify-public",
+                { email },
+                {
+                    withCredentials: true,
+                    timeout: 60000,
+                }
+            )
 
+            if (res?.status === "success" && res.data) {
+                setStatus(res.data.status || "Verified")
+                fetchStatus()
+            } else if (res?.status === "error") {
+                setStatus(res.message || "Error")
+            } else {
+                setStatus(res?.message || "Unknown")
+            }
         } catch (error: any) {
-            setStatus(error?.message || 'Error connecting to server')
+            setStatus(error?.message || "Error connecting to server")
         } finally {
             setIsLoading(false)
         }
@@ -91,69 +90,80 @@ export function HomeEmailVerifier() {
 
     const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setEmail(e.target.value)
-        if (status !== null) {
-            setStatus(null) // Reset status on typing
-        }
+        if (status !== null) setStatus(null)
     }
 
-    // Determine button text and styles based on state
     let buttonText = "Verify Now"
-    let buttonStyle = "bg-indigo-600 text-slate-200 shadow-indigo-600/20 hover:bg-indigo-500"
+    let buttonStyle = "border border-[#08352f] bg-[var(--accent,#0f5c52)] text-white hover:bg-[var(--accent-hover,#0b4a42)]"
 
     if (isMaintenance) {
         buttonText = "Maintenance Active"
-        buttonStyle = "bg-amber-600 text-white shadow-none hover:bg-amber-600 cursor-not-allowed opacity-80"
+        buttonStyle = "border border-amber-950/40 bg-amber-700 text-white cursor-not-allowed opacity-80"
     } else if (isLoading) {
         buttonText = "Verifying..."
-        buttonStyle = "bg-indigo-500/50 text-slate-300 cursor-wait"
+        buttonStyle = "border border-[#08352f]/70 bg-[var(--accent,#0f5c52)]/70 text-white cursor-wait"
     } else if (status) {
         buttonText = status
-        // Add dynamic styling based on result if desired, keeping it simple for now
-        if (status.toLowerCase().includes('valid') && !status.toLowerCase().includes('invalid')) {
-            buttonStyle = "bg-emerald-600 text-white shadow-emerald-600/20 hover:bg-emerald-500"
-        } else if (status.toLowerCase().includes('invalid') || status.toLowerCase().includes('error')) {
-            buttonStyle = "bg-rose-600 text-white shadow-rose-600/20 hover:bg-rose-500"
+        const s = status.toLowerCase()
+        if (s.includes("valid") && !s.includes("invalid")) {
+            buttonStyle = "border border-emerald-950/40 bg-emerald-700 text-white landing-result-pop"
+        } else if (s.includes("invalid") || s.includes("error")) {
+            buttonStyle = "border border-rose-950/40 bg-rose-700 text-white landing-result-pop"
         } else {
-            buttonStyle = "bg-amber-600 text-white shadow-amber-600/20 hover:bg-amber-500"
+            buttonStyle = "border border-amber-950/40 bg-amber-700 text-white landing-result-pop"
         }
     }
 
     return (
-        <form onSubmit={handleVerify} className="max-w-xl mx-auto">
-            <div className="flex flex-col sm:flex-row gap-3 p-2 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl shadow-black/20 transition-all duration-300">
-                <div className="relative flex-1">
-                    <svg className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+        <form onSubmit={handleVerify} className="mx-auto w-full max-w-xl">
+            <div className="flex flex-col gap-3 rounded-md border border-[#0b1f1c]/10 bg-white/80 p-2 shadow-[0_12px_40px_-20px_rgba(11,31,28,0.35)] backdrop-blur-sm sm:flex-row sm:items-center sm:gap-2">
+                <div className="relative min-w-0 flex-1">
+                    <svg
+                        className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8aa099]"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={1.5}
+                        aria-hidden
+                    >
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"
+                        />
                     </svg>
                     <input
                         type="email"
                         required
                         value={email}
                         onChange={handleEmailChange}
-                        placeholder={isMaintenance ? settings?.maintenance_message || "System under maintenance..." : "Enter email address to verify..."}
-                        className="w-full pl-12 pr-4 py-4 rounded-xl bg-white/5 border-0 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        placeholder={
+                            isMaintenance
+                                ? settings?.maintenance_message || "System under maintenance..."
+                                : "Enter email address to verify..."
+                        }
+                        className="w-full rounded-md border-0 bg-transparent py-3.5 pl-12 pr-4 text-base text-[var(--ink,#0b1f1c)] placeholder:text-[#8aa099] focus:outline-none focus:ring-2 focus:ring-[var(--accent,#0f5c52)]/25 disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={isLoading || isMaintenance}
                     />
                 </div>
                 <button
                     type="submit"
                     disabled={isLoading || !email || isMaintenance}
-                    className={`flex items-center justify-center gap-2 px-8 py-4 rounded-xl font-semibold text-base shadow-lg transition-all hover:-translate-y-0.5 whitespace-nowrap disabled:opacity-70 disabled:hover:translate-y-0 disabled:cursor-not-allowed ${buttonStyle}`}
+                    className={`inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-md px-7 py-3.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto ${buttonStyle}`}
                 >
                     {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {!isLoading && !status && (
-                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
-                    )}
                     {buttonText}
                 </button>
             </div>
 
-            <div className="flex items-center justify-between mt-4 px-2">
-                <p className="text-xs text-slate-500">
-                    🔒 Free to try — No credit card required.
-                </p>
-                <p className="text-xs text-slate-500 min-h-[16px] min-w-[140px] text-right" suppressHydrationWarning>
-                    {remaining !== null ? `${remaining} free verifications left` : " "}
+            <div className="mt-4 flex flex-col gap-1 px-1 text-xs text-[var(--muted-soft,#6b857c)] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <p>Free to try — no credit card required.</p>
+                <p className="min-h-[16px] tabular-nums sm:shrink-0 sm:text-right" suppressHydrationWarning>
+                    {remaining !== null && limit !== null
+                        ? `${remaining} of ${limit} free today`
+                        : remaining !== null
+                          ? `${remaining} left today`
+                          : " "}
                 </p>
             </div>
         </form>
