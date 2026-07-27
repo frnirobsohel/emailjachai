@@ -97,9 +97,11 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
         }
     }, [initialData])
 
+    // Fresh list on every visit; debounce only applies to subsequent filter changes
     useEffect(() => {
         if (isInitialMount.current) {
             isInitialMount.current = false
+            void fetchDomains()
             return
         }
         const timer = setTimeout(() => {

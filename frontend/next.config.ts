@@ -26,10 +26,11 @@ const nextConfig: NextConfig = {
   // Optimize heavy packages so Turbopack doesn't re-analyze them on every compile
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts', '@radix-ui/react-dropdown-menu'],
-    // Client-side Router Cache: ভিজিট করা পেজ instant load করবে
+    // Soft-nav speed: keep visited RSC in client Router Cache (same as pre-stale-fix UX).
+    // Freshness comes from mount/focus client refetch + optimistic updates — not from disabling this.
     staleTimes: {
-      dynamic: 30,        // dynamic page: ৩০ সেকেন্ড cache
-      static: 5 * 60,    // static page: ৫ মিনিট cache
+      dynamic: 30,
+      static: 5 * 60,
     },
   },
   async headers() {

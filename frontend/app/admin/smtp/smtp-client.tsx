@@ -101,7 +101,6 @@ export function SmtpClient({
     const [templates, setTemplates] = useState<Record<TemplatesKey, Template>>(initialTemplates)
     const [hasStoredPassword, setHasStoredPassword] = useState(initialHasStoredPassword)
     const [isConnectionVerified, setIsConnectionVerified] = useState(initialIsConnectionVerified)
-    const isFirstMount = useRef(true)
     const isProgrammaticUpdate = useRef(false)
 
     const smtpForm = useForm<z.infer<typeof smtpSettingsSchema>>({
@@ -171,11 +170,7 @@ export function SmtpClient({
     };
 
     useEffect(() => {
-        if (isFirstMount.current) {
-            isFirstMount.current = false;
-            return;
-        }
-        fetchSmtpData();
+        void fetchSmtpData();
     }, []);
 
     useEffect(() => {

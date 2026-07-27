@@ -1,10 +1,11 @@
 import { Metadata } from "next"
 
+export const dynamic = "force-dynamic"
+
 export const metadata: Metadata = {
     title: "Credit History",
 }
 
-export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { CreditsHistoryClient } from "./history-client"
 import type { Transaction } from "./history-client"

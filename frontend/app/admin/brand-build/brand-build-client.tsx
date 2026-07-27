@@ -88,10 +88,8 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
     };
 
     useEffect(() => {
-        if (!initialData || Object.keys(initialData).length === 0) {
-            fetchSettings();
-        }
-    }, [initialData]);
+        void fetchSettings();
+    }, []);
 
     const handleSaveSubmit = async (values: BrandSettingsValues) => {
         try {
@@ -101,6 +99,7 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
 
             if (result.status === 'success') {
                 toast.success("Brand settings updated successfully.");
+                void fetchSettings();
             } else {
                 toast.error(result.message || "Failed to save settings.");
             }

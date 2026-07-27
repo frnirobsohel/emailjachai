@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -37,10 +37,9 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
     const [total, setTotal] = useState(initialTotal)
     const [offset, setOffset] = useState(0)
     const limit = 10
-    const isFirstMount = useRef(true)
 
-    const fetchData = useCallback(async () => {
-        setIsLoading(true);
+    const fetchData = useCallback(async (silent = false) => {
+        if (!silent) setIsLoading(true);
         try {
             // Fetch Stats
             const statsData = await ApiClient.get('/dashboard/stats');
@@ -59,7 +58,7 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
         } catch (error) {
             console.error("Failed to fetch data:", error);
         } finally {
-            setIsLoading(false);
+            if (!silent) setIsLoading(false);
         }
     }, [offset]);
 
@@ -71,15 +70,18 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
         }
     }, [initialTransactions, initialStats, initialTotal]);
 
+    // Always refetch on mount / offset so soft-nav / RSC cache cannot show stale usage rows
     useEffect(() => {
-        if (isFirstMount.current) {
-            isFirstMount.current = false
-            return
+        void fetchData(true)
+    }, [fetchData]);
+
+    useEffect(() => {
+        const onFocus = () => {
+            void fetchData(true)
         }
-        if (offset > 0) {
-            fetchData();
-        }
-    }, [offset, fetchData]);
+        window.addEventListener("focus", onFocus)
+        return () => window.removeEventListener("focus", onFocus)
+    }, [fetchData]);
 
     return (
         <div className="flex-1 space-y-4">

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Upload, RefreshCcw, MoreHorizontal, Eye, Download, Trash2 } from "lucide-react"
@@ -54,9 +54,12 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
     // Connect to WebSocket to receive real-time job_update events
     useJobsWebSocket()
 
-    const fetchJobs = async (showSkeleton = false) => {
-        if (showSkeleton || store.jobs.length === 0) {
-            setIsLoading(true);
+    const fetchJobs = async (silent = true) => {
+        // Only show row skeletons when there is nothing on screen yet.
+        // Silent refetch (mount/focus/pagination) keeps current rows — same as credit history.
+        const hasVisibleRows = (store.jobs.length > 0 ? store.jobs : initialJobs).length > 0
+        if (!silent || !hasVisibleRows) {
+            setIsLoading(true)
         }
         try {
             const data = await ApiClient.get(`/jobs/list?limit=${limit}&offset=${offset}&type=bulk`);
@@ -78,7 +81,7 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
             const data = await ApiClient.post('/jobs/delete', { job_id: jobId });
             if (data.status === 'success') {
                 toast.success("Job deleted successfully", { id: toastId });
-                fetchJobs(false); // Refetch in background
+                void fetchJobs(true);
                 setConfirmDelete(null);
             } else {
                 toast.error(data.message || 'Failed to delete job', { id: toastId });
@@ -98,7 +101,7 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
             const data = await ApiClient.post('/jobs/retry', { job_id: jobId });
             if (data.status === 'success') {
                 toast.success("Job retry queued successfully", { id: toastId });
-                fetchJobs(false); // Refetch in background
+                void fetchJobs(true);
             } else {
                 toast.error(data.message || 'Failed to retry job', { id: toastId });
             }
@@ -110,8 +113,6 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
         }
     }
 
-    const isFirstMount = useRef(true);
-
     // Sync initial server-fetched jobs to the store on mount
     useEffect(() => {
         if (initialJobs) {
@@ -119,12 +120,19 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
         }
     }, [initialJobs, initialTotal]);
 
+    // Silent refetch on mount / page change — avoid skeleton flash when rows already exist
     useEffect(() => {
-        if (isFirstMount.current) {
-            isFirstMount.current = false;
-            return; // Skip duplicate fetch on initial mount
-        }
-        fetchJobs(true);
+        void fetchJobs(true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [offset]);
+
+    useEffect(() => {
+        const onFocus = () => {
+            void fetchJobs(true);
+        };
+        window.addEventListener("focus", onFocus);
+        return () => window.removeEventListener("focus", onFocus);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [offset]);
 
     const columns = [
@@ -223,7 +231,7 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
                 <div className="flex items-center gap-4">
                     <CreditBadge />
                     <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={() => fetchJobs(true)} className="border-[#0b1f1c]/10 text-[#0b1f1c] hover:border-[#0f5c52] hover:text-[#0f5c52]">
+                        <Button variant="outline" size="sm" onClick={() => void fetchJobs(true)} className="border-[#0b1f1c]/10 text-[#0b1f1c] hover:border-[#0f5c52] hover:text-[#0f5c52]">
                             <RefreshCcw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
                         </Button>
                         <Button className="rounded-md border border-[#08352f] bg-[#0f5c52] text-white shadow-none hover:bg-[#0b4a42]" asChild>

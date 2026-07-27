@@ -1,10 +1,11 @@
 import { Metadata } from "next"
 
+export const dynamic = "force-dynamic"
+
 export const metadata: Metadata = {
     title: "Verification Jobs",
 }
 
-export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { JobsClient } from "@/features/jobs/components/jobs-client"
 import type { Job } from "@/features/jobs/components/jobs-client"

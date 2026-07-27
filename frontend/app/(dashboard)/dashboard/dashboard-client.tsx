@@ -80,7 +80,7 @@ export function DashboardClient({ initialStats, initialRecentJobs }: DashboardCl
                 <>
                     <StatsCards stats={currentStats} isLoading={isLoadingStats} />
 
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+                    <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-7">
                         <LifetimeUsageChart data={currentStats.usage_breakdown!} isLoading={isLoadingStats} />
                         <WeeklyActivityChart data={currentStats.weekly_activity!} isLoading={isLoadingStats} />
                     </div>

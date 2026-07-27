@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, CreditCard, Activity, DollarSign, ArrowUpRight, ArrowDownRight, RefreshCcw } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
@@ -29,17 +29,20 @@ export function AdminDashboardClient({ initialData }: { initialData: any }) {
     }
 
     useEffect(() => {
-        // Initialize store on mount ONLY if not yet initialized
+        // Seed from SSR, then always refresh so soft-nav / store cannot keep stale totals
         if (initialData && !store.hasInitialized) {
             store.setData(initialData);
         }
-    }, [initialData]);
+        void fetchStats();
+    }, []);
 
     useEffect(() => {
-        if (store.hasInitialized) {
-            fetchStats();
-        }
-    }, [store.hasInitialized]);
+        const onFocus = () => {
+            void fetchStats();
+        };
+        window.addEventListener("focus", onFocus);
+        return () => window.removeEventListener("focus", onFocus);
+    }, []);
 
 
     const stats = [

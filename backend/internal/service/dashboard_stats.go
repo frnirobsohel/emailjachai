@@ -14,6 +14,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// InvalidateAndRefreshDashboardStats drops the Redis stats cache immediately so
+// /dashboard/stats cannot serve a pre-mutation credit balance, then recomputes async.
+func InvalidateAndRefreshDashboardStats(uID uint) {
+	config.ClearDashboardCache(uID)
+	go ComputeAndCacheDashboardStats(uID)
+}
+
 func ComputeAndCacheDashboardStats(uID uint) gin.H {
 	var wg sync.WaitGroup
 	var user model.User

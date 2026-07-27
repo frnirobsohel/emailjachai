@@ -4,7 +4,6 @@ export const metadata: Metadata = {
     title: "Package Management",
 }
 
-export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { PackagesClient } from "./packages-client"
 

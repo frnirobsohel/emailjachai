@@ -21,6 +21,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
 
 
+    // Keep dashboard credits fresh on every app-route mount (covers hard reload)
+    useEffect(() => {
+        if (!isAppRoute || !pathname?.startsWith("/dashboard")) return
+        void useDashboardStore.getState().fetchStats()
+    }, [isAppRoute, pathname])
+
     useEffect(() => {
         // Handle credit updates globally via WebSocket (legacy/fallback)
         const handleCreditUpdate = (event: any) => {
@@ -28,6 +34,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             if (data && typeof data.balance === 'number') {
                 logger.info(`Credits updated (legacy): ${data.balance}`);
                 setBalance(data.balance);
+                useCreditStore.getState().setLastFetched(Date.now());
             }
         };
 
@@ -37,6 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             if (data && typeof data.credits === 'number') {
                 logger.info(`User credits updated: ${data.credits}`);
                 setBalance(data.credits);
+                useCreditStore.getState().setLastFetched(Date.now());
                 
                 // Keep the dashboard stats in sync with the updated credit balance
                 const dashboardStore = useDashboardStore.getState();
@@ -45,6 +53,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         ...dashboardStore.stats,
                         credits_remaining: data.credits.toLocaleString(),
                     });
+                } else {
+                    void dashboardStore.fetchStats(true);
                 }
             }
         };

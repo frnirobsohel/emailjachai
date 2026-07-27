@@ -10,6 +10,7 @@ import { ApiClient } from "@/lib/api-client"
 import { logger } from "@/lib/logger"
 import { useSettings } from "@/lib/settings-context"
 import { useDashboardStore } from "@/stores/dashboard-store"
+import { useCreditStore } from "@/stores/credit-state"
 
 export interface VerificationResult {
     job_id: string
@@ -54,6 +55,22 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
         setIsLoading(true)
         setError(null)
 
+        // Optimistic debit as soon as the request starts (backend deducts before SMTP)
+        const dash = useDashboardStore.getState()
+        const creditStore = useCreditStore.getState()
+        const previousCredits = dash.stats?.credits_remaining
+        const previousBalance = creditStore.balance
+        if (dash.stats?.credits_remaining != null) {
+            const current = Number(String(dash.stats.credits_remaining).replace(/,/g, ""))
+            if (Number.isFinite(current)) {
+                dash.setStats({
+                    ...dash.stats,
+                    credits_remaining: Math.max(0, current - 1).toLocaleString(),
+                })
+            }
+        }
+        creditStore.deductCredits(1)
+
         try {
             const result = await ApiClient.post(
                 "/jobs/verify-single",
@@ -63,11 +80,23 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
 
             if (result.status === "success") {
                 onVerify(result.data as VerificationResult)
-                void useDashboardStore.getState().fetchStats(true)
+                void dash.fetchStats(true)
             } else {
+                // Roll back optimistic debit on API-level failure
+                if (previousCredits != null && dash.stats) {
+                    dash.setStats({ ...dash.stats, credits_remaining: previousCredits })
+                }
+                creditStore.setBalance(previousBalance)
                 setError(result.message || "Failed to verify email")
             }
         } catch (err: unknown) {
+            if (previousCredits != null && useDashboardStore.getState().stats) {
+                useDashboardStore.getState().setStats({
+                    ...useDashboardStore.getState().stats!,
+                    credits_remaining: previousCredits,
+                })
+            }
+            useCreditStore.getState().setBalance(previousBalance)
             logger.error("Verification operation failed:", err)
             setError(err instanceof Error ? err.message : "An unexpected error occurred during verification")
         } finally {

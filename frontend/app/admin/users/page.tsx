@@ -4,7 +4,6 @@ export const metadata: Metadata = {
     title: "User Management",
 }
 
-export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { ManageUsersClient, ApiUser } from "./users-client"
 

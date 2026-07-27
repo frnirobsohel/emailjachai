@@ -10,6 +10,7 @@ import (
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/ws"
+	"ejp-backend/pkg/config"
 	"ejp-backend/pkg/safe"
 )
 
@@ -198,6 +199,7 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 			})
 		}
 		s.logActivity("INFO", "Admin", fmt.Sprintf("Changed user #%d status to %s", targetUserID, status), adminID)
+		config.ClearAdminCache()
 		return nil
 
 	case "update_role":
@@ -211,6 +213,7 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 			return err
 		}
 		s.logActivity("INFO", "Admin", fmt.Sprintf("Changed user #%d role to %s", targetUserID, role), adminID)
+		config.ClearAdminCache()
 		return nil
 
 	case "delete":
@@ -221,6 +224,7 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 			return err
 		}
 		s.logActivity("WARN", "Admin", fmt.Sprintf("Deleted user #%d", targetUserID), adminID)
+		config.ClearAdminCache()
 		return nil
 
 	case "adjust_credits":
@@ -260,8 +264,9 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 						"credits": updatedUser.Credits,
 					})
 				}
-				ComputeAndCacheDashboardStats(targetUserIDCopy)
+				InvalidateAndRefreshDashboardStats(targetUserIDCopy)
 			})
+			config.ClearAdminCache()
 		}
 		return err
 	}
@@ -305,7 +310,11 @@ func (s *adminService) GetJobStats() (interface{}, error) {
 
 func (s *adminService) CleanupJobs(days int) (int64, error) {
 	cutoff := time.Now().AddDate(0, 0, -days)
-	return s.adminRepo.CleanupJobsByDate(cutoff)
+	n, err := s.adminRepo.CleanupJobsByDate(cutoff)
+	if err == nil {
+		config.ClearAdminCache()
+	}
+	return n, err
 }
 
 func (s *adminService) CreateUser(name, email, password, role string, credits int) error {
@@ -338,7 +347,11 @@ func (s *adminService) CreateUser(name, email, password, role string, credits in
 		Status:   "Active",
 	}
 
-	return s.userRepo.Create(user)
+	if err := s.userRepo.Create(user); err != nil {
+		return err
+	}
+	config.ClearAdminCache()
+	return nil
 }
 
 func (s *adminService) EditUser(id uint, name, email, role string) error {
@@ -370,7 +383,11 @@ func (s *adminService) EditUser(id uint, name, email, role string) error {
 		"role":  role,
 	}
 
-	return s.userRepo.Update(user, updates)
+	if err := s.userRepo.Update(user, updates); err != nil {
+		return err
+	}
+	config.ClearAdminCache()
+	return nil
 }
 
 func (s *adminService) AdminDownloadAllJobs(jobType string) (*sql.Rows, error) {

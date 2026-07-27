@@ -4,7 +4,6 @@ export const metadata: Metadata = {
     title: "Cache Control",
 }
 
-export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { CacheControlClient } from "@/app/admin/cache-control/cache-control-client"
 

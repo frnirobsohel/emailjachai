@@ -4,7 +4,6 @@ export const metadata: Metadata = {
     title: "Job Control",
 }
 
-export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { JobControlClient } from "./job-control-client"
 

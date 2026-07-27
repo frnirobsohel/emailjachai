@@ -39,14 +39,12 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     isLoadingStats: false,
     lastFetchedStats: null,
     fetchStats: async (force = false) => {
-        const { stats, isLoadingStats, lastFetchedStats } = get();
-        
-        // Prevent duplicate fetches if already loading
-        if (isLoadingStats) return;
-        
-        // If we already have stats, don't refetch because WebSockets keep them fresh!
-        if (!force && stats) {
-            return;
+        const { stats, isLoadingStats } = get();
+
+        // Non-force: skip if already loading or we already have stats (WS keeps them fresh)
+        if (!force) {
+            if (isLoadingStats) return;
+            if (stats) return;
         }
 
         set({ isLoadingStats: true });

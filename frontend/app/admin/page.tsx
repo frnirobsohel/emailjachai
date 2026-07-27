@@ -4,7 +4,6 @@ export const metadata: Metadata = {
     title: "Admin Dashboard",
 }
 
-export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { AdminDashboardClient } from "./_components/admin-client"
 

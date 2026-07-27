@@ -10,6 +10,8 @@ import { BrandLogo } from "@/components/home/brand-logo"
 
 import { useUIStore } from "@/stores/ui-state"
 import { useUserStore } from "@/stores/user-state"
+import { useCreditStore } from "@/stores/credit-state"
+import { useDashboardStore } from "@/stores/dashboard-store"
 import { resetAllStores } from "@/stores/store-reset"
 import { SidebarNavigation } from "./sidebar/sidebar-navigation"
 import { SidebarProfile } from "./sidebar/sidebar-profile"
@@ -83,6 +85,21 @@ export function Sidebar({ className, defaultCollapsed = false }: SidebarProps) {
                             role: sessionUser.role || "user",
                             avatar: sessionUser.avatar,
                         })
+
+                        // Seed credits immediately from /auth/me (fast) so CreditBadge
+                        // does not wait on the heavier /dashboard/stats payload after reload.
+                        if (typeof sessionUser.credits === "number") {
+                            useCreditStore.getState().setBalance(sessionUser.credits)
+                            useCreditStore.getState().setLastFetched(Date.now())
+                            const dash = useDashboardStore.getState()
+                            if (dash.stats) {
+                                dash.setStats({
+                                    ...dash.stats,
+                                    credits_remaining: sessionUser.credits.toLocaleString(),
+                                })
+                            }
+                        }
+
                         if (meData.data.isImpersonating) {
                             setIsImpersonating(true)
                         }

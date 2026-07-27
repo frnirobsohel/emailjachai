@@ -136,7 +136,7 @@ func (s *resellerService) TransferCredits(resellerID uint, recipientEmail string
 					"credits": updatedReseller.Credits,
 				})
 			}
-			ComputeAndCacheDashboardStats(resellerID)
+			InvalidateAndRefreshDashboardStats(resellerID)
 		})
 
 		// Broadcast updated credit balance for recipient and refresh stats
@@ -145,7 +145,7 @@ func (s *resellerService) TransferCredits(resellerID uint, recipientEmail string
 				ws.GlobalHub.BroadcastToUser(recipient.ID, "user_update", map[string]interface{}{
 					"credits": recipient.Credits,
 				})
-				ComputeAndCacheDashboardStats(recipient.ID)
+				InvalidateAndRefreshDashboardStats(recipient.ID)
 			}
 		})
 	}

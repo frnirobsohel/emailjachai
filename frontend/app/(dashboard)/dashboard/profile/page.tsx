@@ -4,7 +4,6 @@ export const metadata: Metadata = {
     title: "Profile Settings",
 }
 
-export const dynamic = 'force-dynamic';
 import { fetchServer } from "@/lib/fetch-server"
 import { ProfileClient } from "@/features/profile/components/profile-client"
 

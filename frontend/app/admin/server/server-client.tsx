@@ -95,21 +95,24 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
         defaultValues: { password: "" }
     })
 
-    const isFirstMount = useRef(true)
-
     useEffect(() => {
         if (initialData && initialData.length > 0) {
             setServers(initialData)
         }
     }, [initialData])
 
+    // Always refetch on mount — previous isFirstMount gate never ran fetchServers at all
     useEffect(() => {
-        if (isFirstMount.current) {
-            isFirstMount.current = false;
-            return;
+        void fetchServers()
+    }, [])
+
+    useEffect(() => {
+        const onFocus = () => {
+            void fetchServers()
         }
-        fetchServers();
-    }, []);
+        window.addEventListener("focus", onFocus)
+        return () => window.removeEventListener("focus", onFocus)
+    }, [])
 
     useEffect(() => {
         if (manageServer) {

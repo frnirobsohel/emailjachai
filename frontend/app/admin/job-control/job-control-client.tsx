@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -52,7 +52,6 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
     const [isSaved, setIsSaved] = useState(false)
     const [isCleaning, setIsCleaning] = useState(false)
     const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date())
-    const isFirstMount = useRef(true)
     
     // Cleanup Modal State
     const [showCleanupModal, setShowCleanupModal] = useState(false)
@@ -106,6 +105,10 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
             setStats(initialStats);
         }
     }, [initialSettings, initialStats, settingsForm]);
+
+    useEffect(() => {
+        void fetchData();
+    }, [fetchData]);
 
     const onSaveSettings = async (values: z.infer<typeof settingsSchema>) => {
         setIsSaved(false);

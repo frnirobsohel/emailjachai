@@ -121,7 +121,12 @@ func (s *jobService) DeleteJob(userID uint, jobID string) error {
 		return err
 	}
 
-	return s.jobRepo.Delete(jobID, userID)
+	if err := s.jobRepo.Delete(jobID, userID); err != nil {
+		return err
+	}
+
+	InvalidateAndRefreshDashboardStats(userID)
+	return nil
 }
 
 
@@ -163,6 +168,14 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 	if err != nil {
 		return nil, nil, err // Failed to deduct credits
 	}
+
+	// Reflect deduction immediately (before slow SMTP) so UI/stats never stick on stale cache
+	if updatedUser, err := s.userRepo.GetByID(userID); err == nil {
+		ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", gin.H{
+			"credits": updatedUser.Credits,
+		})
+	}
+	InvalidateAndRefreshDashboardStats(userID)
 
 	// 3. Verify email (Check Cache First)
 	var res verifier.VerifyResult
@@ -343,13 +356,13 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 		}
 	})
 
-	// Broadcast updated credit balance and clear cache
+	// Final credit/stats sync (covers refunds if save failed earlier paths already returned)
 	if updatedUser, err := s.userRepo.GetByID(userID); err == nil {
 		ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", gin.H{
 			"credits": updatedUser.Credits,
 		})
 	}
-	go ComputeAndCacheDashboardStats(userID)
+	InvalidateAndRefreshDashboardStats(userID)
 
 	return job, resultRecord, nil
 }
@@ -634,7 +647,7 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 		})
 	}
 
-	go ComputeAndCacheDashboardStats(user.ID)
+	InvalidateAndRefreshDashboardStats(user.ID)
 	if idempotencyKey != "" {
 		redisKey := fmt.Sprintf("idempotency:job:%s", idempotencyKey)
 		config.Redis.Set(config.Ctx, redisKey, legacyJobID, 24*time.Hour)
@@ -646,7 +659,17 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 
 func (s *jobService) RefundJob(userID uint, jobID string, credits int, reason string) error {
 	description := fmt.Sprintf("Full refund: job %s queue failure. Reason: %s", jobID, reason)
-	return s.jobRepo.RefundBulkJob(userID, jobID, credits, description)
+	if err := s.jobRepo.RefundBulkJob(userID, jobID, credits, description); err != nil {
+		return err
+	}
+
+	if updatedUser, err := s.userRepo.GetByID(userID); err == nil {
+		ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", gin.H{
+			"credits": updatedUser.Credits,
+		})
+	}
+	InvalidateAndRefreshDashboardStats(userID)
+	return nil
 }
 
 func (s *jobService) CountActiveJobs(userID uint) (int64, error) {
@@ -1138,7 +1161,7 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 			"credits": updatedUser.Credits,
 		})
 	}
-	go ComputeAndCacheDashboardStats(userID)
+	InvalidateAndRefreshDashboardStats(userID)
 
 	return job, nil
 }

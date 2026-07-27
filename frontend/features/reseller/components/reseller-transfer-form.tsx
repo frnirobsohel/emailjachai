@@ -9,6 +9,8 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { toast } from "react-hot-toast"
 import { transferSchema, TransferFormValues } from "@/features/reseller/schemas/reseller-transfer.schema"
 import { useSettings } from "@/lib/settings-context"
+import { useDashboardStore } from "@/stores/dashboard-store"
+import { useCreditStore } from "@/stores/credit-state"
 
 export function ResellerTransferForm() {
     const settings = useSettings()
@@ -25,17 +27,29 @@ export function ResellerTransferForm() {
 
     const onTransfer = async (data: TransferFormValues) => {
         if (isMaintenance) return
+        const amount = parseInt(data.amount, 10)
         try {
             const result = await ApiClient.post("/reseller/transfer", {
                 email: data.email,
-                amount: parseInt(data.amount)
+                amount,
             })
 
             if (result.status === "success") {
                 toast.success(result.message || "Credits transferred successfully.")
                 reset()
-                // Emit event to update CreditBadge if needed
-                window.dispatchEvent(new Event('creditsUpdated'))
+
+                const dash = useDashboardStore.getState()
+                if (Number.isFinite(amount) && amount > 0 && dash.stats?.credits_remaining != null) {
+                    const current = Number(String(dash.stats.credits_remaining).replace(/,/g, ""))
+                    if (Number.isFinite(current)) {
+                        dash.setStats({
+                            ...dash.stats,
+                            credits_remaining: Math.max(0, current - amount).toLocaleString(),
+                        })
+                    }
+                    useCreditStore.getState().deductCredits(amount)
+                }
+                void dash.fetchStats(true)
             } else {
                 toast.error(result.message || "Transfer failed. Please check the email and your balance.")
             }

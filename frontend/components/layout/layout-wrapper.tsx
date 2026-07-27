@@ -76,7 +76,8 @@ export function LayoutWrapper({
             <div
                 suppressHydrationWarning
                 className={cn(
-                    "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-[#0b1f1c]/15 bg-[#c9d6d0]/95 backdrop-blur-xl transition-transform duration-300 ease-in-out",
+                    // Mobile: slide drawer (transform). Desktop: animate width like pre-8e33306.
+                    "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-[#0b1f1c]/15 bg-[#c9d6d0]/95 backdrop-blur-xl transition-[transform,width] duration-300 ease-in-out",
                     isSidebarOpen ? "translate-x-0" : "-translate-x-full",
                     "md:translate-x-0",
                     isCollapsed ? "md:w-16" : "md:w-64"

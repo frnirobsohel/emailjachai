@@ -20,6 +20,8 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useSettings } from "@/lib/settings-context"
+import { useDashboardStore } from "@/stores/dashboard-store"
+import { useCreditStore } from "@/stores/credit-state"
 
 interface UploadStats {
     emailCount: number;
@@ -112,7 +114,13 @@ export function BulkUploadForm() {
             }
 
             setUploadProgress(100);
-            const data = result.data as any;
+            const data = result.data as {
+                total?: number
+                queued?: number
+                duplicates_removed?: number
+                jobId: string
+                is_duplicate?: boolean
+            }
             setUploadStats({
                 emailCount: data.total ?? 0,
                 duplicateCount: data.duplicates_removed ?? 0,
@@ -120,6 +128,33 @@ export function BulkUploadForm() {
                 fileName: selectedFile.name,
                 fileSize: selectedFile.size
             });
+
+            // Credits are deducted for queued emails on submit — refresh UI immediately
+            // (same stale Redis stats cache issue as single verify). Skip debit on idempotent replay.
+            if (!data.is_duplicate) {
+                const charged = Math.max(0, data.queued ?? data.total ?? 0)
+                const dash = useDashboardStore.getState()
+                if (charged > 0 && dash.stats?.credits_remaining != null) {
+                    const current = Number(String(dash.stats.credits_remaining).replace(/,/g, ""))
+                    if (Number.isFinite(current)) {
+                        dash.setStats({
+                            ...dash.stats,
+                            credits_remaining: Math.max(0, current - charged).toLocaleString(),
+                        })
+                    }
+                    useCreditStore.getState().deductCredits(charged)
+                }
+                dash.upsertRecentJob({
+                    job_id: data.jobId,
+                    filename: selectedFile.name,
+                    status: "pending",
+                    total_emails: data.total ?? 0,
+                    processed_count: 0,
+                    created_at: new Date().toISOString(),
+                    type: "bulk",
+                })
+                void dash.fetchStats(true)
+            }
 
         } catch (err: any) {
             setError(err.message || "An unexpected error occurred during upload.");

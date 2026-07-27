@@ -1,7 +1,6 @@
 import { SecurityDashboardClient } from "./_components/security-dashboard-client"
 import { fetchServer } from "@/lib/fetch-server"
 
-export const dynamic = 'force-dynamic';
 
 export const metadata = {
     title: 'Public Verifier | Admin Dashboard',

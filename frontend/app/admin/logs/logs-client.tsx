@@ -78,8 +78,6 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
         }
     }, [isLoading])
 
-    const isFirstMount = useRef(true)
-
     useEffect(() => {
         if (initialLogs && initialLogs.length > 0) {
             store.setInitial(initialLogs, initialTotal, initialHasMore);
@@ -91,6 +89,15 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
             loadPage(0);
         }
     }, [initialLogs, initialTotal, initialHasMore]);
+
+    // Soft-nav can replay stale RSC logs — force a fresh first page on mount
+    useEffect(() => {
+        store.clearLogs();
+        setOffset(0);
+        setIsInitial(true);
+        loadPage(0);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     useEffect(() => {
         if (!sentinelRef.current) return

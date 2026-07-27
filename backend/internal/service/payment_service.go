@@ -588,7 +588,7 @@ func (s *paymentService) completeManualPayment(payload interface{}) error {
 			ws.GlobalHub.BroadcastToUser(user.ID, "user_update", map[string]interface{}{
 				"credits": user.Credits,
 			})
-			go ComputeAndCacheDashboardStats(user.ID)
+			InvalidateAndRefreshDashboardStats(user.ID)
 
 			go s.emailService.SendTemplateEmail(user.Email, "buy_credits", map[string]string{
 				"name":     user.Name,
@@ -845,7 +845,7 @@ func (s *paymentService) fulfillPaymentMapping(mapKey, gateway string) error {
 						"credits": user.Credits,
 					})
 				}
-				ComputeAndCacheDashboardStats(userIDCopy)
+				InvalidateAndRefreshDashboardStats(userIDCopy)
 			})
 		}
 	}

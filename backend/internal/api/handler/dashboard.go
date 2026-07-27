@@ -26,9 +26,9 @@ func DashboardStats(c *gin.Context) {
 }
 
 func ClearDashboardCache(userID uint) {
-	// Instead of deleting the cache and forcing the next user request to block,
-	// we update it asynchronously in the background. This provides a <50ms response time guarantee.
-	go service.ComputeAndCacheDashboardStats(userID)
+	// Drop stale cache first so the next /dashboard/stats read cannot return
+	// a pre-mutation balance, then recompute in the background.
+	service.InvalidateAndRefreshDashboardStats(userID)
 }
 
 
