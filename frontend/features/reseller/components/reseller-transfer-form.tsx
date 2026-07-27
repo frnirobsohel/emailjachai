@@ -47,22 +47,22 @@ export function ResellerTransferForm() {
     return (
         <form onSubmit={handleSubmit(onTransfer)} className="space-y-4">
             <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-700">Recipient Email</label>
+                <label className="text-sm font-medium text-[#0b1f1c]">Recipient Email</label>
                 <Input
                     type="email"
                     placeholder="user@example.com"
-                    className={`border-indigo-100 focus-visible:ring-indigo-500 h-11 ${errors.email ? 'border-red-500' : ''}`}
+                    className={`border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 h-11 ${errors.email ? 'border-red-500' : ''}`}
                     disabled={isSubmitting || isMaintenance}
                     {...register("email")}
                 />
                 {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email.message}</p>}
             </div>
             <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-700">Credit Amount</label>
+                <label className="text-sm font-medium text-[#0b1f1c]">Credit Amount</label>
                 <Input
                     type="number"
                     placeholder="Ex: 5000"
-                    className={`border-indigo-100 focus-visible:ring-indigo-500 h-11 ${errors.amount ? 'border-red-500' : ''}`}
+                    className={`border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 h-11 ${errors.amount ? 'border-red-500' : ''}`}
                     disabled={isSubmitting || isMaintenance}
                     {...register("amount")}
                 />
@@ -71,7 +71,7 @@ export function ResellerTransferForm() {
 
             <Button 
                 type="submit" 
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white h-11 text-md font-semibold transition-all shadow-md active:scale-[0.98]"
+                className="w-full border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white h-11 text-md font-semibold transition-all shadow-none active:scale-[0.98]"
                 disabled={isSubmitting || isMaintenance}
             >
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}

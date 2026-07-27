@@ -339,8 +339,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             {/* Header Section */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-slate-900">Worker Servers</h2>
-                    <p className="text-slate-500 text-sm">Centrally manage and monitor your distributed verification infrastructure.</p>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Worker Servers</h2>
+                    <p className="text-sm text-[#5a736c]">Centrally manage and monitor your distributed verification infrastructure.</p>
                 </div>
                 <div className="flex items-center gap-3">
                     <Button
@@ -348,7 +348,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                             setShowAddForm(true);
                             addForm.reset();
                         }}
-                        className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white shadow-sm transition-all active:scale-95"
+                        className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none transition-all active:scale-95"
                     >
                         <Plus className="mr-2 h-4 w-4" /> Add New Server
                     </Button>
@@ -359,11 +359,11 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             {manageServer && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="w-full max-w-md animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
-                        <Card className="shadow-2xl border-indigo-100 overflow-hidden">
-                            <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
+                        <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden">
+                            <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                                 <div className="flex items-center justify-between">
                                     <div>
-                                        <CardTitle className="text-xl font-bold text-slate-900">Manage Server</CardTitle>
+                                        <CardTitle className="text-xl font-bold text-[#0b1f1c]">Manage Server</CardTitle>
                                         <CardDescription>{manageServer.name}</CardDescription>
                                     </div>
                                     <Button variant="ghost" size="icon" onClick={() => setManageServer(null)} className="h-8 w-8 text-slate-400">
@@ -379,7 +379,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                             <Input 
                                                 id="manage-rate" 
                                                 type="number" 
-                                                className={`focus-visible:ring-indigo-500 font-medium ${manageForm.formState.errors.rateLimit ? 'border-red-400' : 'border-indigo-50'}`} 
+                                                className={`focus-visible:ring-[#0f5c52]/30 font-medium ${manageForm.formState.errors.rateLimit ? 'border-red-400' : 'border-[#0b1f1c]/10'}`} 
                                                 {...manageForm.register("rateLimit")} 
                                             />
                                             {manageForm.formState.errors.rateLimit && <p className="text-xs text-red-500">{manageForm.formState.errors.rateLimit.message}</p>}
@@ -389,7 +389,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                             <Input 
                                                 id="manage-daily" 
                                                 type="number" 
-                                                className={`focus-visible:ring-indigo-500 font-medium ${manageForm.formState.errors.dailyLimit ? 'border-red-400' : 'border-indigo-50'}`} 
+                                                className={`focus-visible:ring-[#0f5c52]/30 font-medium ${manageForm.formState.errors.dailyLimit ? 'border-red-400' : 'border-[#0b1f1c]/10'}`} 
                                                 {...manageForm.register("dailyLimit")} 
                                             />
                                             {manageForm.formState.errors.dailyLimit && <p className="text-xs text-red-500">{manageForm.formState.errors.dailyLimit.message}</p>}
@@ -400,7 +400,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                         <Button
                                             type="submit"
                                             disabled={manageForm.formState.isSubmitting}
-                                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold uppercase tracking-widest shadow-lg shadow-indigo-100/50"
+                                            className="w-full border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white font-bold uppercase tracking-widest shadow-none"
                                         >
                                             {manageForm.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
                                         </Button>
@@ -412,7 +412,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                                 onClick={() => { handleToggleServer(manageServer.id, !manageServer.config.enabled); setManageServer(null); }}
                                                 variant={manageServer.config.enabled ? "destructive" : "default"}
                                                 size="sm"
-                                                className={`h-9 px-6 font-bold uppercase tracking-wider ${!manageServer.config.enabled ? "bg-indigo-600 hover:bg-indigo-700" : "bg-slate-900"}`}
+                                                className={`h-9 px-6 font-bold uppercase tracking-wider ${!manageServer.config.enabled ? "bg-[#0f5c52] hover:bg-[#0b4a42]" : "bg-slate-900"}`}
                                             >
                                                 {manageServer.config.enabled ? "Disable Node" : "Enable Node"}
                                             </Button>
@@ -445,24 +445,24 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             )}
 
             {/* Worker API Key Card */}
-            <Card className="shadow-sm border-indigo-100 overflow-hidden relative">
+            <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden relative">
                 <div className="absolute top-0 right-0 p-8 opacity-[0.03] pointer-events-none">
-                    <ShieldCheck className="h-32 w-32 text-indigo-900" />
+                    <ShieldCheck className="h-32 w-32 text-[#0b1f1c]" />
                 </div>
                 <CardContent className="p-4">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                         <div className="flex items-center gap-2 flex-1">
-                            <div className="p-1.5 bg-indigo-50 rounded-lg border border-indigo-100/50 flex-shrink-0">
-                                <ShieldCheck className="h-5 w-5 text-indigo-600" />
+                            <div className="p-1.5 bg-[#0f5c52]/10 rounded-lg border border-[#0f5c52]/20 flex-shrink-0">
+                                <ShieldCheck className="h-5 w-5 text-[#0f5c52]" />
                             </div>
                             <div className="flex flex-col sm:flex-row sm:items-center gap-x-3 gap-y-1">
-                                <span className="text-sm font-semibold text-slate-900 whitespace-nowrap">Universal API Key</span>
+                                <span className="text-sm font-semibold text-[#0b1f1c] whitespace-nowrap">Universal API Key</span>
                                 <span className="hidden sm:block h-3 w-[1px] bg-slate-200" />
-                                <span className="text-xs text-slate-500 italic">Required for all backend worker servers to communicate with this dashboard.</span>
+                                <span className="text-xs text-[#5a736c] italic">Required for all backend worker servers to communicate with this dashboard.</span>
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-3 bg-slate-50/50 p-2 rounded-lg border border-indigo-50/50 min-w-[320px] lg:min-w-[400px]">
+                        <div className="flex items-center gap-3 bg-slate-50/50 p-2 rounded-lg border border-[#0b1f1c]/8 min-w-[320px] lg:min-w-[400px]">
                             <code className="flex-1 font-mono text-xs text-slate-700 bg-transparent truncate select-all px-2">
                                 {showApiKey ? (workerKey || (isKeyLoading ? "Loading..." : "Unavailable")) : "••••••••••••••••••••••••••••••••••••••••"}
                             </code>
@@ -472,12 +472,12 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                     size="icon"
                                     onClick={() => { void toggleReveal(); }}
                                     disabled={isKeyLoading}
-                                    className="h-8 w-8 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                                    className="h-8 w-8 text-slate-400 hover:text-[#0f5c52] hover:bg-[#0f5c52]/10"
                                     title={showApiKey ? "Hide Key" : "Reveal Key"}
                                 >
                                     {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                 </Button>
-                                <Separator orientation="vertical" className="h-5 bg-indigo-100" />
+                                <Separator orientation="vertical" className="h-5 bg-[#0b1f1c]/10" />
                                 <Button
                                     variant="ghost"
                                     size="icon"
@@ -490,13 +490,13 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                 >
                                     <RefreshCcw className="h-4 w-4" />
                                 </Button>
-                                <Separator orientation="vertical" className="h-5 bg-indigo-100" />
+                                <Separator orientation="vertical" className="h-5 bg-[#0b1f1c]/10" />
                                 <Button
                                     variant="ghost"
                                     size="sm"
                                     onClick={() => { void copyToClipboard(); }}
                                     disabled={isKeyLoading}
-                                    className="h-8 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 font-semibold px-3"
+                                    className="h-8 text-[#0f5c52] hover:text-[#0b4a42] hover:bg-[#0f5c52]/10 font-semibold px-3"
                                 >
                                     {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                                     <span className="ml-2 text-xs">{copied ? "Copied" : "Copy"}</span>
@@ -511,9 +511,9 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             {showAddForm && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="w-full max-w-lg animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
-                        <Card className="shadow-2xl border-indigo-100 overflow-hidden">
-                            <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                                <CardTitle className="text-xl font-bold text-slate-900">Add New Worker</CardTitle>
+                        <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden">
+                            <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                                <CardTitle className="text-xl font-bold text-[#0b1f1c]">Add New Worker</CardTitle>
                                 <CardDescription>Register a new backend node to your verification fleet.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4 pt-6">
@@ -523,7 +523,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                             <Label htmlFor="server-name" className="text-sm font-semibold text-slate-700">Display Name</Label>
                                             <Input
                                                 id="server-name" placeholder="e.g. Primary Node - US"
-                                                className={`focus-visible:ring-indigo-500 ${addForm.formState.errors.name ? 'border-red-400' : 'border-indigo-50'}`}
+                                                className={`focus-visible:ring-[#0f5c52]/30 ${addForm.formState.errors.name ? 'border-red-400' : 'border-[#0b1f1c]/10'}`}
                                                 {...addForm.register("name")}
                                             />
                                             {addForm.formState.errors.name && <p className="text-xs text-red-500">{addForm.formState.errors.name.message}</p>}
@@ -534,7 +534,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                                 <Label htmlFor="server-address" className="text-sm font-semibold text-slate-700">IP or Domain</Label>
                                                 <Input
                                                     id="server-address" placeholder="123.45.67.89"
-                                                    className={`focus-visible:ring-indigo-500 ${addForm.formState.errors.ip ? 'border-red-400' : 'border-indigo-50'}`}
+                                                    className={`focus-visible:ring-[#0f5c52]/30 ${addForm.formState.errors.ip ? 'border-red-400' : 'border-[#0b1f1c]/10'}`}
                                                     {...addForm.register("ip")}
                                                 />
                                                 {addForm.formState.errors.ip && <p className="text-xs text-red-500">{addForm.formState.errors.ip.message}</p>}
@@ -543,7 +543,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                                 <Label htmlFor="server-port" className="text-sm font-semibold text-slate-700">Port</Label>
                                                 <Input
                                                     id="server-port" placeholder="8080"
-                                                    className={`focus-visible:ring-indigo-500 ${addForm.formState.errors.port ? 'border-red-400' : 'border-indigo-50'}`}
+                                                    className={`focus-visible:ring-[#0f5c52]/30 ${addForm.formState.errors.port ? 'border-red-400' : 'border-[#0b1f1c]/10'}`}
                                                     {...addForm.register("port")}
                                                 />
                                                 {addForm.formState.errors.port && <p className="text-xs text-red-500">{addForm.formState.errors.port.message}</p>}
@@ -555,7 +555,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                         <Button
                                             type="submit"
                                             disabled={addForm.formState.isSubmitting}
-                                            className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white px-6 font-bold"
+                                            className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white px-6 font-bold"
                                         >
                                             {addForm.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Connect Server"}
                                         </Button>
@@ -571,9 +571,9 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             {showRegenerateModal && (
                 <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="w-full max-w-md animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
-                        <Card className="shadow-2xl border-indigo-100 overflow-hidden">
+                        <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden">
                             <CardHeader className="bg-amber-50/50 border-b border-amber-100/50">
-                                <CardTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                                <CardTitle className="text-xl font-bold text-[#0b1f1c] flex items-center gap-2">
                                     <Lock className="h-5 w-5 text-amber-600" />
                                     Security Verification
                                 </CardTitle>
@@ -587,7 +587,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                             id="admin-password"
                                             type="password"
                                             placeholder="Enter password..."
-                                            className={`focus-visible:ring-indigo-500 ${rotateForm.formState.errors.password ? 'border-red-400' : 'border-indigo-50'}`}
+                                            className={`focus-visible:ring-[#0f5c52]/30 ${rotateForm.formState.errors.password ? 'border-red-400' : 'border-[#0b1f1c]/10'}`}
                                             {...rotateForm.register("password")}
                                         />
                                         {rotateForm.formState.errors.password && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3" />{rotateForm.formState.errors.password.message}</p>}
@@ -600,7 +600,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                         <Button
                                             type="submit"
                                             disabled={rotateForm.formState.isSubmitting}
-                                            className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white px-6 font-bold"
+                                            className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white px-6 font-bold"
                                         >
                                             {rotateForm.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                                             {rotateForm.formState.isSubmitting ? "Regenerating..." : "Regenerate Key"}
@@ -614,8 +614,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             )}
 
             {/* Servers List View */}
-            <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                <div className="p-4 border-b border-indigo-50/50 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden">
+                <div className="p-4 border-b border-[#0b1f1c]/8 bg-[#f0f4f2]/60 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="relative max-w-sm w-full">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
                         <Input
@@ -625,11 +625,11 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                             placeholder="Search servers..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-9 h-9 text-sm bg-white focus-visible:ring-indigo-500 border-indigo-50"
+                            className="pl-9 h-9 text-sm bg-white focus-visible:ring-[#0f5c52]/30 border-[#0b1f1c]/10"
                         />
                     </div>
                     <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="bg-white text-slate-600 font-medium border-indigo-50">
+                        <Badge variant="outline" className="bg-white text-slate-600 font-medium border-[#0b1f1c]/10">
                             Total Server: {filteredServers.length}
                         </Badge>
                         <Badge variant="outline" className="bg-green-50 text-green-700 border-green-100 font-medium">
@@ -640,7 +640,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                 <div className="overflow-x-auto">
                     <Table>
                         <TableHeader>
-                            <TableRow className="bg-slate-50/50 hover:bg-slate-50/50 border-b border-indigo-50/50">
+                            <TableRow className="bg-[#f0f4f2]/60 hover:bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                                 <TableHead className="w-[300px] font-semibold text-slate-900">Server Node</TableHead>
                                 <TableHead className="w-[100px] font-semibold text-slate-900 text-center">Status</TableHead>
                                 <TableHead className="w-[180px] font-semibold text-slate-900">Capacity Usage</TableHead>
@@ -659,11 +659,11 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                 <TableRow key={server.id} className="group hover:bg-slate-50/30 transition-colors border-b border-slate-50">
                                     <TableCell>
                                         <div className="flex items-start gap-3">
-                                            <div className="mt-1 p-2 bg-slate-100 rounded-lg text-slate-600 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-all duration-300 border border-transparent group-hover:border-indigo-100">
+                                            <div className="mt-1 p-2 bg-slate-100 rounded-lg text-slate-600 group-hover:bg-[#0f5c52]/10 group-hover:text-[#0f5c52] transition-all duration-300 border border-transparent group-hover:border-[#0f5c52]/20">
                                                 <Server className="h-4 w-4" />
                                             </div>
                                             <div>
-                                                <p className="font-semibold text-slate-900 group-hover:text-indigo-700 transition-colors">{server.name}</p>
+                                                <p className="font-semibold text-slate-900 group-hover:text-[#0b4a42] transition-colors">{server.name}</p>
                                                 <div className="flex items-center text-[10px] text-slate-500 gap-2 mt-0.5">
                                                     <span className="flex items-center gap-1 font-mono uppercase bg-slate-100 px-1 rounded border border-slate-200/50">
                                                         <Globe className="h-2.5 w-2.5 text-slate-400" /> {server.address}:{server.port}
@@ -692,10 +692,10 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                         <div className="space-y-1.5">
                                             <div className="flex justify-between items-center text-[11px]">
                                                 <div className="flex items-center gap-1.5">
-                                                    <Database className="h-3 w-3 text-indigo-500" />
+                                                    <Database className="h-3 w-3 text-[#0f5c52]" />
                                                     <span className="text-slate-700 font-bold">{(server.emailsVerified || 0).toLocaleString()}</span>
                                                 </div>
-                                                <span className="font-bold text-indigo-600">
+                                                <span className="font-bold text-[#0f5c52]">
                                                     {usagePercent}%
                                                 </span>
                                             </div>
@@ -704,7 +704,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <div className="flex items-center gap-2 max-w-[220px] bg-slate-50/50 p-2 rounded border border-slate-100 group-hover:border-indigo-50 group-hover:bg-indigo-50/10 transition-all">
+                                        <div className="flex items-center gap-2 max-w-[220px] bg-slate-50/50 p-2 rounded border border-slate-100 group-hover:border-[#0f5c52]/20 group-hover:bg-[#0f5c52]/5 transition-all">
                                             <Zap className={`h-3.5 w-3.5 flex-shrink-0 ${server.status === "active" ? "text-amber-500 animate-pulse" : "text-slate-300"}`} />
                                             <div className="overflow-hidden">
                                                 <p className="text-[10px] font-bold text-slate-700 truncate uppercase tracking-tighter">
@@ -744,7 +744,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                             onClick={() => setManageServer(server)}
                                             variant="ghost"
                                             size="icon"
-                                            className="h-8 w-8 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                                            className="h-8 w-8 text-slate-400 hover:text-[#0f5c52] hover:bg-[#0f5c52]/10"
                                             title="Manage Server"
                                         >
                                             <Settings2 className="h-4 w-4" />
@@ -763,9 +763,9 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                         </TableBody>
                     </Table>
                 </div>
-                <div className="p-4 bg-slate-50/50 border-t border-indigo-50/50 flex items-center justify-between">
+                <div className="p-4 bg-[#f0f4f2]/60 border-t border-[#0b1f1c]/8 flex items-center justify-between">
                     <p className="text-[11px] text-slate-500 flex items-center gap-2 font-medium">
-                        <Activity className="h-3 w-3 text-indigo-500" /> System heartbeats active
+                        <Activity className="h-3 w-3 text-[#0f5c52]" /> System heartbeats active
                     </p>
                     <div className="flex items-center gap-1">
                         <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]" />

@@ -4,151 +4,181 @@ import { useState, useEffect } from "react"
 import { SingleVerifyForm, VerificationResult } from "./form"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { Shield, Zap, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp, Copy, Download } from "lucide-react"
+import { Shield, Zap, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp, Copy, Download, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CreditBadge } from "@/features/dashboard/components/credit-badge"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 
-/**
- * SingleVerifyClient Component
- * 
- * Manages the UI state for verifying a single email address.
- * It integrates the SingleVerifyForm and dynamically renders the VerificationResult.
- */
+const NEGATIVE_CHECKS = new Set([
+    "invalidSyntax",
+    "disposableEmail",
+    "mailboxFull",
+    "catchAll",
+    "spamTrap",
+    "blacklist",
+    "unknown",
+])
+
+const defaultDetailedChecks = {
+    safeToSend: false,
+    deliverable: false,
+    invalidSyntax: false,
+    disposableEmail: false,
+    mxRecords: false,
+    smtpConnect: false,
+    userExist: false,
+    unknown: false,
+    mailboxFull: false,
+    catchAll: false,
+    roleAccount: false,
+    freeAccount: false,
+    spamTrap: false,
+    blacklist: false,
+}
+
 export function SingleVerifyClient() {
     const [result, setResult] = useState<VerificationResult | null>(null)
     const [isJsonOpen, setIsJsonOpen] = useState(false)
+    const [copied, setCopied] = useState(false)
 
-    /**
-     * Real-time WebSocket Listener & Fallback Timeout
-     * 
-     * Currently, the Go backend processes single verifications synchronously.
-     * However, this listener ensures that if the backend is switched to async queuing
-     * (returning 'pending' immediately), the UI will automatically update via WebSockets.
-     * It includes a cleanup function to prevent memory leaks on unmount.
-     */
     useEffect(() => {
-        if (!result || (result.status !== 'pending' && result.status !== 'processing')) return;
+        if (!result || (result.status !== "pending" && result.status !== "processing")) return
 
-        const handleJobUpdate = (event: any) => {
-            const { detail } = event;
+        const handleJobUpdate = (event: Event) => {
+            const { detail } = event as CustomEvent<{ job_id: string; data: VerificationResult }>
             if (detail.job_id === result.job_id) {
-                logger.info("Real-time job update received via WS:", detail.data);
-                setResult(detail.data);
+                logger.info("Real-time job update received via WS:", detail.data)
+                setResult(detail.data)
             }
-        };
+        }
 
-        window.addEventListener('ws:job_update' as any, handleJobUpdate);
-        
-        // Fallback timeout in case WebSocket connection drops silently during async processing
+        window.addEventListener("ws:job_update", handleJobUpdate as EventListener)
+
         const fallbackTimer = setTimeout(() => {
-            logger.warn("WebSocket update timed out. Treating job as unknown.");
-            setResult(prev => prev ? { ...prev, status: 'unknown' } : null);
-        }, 45000); // 45 second timeout
+            logger.warn("WebSocket update timed out. Treating job as unknown.")
+            setResult((prev) => (prev ? { ...prev, status: "unknown" } : null))
+        }, 45000)
 
         return () => {
-            window.removeEventListener('ws:job_update' as any, handleJobUpdate);
-            clearTimeout(fallbackTimer);
-        };
-    }, [result]);
-
-    const defaultDetailedChecks = {
-        safeToSend: false,
-        deliverable: false,
-        invalidSyntax: false,
-        disposableEmail: false,
-        mxRecords: false,
-        smtpConnect: false,
-        userExist: false,
-        unknown: false,
-        mailboxFull: false,
-        catchAll: false,
-        roleAccount: false,
-        freeAccount: false,
-        spamTrap: false,
-        blacklist: false
-    };
+            window.removeEventListener("ws:job_update", handleJobUpdate as EventListener)
+            clearTimeout(fallbackTimer)
+        }
+    }, [result])
 
     const displayResult = result || {
-        status: 'NA',
+        status: "NA",
         score: 0,
-        processingTime: 0.00,
+        processingTime: 0.0,
         detailedChecks: defaultDetailedChecks,
-        email: 'no email verified'
-    };
+        email: "no email verified",
+    }
 
-    const getStatusIcon = (status: string) => {
-        const normalized = (status || '').toLowerCase();
+    const status = (displayResult.status || "").toLowerCase()
+    const isFinished = !!result && !["pending", "processing", "na"].includes(status)
+
+    const getStatusIcon = (value: string) => {
+        const normalized = (value || "").toLowerCase()
         switch (normalized) {
-            case 'valid':
-            case 'deliverable':
-                return <CheckCircle2 className="h-4 w-4 text-green-600" />;
-            case 'invalid':
-            case 'undeliverable':
-                return <XCircle className="h-4 w-4 text-red-600" />;
-            case 'unknown':
-            case 'risky':
-                return <AlertCircle className="h-4 w-4 text-orange-600" />;
-            case 'catch_all':
-            case 'catch-all':
-                return <AlertCircle className="h-4 w-4 text-amber-600" />;
-            case 'disposable':
-                return <AlertCircle className="h-4 w-4 text-orange-600" />;
-            case 'pending':
-            case 'processing':
-                return <AlertCircle className="h-4 w-4 text-blue-500 animate-pulse" />;
-            default: return <AlertCircle className="h-4 w-4 text-slate-300" />;
+            case "valid":
+            case "deliverable":
+                return <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            case "invalid":
+            case "undeliverable":
+                return <XCircle className="h-4 w-4 text-rose-600" />
+            case "unknown":
+            case "risky":
+            case "catch_all":
+            case "catch-all":
+            case "disposable":
+                return <AlertCircle className="h-4 w-4 text-amber-600" />
+            case "pending":
+            case "processing":
+                return <AlertCircle className="h-4 w-4 animate-pulse text-[#0f5c52]" />
+            default:
+                return <AlertCircle className="h-4 w-4 text-[#c5d4cf]" />
         }
-    };
+    }
 
-    const getStatusBadgeClass = (status: string) => {
-        const normalized = (status || '').toLowerCase();
-        if (normalized === 'valid' || normalized === 'deliverable') return 'default';
-        if (normalized === 'invalid' || normalized === 'undeliverable') return 'destructive';
-        if (normalized === 'pending' || normalized === 'processing') return 'secondary';
-        return 'secondary';
-    };
+    const handleCopy = async () => {
+        if (!result) return
+        await navigator.clipboard.writeText(JSON.stringify(result.rawJson || result, null, 2))
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+    }
+
+    const handleDownload = () => {
+        if (!result) return
+        const dataStr = JSON.stringify(result.rawJson || result, null, 2)
+        const dataUri = "data:application/json;charset=utf-8," + encodeURIComponent(dataStr)
+        const linkElement = document.createElement("a")
+        linkElement.setAttribute("href", dataUri)
+        linkElement.setAttribute("download", `verification-${result.email || result.job_id}.json`)
+        linkElement.click()
+    }
 
     return (
-        <div className="flex-1 space-y-4">
-            <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Single Email Verification</h2>
+        <div className="flex-1 space-y-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">
+                        Single Email Verification
+                    </h2>
+                    <p className="mt-1 text-sm text-[#5a736c]">
+                        Check deliverability, risk signals, and SMTP status in one pass.
+                    </p>
+                </div>
                 <CreditBadge />
             </div>
 
             <div className="grid gap-6 lg:grid-cols-2">
-                {/* Form Section */}
                 <SingleVerifyForm onVerify={setResult} />
 
-                {/* Results Section */}
-                <Card className="shadow-sm border-indigo-100 overflow-hidden h-fit">
-                    <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-                            <Shield className="h-5 w-5 text-slate-500" />
-                            Verification Results
-                        </CardTitle>
-                        <CardDescription>
-                            {result ? (!['pending', 'processing', 'na'].includes(result.status.toLowerCase()) ? 'Verification completed' : 'Verification in progress...') : 'Ready to verify'}
-                        </CardDescription>
+                <Card className="h-fit overflow-hidden border-[#0b1f1c]/10 bg-white/90 shadow-none">
+                    <CardHeader className="border-b border-[#0b1f1c]/8 bg-[#f0f4f2]/60">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                                    <Shield className="h-5 w-5 text-[#0f5c52]" />
+                                    Verification Results
+                                </CardTitle>
+                                <CardDescription className="text-[#5a736c]">
+                                    {result
+                                        ? isFinished
+                                            ? "Verification completed"
+                                            : "Verification in progress..."
+                                        : "Ready to verify"}
+                                </CardDescription>
+                            </div>
+                            {result && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0 border-[#0b1f1c]/15 text-[#0b1f1c] hover:border-[#0f5c52] hover:text-[#0f5c52]"
+                                    onClick={() => setResult(null)}
+                                >
+                                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                                    Reset
+                                </Button>
+                            )}
+                        </div>
                     </CardHeader>
-                    <CardContent className="space-y-6">
+                    <CardContent className="space-y-6 pt-6">
                         <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">Status:</span>
+                            <span className="text-sm font-medium text-[#3d564f]">Status</span>
                             <div className="flex items-center gap-2">
                                 {getStatusIcon(displayResult.status)}
                                 <Badge
-                                    variant={getStatusBadgeClass(displayResult.status) as any}
                                     className={cn(
-                                        "capitalize font-bold px-2.5 py-0.5 border shadow-sm",
-                                        displayResult.status.toLowerCase() === 'valid' || displayResult.status.toLowerCase() === 'deliverable'
-                                            ? "bg-green-50 text-green-700 border-green-200 hover:bg-green-50"
-                                            : displayResult.status.toLowerCase() === 'invalid' || displayResult.status.toLowerCase() === 'undeliverable'
-                                            ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-50"
-                                            : !result
-                                            ? "bg-slate-50 text-slate-400 border-slate-100 hover:bg-slate-50"
-                                            : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-50"
+                                        "border px-2.5 py-0.5 font-bold capitalize shadow-none",
+                                        status === "valid" || status === "deliverable"
+                                            ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50"
+                                            : status === "invalid" || status === "undeliverable"
+                                              ? "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-50"
+                                              : !result
+                                                ? "border-[#0b1f1c]/10 bg-[#f0f4f2] text-[#8aa099] hover:bg-[#f0f4f2]"
+                                                : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50"
                                     )}
                                 >
                                     {result ? displayResult.status : "Awaiting Verification"}
@@ -158,34 +188,44 @@ export function SingleVerifyClient() {
 
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                                <span className="text-sm font-medium">Deliverability Score:</span>
-                                <span className={cn(
-                                    "text-lg font-bold",
-                                    !result ? "text-slate-400" :
-                                    displayResult.score >= 80 ? "text-green-600" :
-                                    displayResult.score >= 50 ? "text-amber-600" :
-                                    "text-red-600"
-                                )}>
+                                <span className="text-sm font-medium text-[#3d564f]">
+                                    Deliverability Score
+                                </span>
+                                <span
+                                    className={cn(
+                                        "text-lg font-semibold",
+                                        !result
+                                            ? "text-[#8aa099]"
+                                            : displayResult.score >= 80
+                                              ? "text-emerald-600"
+                                              : displayResult.score >= 50
+                                                ? "text-amber-600"
+                                                : "text-rose-600"
+                                    )}
+                                >
                                     {result ? `${displayResult.score}/100` : "--/100"}
                                 </span>
                             </div>
-                            <div className="relative h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                            <div className="relative h-2 w-full overflow-hidden rounded-full bg-[#e4ece9]">
                                 <div
                                     className={cn(
-                                        "h-full transition-all rounded-full",
-                                        !result ? "bg-slate-200" :
-                                        displayResult.score >= 80 ? "bg-green-500" :
-                                        displayResult.score >= 50 ? "bg-amber-500" :
-                                        "bg-red-500"
+                                        "h-full rounded-full transition-all",
+                                        !result
+                                            ? "bg-[#c5d4cf]"
+                                            : displayResult.score >= 80
+                                              ? "bg-emerald-500"
+                                              : displayResult.score >= 50
+                                                ? "bg-amber-500"
+                                                : "bg-rose-500"
                                     )}
                                     style={{ width: `${displayResult.score}%` }}
                                 />
                             </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-50">
-                            <span className="text-sm text-slate-500">Processing time:</span>
-                            <span className="text-sm font-medium">
+                        <div className="flex items-center justify-between border-t border-[#0b1f1c]/8 pt-2">
+                            <span className="text-sm text-[#5a736c]">Processing time</span>
+                            <span className="text-sm font-medium text-[#0b1f1c]">
                                 {result ? `${displayResult.processingTime}s` : "--"}
                             </span>
                         </div>
@@ -193,82 +233,110 @@ export function SingleVerifyClient() {
                 </Card>
             </div>
 
-            {/* Detailed Checks Grid - Always visible */}
-            <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                    <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-                        <Zap className="h-5 w-5 text-slate-500" />
+            <Card className="overflow-hidden border-[#0b1f1c]/10 bg-white/90 shadow-none">
+                <CardHeader className="border-b border-[#0b1f1c]/8 bg-[#f0f4f2]/60">
+                    <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                        <Zap className="h-5 w-5 text-[#0f5c52]" />
                         Detailed Checks
                     </CardTitle>
-                    <CardDescription>
-                        Technical markers {result ? `for ${result.email}` : '(awaiting verification)'}
+                    <CardDescription className="text-[#5a736c]">
+                        Technical markers {result ? `for ${result.email}` : "(awaiting verification)"}
                     </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pt-6">
                     <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-4">
-                        {Object.entries(displayResult.detailedChecks || defaultDetailedChecks).map(([key, value]) => {
-                            const isFinished = result && !['pending', 'processing', 'na'].includes(result.status.toLowerCase());
-                            return (
-                                <div key={key} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors">
-                                    <span className="text-xs font-medium capitalize text-slate-600">
-                                        {key.replace(/([A-Z])/g, ' $1').trim()}
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                        {(value && isFinished) ? <CheckCircle2 className="h-3 w-3 text-green-500" /> : <XCircle className="h-3 w-3 text-slate-300" />}
-                                        <span className={`text-[10px] font-bold uppercase ${(value && isFinished) ? 'text-green-600' : 'text-slate-400'}`}>
-                                            {(value && isFinished) ? 'YES' : 'NO'}
+                        {Object.entries(displayResult.detailedChecks || defaultDetailedChecks).map(
+                            ([key, value]) => {
+                                const isNegative = NEGATIVE_CHECKS.has(key)
+                                const active = Boolean(value) && isFinished
+                                return (
+                                    <div
+                                        key={key}
+                                        className={cn(
+                                            "flex items-center justify-between rounded-md border p-3 transition-colors",
+                                            active && isNegative
+                                                ? "border-amber-200 bg-amber-50/60"
+                                                : active
+                                                  ? "border-emerald-200 bg-emerald-50/50"
+                                                  : "border-[#0b1f1c]/8 hover:bg-[#f0f4f2]/50"
+                                        )}
+                                    >
+                                        <span className="text-xs font-medium capitalize text-[#4a635c]">
+                                            {key.replace(/([A-Z])/g, " $1").trim()}
                                         </span>
+                                        <div className="flex items-center gap-2">
+                                            {active ? (
+                                                isNegative ? (
+                                                    <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
+                                                ) : (
+                                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                                                )
+                                            ) : (
+                                                <XCircle className="h-3.5 w-3.5 text-[#c5d4cf]" />
+                                            )}
+                                            <span
+                                                className={cn(
+                                                    "text-[10px] font-bold uppercase",
+                                                    active
+                                                        ? isNegative
+                                                            ? "text-amber-700"
+                                                            : "text-emerald-700"
+                                                        : "text-[#8aa099]"
+                                                )}
+                                            >
+                                                {active ? "YES" : "NO"}
+                                            </span>
+                                        </div>
                                     </div>
-                                </div>
-                            );
-                        })}
+                                )
+                            }
+                        )}
                     </div>
                 </CardContent>
             </Card>
 
-            {/* Raw JSON viewer - Always visible */}
-            <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                <div
-                    className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50/50 bg-slate-50/50 border-b border-indigo-50/50 transition-colors"
+            <Card className="overflow-hidden border-[#0b1f1c]/10 bg-white/90 shadow-none">
+                <button
+                    type="button"
+                    className="flex w-full items-center justify-between border-b border-[#0b1f1c]/8 bg-[#f0f4f2]/60 p-4 text-left transition-colors hover:bg-[#e8efec]"
                     onClick={() => setIsJsonOpen(!isJsonOpen)}
                 >
-                    <div className="flex items-center gap-2">
-                        <CardTitle className="text-lg font-semibold text-slate-900">Raw JSON Response</CardTitle>
-                    </div>
-                    {isJsonOpen ? <ChevronUp className="h-5 w-5 text-slate-500" /> : <ChevronDown className="h-5 w-5 text-slate-500" />}
-                </div>
+                    <CardTitle className="text-lg font-semibold text-[#0b1f1c]">
+                        Raw JSON Response
+                    </CardTitle>
+                    {isJsonOpen ? (
+                        <ChevronUp className="h-5 w-5 text-[#5a736c]" />
+                    ) : (
+                        <ChevronDown className="h-5 w-5 text-[#5a736c]" />
+                    )}
+                </button>
                 {isJsonOpen && (
-                    <CardContent className="bg-slate-900 border-t border-slate-800">
-                        <div className="flex gap-2 mb-4">
+                    <CardContent className="border-t border-[#0b1f1c]/20 bg-[#0b1f1c] pt-6">
+                        <div className="mb-4 flex gap-2">
                             <Button
                                 variant="secondary"
                                 size="sm"
-                                className="bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700"
+                                className="border border-white/10 bg-white/10 text-[#e8f2ef] hover:bg-white/15"
                                 disabled={!result}
-                                onClick={() => result && navigator.clipboard.writeText(JSON.stringify(result.rawJson || result, null, 2))}
+                                onClick={handleCopy}
                             >
-                                <Copy className="mr-2 h-3.3 w-3.5" /> Copy
+                                <Copy className="mr-2 h-3.5 w-3.5" />
+                                {copied ? "Copied" : "Copy"}
                             </Button>
                             <Button
                                 variant="secondary"
                                 size="sm"
-                                className="bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700"
+                                className="border border-white/10 bg-white/10 text-[#e8f2ef] hover:bg-white/15"
                                 disabled={!result}
-                                onClick={() => {
-                                    if (!result) return;
-                                    const dataStr = JSON.stringify(result.rawJson || result, null, 2);
-                                    const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
-                                    const linkElement = document.createElement('a');
-                                    linkElement.setAttribute('href', dataUri);
-                                    linkElement.setAttribute('download', `verification-${result.email || result.job_id}.json`);
-                                    linkElement.click();
-                                }}
+                                onClick={handleDownload}
                             >
-                                <Download className="mr-2 h-3.3 w-3.5" /> Download
+                                <Download className="mr-2 h-3.5 w-3.5" /> Download
                             </Button>
                         </div>
-                        <pre className="custom-scrollbar text-xs text-indigo-300 overflow-auto max-h-[400px]">
-                            {result ? JSON.stringify(result.rawJson || result, null, 2) : "// Awaiting verification result..."}
+                        <pre className="custom-scrollbar max-h-[400px] overflow-auto text-xs text-[#7dd3c7]">
+                            {result
+                                ? JSON.stringify(result.rawJson || result, null, 2)
+                                : "// Awaiting verification result..."}
                         </pre>
                     </CardContent>
                 )}

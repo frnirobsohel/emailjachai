@@ -182,8 +182,8 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
         <div className="flex-1 space-y-6 pb-8">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-bold tracking-tight text-slate-900">Job Control & Verification Management</h2>
-                    <p className="text-slate-500 text-sm flex items-center gap-2">
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Job Control & Verification Management</h2>
+                    <p className="text-sm text-[#5a736c] flex items-center gap-2">
                         System health and data management controls.
                         <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-2" suppressHydrationWarning>
                             Last Refreshed: {lastRefreshed.toLocaleTimeString()}
@@ -216,8 +216,8 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                     value={overview.total_jobs || 0}
                     subvalue="Across all users"
                     icon={Layers}
-                    color="text-indigo-600"
-                    bg="bg-indigo-50"
+                    color="text-[#0f5c52]"
+                    bg="bg-[#0f5c52]/10"
                 />
                 <StatCard
                     title="Processed Today"
@@ -239,10 +239,10 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                 {/* Worker Configuration */}
-                <Card className="shadow-lg border-indigo-50 overflow-hidden ring-1 ring-slate-100">
-                    <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                        <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-                            <Settings2 className="h-5 w-5 text-indigo-600" /> Worker Configuration
+                <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden">
+                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                        <CardTitle className="text-lg font-semibold text-[#0b1f1c] flex items-center gap-2">
+                            <Settings2 className="h-5 w-5 text-[#0f5c52]" /> Worker Configuration
                         </CardTitle>
                         <CardDescription>Adjust how large lists are split and handled.</CardDescription>
                     </CardHeader>
@@ -253,7 +253,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                 <Input
                                     id="chunk_size"
                                     type="number"
-                                    className={`h-9 focus-visible:ring-indigo-500 text-sm ${settingsForm.formState.errors.chunk_size ? 'border-red-400' : ''}`}
+                                    className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.chunk_size ? 'border-red-400' : ''}`}
                                     {...settingsForm.register("chunk_size")}
                                 />
                                 {settingsForm.formState.errors.chunk_size && <p className="text-xs text-red-500">{settingsForm.formState.errors.chunk_size.message}</p>}
@@ -266,7 +266,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                     <Input
                                         id="task_timeout"
                                         type="number"
-                                        className={`h-9 focus-visible:ring-indigo-500 text-sm ${settingsForm.formState.errors.task_timeout ? 'border-red-400' : ''}`}
+                                        className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.task_timeout ? 'border-red-400' : ''}`}
                                         {...settingsForm.register("task_timeout")}
                                     />
                                     {settingsForm.formState.errors.task_timeout && <p className="text-xs text-red-500">{settingsForm.formState.errors.task_timeout.message}</p>}
@@ -276,7 +276,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                     <Input
                                         id="max_emails"
                                         type="number"
-                                        className={`h-9 focus-visible:ring-indigo-500 text-sm ${settingsForm.formState.errors.max_emails_per_job ? 'border-red-400' : ''}`}
+                                        className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.max_emails_per_job ? 'border-red-400' : ''}`}
                                         {...settingsForm.register("max_emails_per_job")}
                                     />
                                     {settingsForm.formState.errors.max_emails_per_job && <p className="text-xs text-red-500">{settingsForm.formState.errors.max_emails_per_job.message}</p>}
@@ -288,7 +288,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                 <Input
                                     id="max_active"
                                     type="number"
-                                    className={`h-9 focus-visible:ring-indigo-500 text-sm ${settingsForm.formState.errors.max_active_jobs_per_user ? 'border-red-400' : ''}`}
+                                    className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.max_active_jobs_per_user ? 'border-red-400' : ''}`}
                                     {...settingsForm.register("max_active_jobs_per_user")}
                                 />
                                 {settingsForm.formState.errors.max_active_jobs_per_user && <p className="text-xs text-red-500">{settingsForm.formState.errors.max_active_jobs_per_user.message}</p>}
@@ -303,7 +303,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                     "shadow-md transition-all active:scale-[0.98] h-9 w-full sm:min-w-[180px]",
                                     isSaved 
                                         ? "bg-emerald-600 hover:bg-emerald-700 text-white" 
-                                        : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                                        : "border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white"
                                 )}
                             >
                                 {settingsForm.formState.isSubmitting ? (
@@ -479,7 +479,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                     <Download className="h-4 w-4" /> Download
                                 </Button>
                             </div>
-                            <div className="flex items-center justify-between p-3 bg-indigo-50/30 rounded-lg border border-indigo-100/50">
+                            <div className="flex items-center justify-between p-3 bg-[#0f5c52]/5 rounded-lg border border-[#0f5c52]/20">
                                 <div>
                                     <h4 className="text-sm font-semibold text-slate-800">Bulk Verification Logs</h4>
                                     <p className="text-[11px] text-slate-500">All individual bulk verification results.</p>
@@ -487,7 +487,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                 <Button
                                     size="sm"
                                     onClick={() => handleDownload('bulk')}
-                                    className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 h-8"
+                                    className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white gap-2 h-8"
                                 >
                                     <Download className="h-4 w-4" /> Export All
                                 </Button>
@@ -502,7 +502,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
 
 function StatCard({ title, value, subvalue, icon: Icon, color, bg }: any) {
     return (
-        <Card className="shadow-md border-indigo-50/50 hover:shadow-lg transition-shadow duration-300">
+        <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 hover:shadow-sm transition-shadow duration-300">
             <CardContent className="p-5">
                 <div className="flex justify-between items-start">
                     <div className="space-y-1">

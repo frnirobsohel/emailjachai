@@ -278,8 +278,8 @@ export function SmtpClient({
         <div className="flex-1 space-y-6">
             <div className="flex items-center justify-between space-y-2">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">SMTP Settings</h2>
-                    <p className="text-muted-foreground">Configure email delivery and edit templates for user and system events.</p>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">SMTP Settings</h2>
+                    <p className="mt-1 text-sm text-[#5a736c]">Configure email delivery and edit templates for user and system events.</p>
                 </div>
             </div>
 
@@ -287,16 +287,16 @@ export function SmtpClient({
 
             <div className="grid gap-6 lg:grid-cols-2">
                 {/* SMTP Settings */}
-                <Card className="border-indigo-100 shadow-sm overflow-hidden">
-                    <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                        <CardTitle className="flex items-center justify-between gap-2">
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                        <CardTitle className="flex items-center justify-between gap-2 text-[#0b1f1c]">
                             <div className="flex items-center gap-2">
-                                <div className="p-2 bg-indigo-50 rounded-full border border-indigo-100">
-                                    <Settings className="h-5 w-5 text-indigo-600" />
+                                <div className="p-2 bg-[#0f5c52]/10 rounded-full border border-[#0f5c52]/20">
+                                    <Settings className="h-5 w-5 text-[#0f5c52]" />
                                 </div>
                                 SMTP Configuration
                             </div>
-                            <div className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
+                            <div className="flex items-center gap-2 text-sm font-normal text-[#5a736c]">
                                 <span>{smtpForm.watch('is_active') && hasValidCredentials ? 'Active' : 'Disabled'}</span>
                                 <Switch
                                     checked={Boolean(smtpForm.watch('is_active') && hasValidCredentials)}
@@ -305,7 +305,7 @@ export function SmtpClient({
                                 />
                             </div>
                         </CardTitle>
-                        <CardDescription>Set your mailer credentials and sender identity</CardDescription>
+                        <CardDescription className="text-[#5a736c]">Set your mailer credentials and sender identity</CardDescription>
                     </CardHeader>
                     <form onSubmit={smtpForm.handleSubmit(handleSaveSettings)}>
                     <CardContent className="space-y-4 pt-6">
@@ -341,7 +341,7 @@ export function SmtpClient({
                             <div className="space-y-2">
                                 <label htmlFor="password" className="text-sm font-medium">Password</label>
                                 <Input id="password" type="password" autoComplete="new-password" {...smtpForm.register("password")} />
-                                <p className="text-xs text-slate-500">
+                                <p className="text-xs text-[#5a736c]">
                                     {hasStoredPassword ? 'Leave blank to keep the existing SMTP password.' : 'Enter the SMTP password to store it securely.'}
                                 </p>
                             </div>
@@ -350,7 +350,7 @@ export function SmtpClient({
                             <Button
                                 type="submit"
                                 disabled={smtpForm.formState.isSubmitting}
-                                className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white shadow-sm min-w-[140px]"
+                                className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none min-w-[140px]"
                             >
                                 {smtpForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                                 {smtpForm.formState.isSubmitting ? 'Saving...' : 'Save Settings'}
@@ -360,7 +360,7 @@ export function SmtpClient({
                                 variant="outline"
                                 onClick={handleTestConnection}
                                 disabled={smtpForm.formState.isSubmitting}
-                                className="text-slate-700 hover:bg-slate-50 border-slate-200 min-w-[150px]"
+                                className="text-[#0b1f1c] hover:bg-[#f0f4f2]/60 border-[#0b1f1c]/10 min-w-[150px]"
                             >
                                 <Settings className="mr-2 h-4 w-4" /> Test Connection
                             </Button>
@@ -370,16 +370,16 @@ export function SmtpClient({
                 </Card>
 
                 {/* Templates */}
-                <Card className="border-indigo-100 shadow-sm overflow-hidden">
-                    <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                        <CardTitle className="flex items-center justify-between gap-2">
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                        <CardTitle className="flex items-center justify-between gap-2 text-[#0b1f1c]">
                             <div className="flex items-center gap-2">
-                                <div className="p-2 bg-indigo-50 rounded-full border border-indigo-100">
-                                    <FileText className="h-5 w-5 text-indigo-600" />
+                                <div className="p-2 bg-[#0f5c52]/10 rounded-full border border-[#0f5c52]/20">
+                                    <FileText className="h-5 w-5 text-[#0f5c52]" />
                                 </div>
                                 Templates
                             </div>
-                            <div className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
+                            <div className="flex items-center gap-2 text-sm font-normal text-[#5a736c]">
                                 <span>{templateForm.watch('is_active') !== false ? 'Active' : 'Disabled'}</span>
                                 <Switch
                                     checked={Boolean(templateForm.watch('is_active') !== false)}
@@ -396,7 +396,7 @@ export function SmtpClient({
                                 />
                             </div>
                         </CardTitle>
-                        <CardDescription>
+                        <CardDescription className="text-[#5a736c]">
                             Use placeholders like {'{{name}}'}, {'{{verification_link}}'}, {'{{credits}}'}.
                         </CardDescription>
                     </CardHeader>
@@ -437,7 +437,7 @@ export function SmtpClient({
                                 <Button
                                     type="submit"
                                     disabled={templateForm.formState.isSubmitting}
-                                    className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white min-w-[140px]"
+                                    className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none min-w-[140px]"
                                 >
                                     {templateForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                                     {templateForm.formState.isSubmitting ? "Saving..." : "Save Template"}

@@ -62,6 +62,8 @@ export function resetAllStores() {
     useUsersStore.getState().reset();
 
     useConfigStore.setState({
+        packagesFetchedAt: 0,
+        settingsFetchedAt: 0,
         packages: null,
         settings: null,
         isLoadingPackages: false,

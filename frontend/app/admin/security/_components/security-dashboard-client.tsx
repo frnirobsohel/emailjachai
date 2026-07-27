@@ -41,8 +41,8 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
         <div className="flex-1 space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-slate-900">Public Verifier</h2>
-                    <p className="text-sm text-slate-500 mt-1">Manage public verifier security, fraud detection, and frontend packages.</p>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Public Verifier</h2>
+                    <p className="text-sm text-[#5a736c] mt-1">Manage public verifier security, fraud detection, and frontend packages.</p>
                 </div>
                 <div className="flex items-center gap-4">
                     <span className="text-sm font-medium text-slate-700">Public Verifier</span>
@@ -61,18 +61,18 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
 
             {/* Overview Cards */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Card className="border-indigo-100 shadow-sm">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2 bg-slate-50/50 border-b border-indigo-50/50">
+                <Card className="border-[#0b1f1c]/10 shadow-none bg-white/90">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2 bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                         <CardTitle className="text-sm font-medium text-slate-700">Total Verified (24h)</CardTitle>
-                        <Activity className="h-4 w-4 text-indigo-500" />
+                        <Activity className="h-4 w-4 text-[#0f5c52]" />
                     </CardHeader>
                     <CardContent className="pt-4">
                         <div className="text-2xl font-bold text-slate-900">{currentStats.total_verified}</div>
                         <p className="text-xs text-slate-500 mt-1">Across {currentStats.unique_ips} unique IPs</p>
                     </CardContent>
                 </Card>
-                <Card className="border-indigo-100 shadow-sm">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2 bg-slate-50/50 border-b border-indigo-50/50">
+                <Card className="border-[#0b1f1c]/10 shadow-none bg-white/90">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2 bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                         <CardTitle className="text-sm font-medium text-slate-700">Fraud Attempts Prevented</CardTitle>
                         <ShieldCheck className="h-4 w-4 text-green-500" />
                     </CardHeader>
@@ -81,8 +81,8 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
                         <p className="text-xs text-slate-500 mt-1">Cookie & IP cross-checks</p>
                     </CardContent>
                 </Card>
-                <Card className="border-indigo-100 shadow-sm">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2 bg-slate-50/50 border-b border-indigo-50/50">
+                <Card className="border-[#0b1f1c]/10 shadow-none bg-white/90">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2 bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                         <CardTitle className="text-sm font-medium text-slate-700">Currently Blocked</CardTitle>
                         <Ban className="h-4 w-4 text-rose-500" />
                     </CardHeader>
@@ -91,8 +91,8 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
                         <p className="text-xs text-slate-500 mt-1">IPs & Cookies</p>
                     </CardContent>
                 </Card>
-                <Card className="border-indigo-100 shadow-sm">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2 bg-slate-50/50 border-b border-indigo-50/50">
+                <Card className="border-[#0b1f1c]/10 shadow-none bg-white/90">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2 bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                         <CardTitle className="text-sm font-medium text-slate-700">Daily Free Limit</CardTitle>
                         <ShieldAlert className="h-4 w-4 text-amber-500" />
                     </CardHeader>
@@ -103,7 +103,7 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
                                 store.setDailyLimit(e.target.value)
                                 store.handleSettingsUpdate(e.target.value, undefined)
                             }}
-                            className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-600"
+                            className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0f5c52]/30"
                         >
                             <option value="5">5 queries / day</option>
                             <option value="10">10 queries / day</option>
@@ -130,7 +130,7 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
                         <div className="flex items-center gap-2">
                             <button 
                                 onClick={() => setActiveTab("stream")}
-                                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-mono transition-colors ${activeTab === 'stream' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-mono transition-colors ${activeTab === 'stream' ? 'bg-[#1a8a78]/20 text-[#1a8a78] border border-[#1a8a78]/30 shadow-[0_0_10px_rgba(26,138,120,0.15)]' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                             >
                                 <Terminal className="h-3.5 w-3.5" />
                                 verify_stream.log
@@ -147,10 +147,10 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
                     <div className="flex items-center gap-2">
                         {activeTab === 'blocklist' && (
                              <div className="relative group mr-2">
-                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-600 group-focus-within:text-indigo-500 transition-colors" />
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-600 group-focus-within:text-[#1a8a78] transition-colors" />
                                 <input
                                     placeholder="Search blocklist..."
-                                    className="pl-8 h-8 text-xs bg-[#0a0c10] border border-slate-800 rounded text-slate-300 placeholder:text-slate-600 focus-visible:outline-none focus-visible:border-indigo-500/50 font-mono w-48"
+                                    className="pl-8 h-8 text-xs bg-[#0a0c10] border border-slate-800 rounded text-slate-300 placeholder:text-slate-600 focus-visible:outline-none focus-visible:border-[#1a8a78]/50 font-mono w-48"
                                 />
                             </div>
                         )}
@@ -190,7 +190,7 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
                                 <span className="text-slate-300 font-semibold tabular-nums">{log.ip}</span>
                                 <span className="text-slate-500 truncate mr-2" title={log.cookie_id}>{log.cookie_id}</span>
                                 <span className="text-slate-500 truncate mr-2" title={log.browser}>{log.browser}</span>
-                                <span className="text-indigo-400 truncate mr-2">{log.email}</span>
+                                <span className="text-[#1a8a78] truncate mr-2">{log.email}</span>
                                 <div className={`text-right font-bold ${log.status === 'valid' ? 'text-emerald-400' : log.status === 'blocked' ? 'text-rose-400' : 'text-amber-400'}`}>
                                     {log.status.toUpperCase()}
                                 </div>
@@ -234,15 +234,15 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
             </Card>
 
             {/* Package Visibility Manager */}
-            <Card className="bg-white dark:bg-slate-900/50 border-indigo-100 dark:border-slate-800 shadow-sm overflow-hidden backdrop-blur-sm">
-                <CardHeader className="bg-slate-50/50 dark:bg-slate-950/40 border-b border-indigo-50/50 dark:border-slate-800">
-                    <CardTitle className="text-lg font-semibold text-slate-900 dark:text-white">Frontend Pricing Packages</CardTitle>
+            <Card className="bg-white/90 dark:bg-slate-900/50 border-[#0b1f1c]/10 dark:border-slate-800 shadow-none overflow-hidden backdrop-blur-sm">
+                <CardHeader className="bg-[#f0f4f2]/60 dark:bg-slate-950/40 border-b border-[#0b1f1c]/8 dark:border-slate-800">
+                    <CardTitle className="text-lg font-semibold text-[#0b1f1c] dark:text-white">Frontend Pricing Packages</CardTitle>
                     <CardDescription className="text-slate-500 dark:text-slate-400">Select which packages should be visible on the public landing page.</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6">
                     <div className="grid gap-4 md:grid-cols-3">
                         {currentPackages.map((pkg: any) => (
-                            <div key={pkg.id} className="border border-slate-200 dark:border-slate-800 rounded-lg p-4 flex items-center justify-between hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors bg-white dark:bg-slate-950">
+                            <div key={pkg.id} className="border border-slate-200 dark:border-slate-800 rounded-lg p-4 flex items-center justify-between hover:border-[#0f5c52]/30 dark:hover:border-[#1a8a78]/40 transition-colors bg-white dark:bg-slate-950">
                                 <div>
                                     <h4 className="font-medium text-slate-900 dark:text-white">{pkg.name}</h4>
                                     <p className="text-sm text-slate-500 dark:text-slate-400">{pkg.price}</p>
@@ -253,7 +253,7 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
                                         onCheckedChange={() => store.togglePackage(pkg.id)}
                                     />
                                     <span className="text-[10px] font-medium text-slate-550 dark:text-slate-400 flex items-center gap-1">
-                                        {pkg.is_public ?? true ? <Eye className="h-3 w-3 text-indigo-500" /> : <EyeOff className="h-3 w-3" />}
+                                        {pkg.is_public ?? true ? <Eye className="h-3 w-3 text-[#0f5c52]" /> : <EyeOff className="h-3 w-3" />}
                                         {pkg.is_public ?? true ? "Visible" : "Hidden"}
                                     </span>
                                 </div>

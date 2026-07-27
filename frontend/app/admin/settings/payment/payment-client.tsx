@@ -209,7 +209,7 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
         // Reflect unsaved form changes for the active tab
         const enabled = p === provider ? form.watch('enabled') : cfg.enabled
         const testMode = p === provider ? form.watch('testMode') : cfg.testMode
-        if (!enabled) return <Badge variant="secondary" className="bg-slate-100 text-slate-500 border-slate-200">Disabled</Badge>
+        if (!enabled) return <Badge variant="secondary" className="bg-[#0b1f1c]/5 text-[#5a736c] border-[#0b1f1c]/10">Disabled</Badge>
         if (testMode) return <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Test Mode</Badge>
         return <Badge variant="default" className="bg-emerald-50 text-emerald-700 border-emerald-200">Live</Badge>
     }
@@ -221,25 +221,25 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
         <div className="flex-1 space-y-6">
             <div className="flex items-center justify-between space-y-2">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-slate-900">Payment Settings</h2>
-                    <p className="text-muted-foreground">Configure payment gateways and transaction rules.</p>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Payment Settings</h2>
+                    <p className="mt-1 text-sm text-[#5a736c]">Configure payment gateways and transaction rules.</p>
                 </div>
             </div>
 
-            <Card className="shadow-lg border-indigo-100 ring-1 ring-slate-100">
-                <CardHeader className="flex flex-row items-center gap-4 pb-4 border-b border-indigo-50/50 bg-slate-50/50">
-                    <div className="p-3 bg-indigo-600 rounded-xl shadow-md shadow-indigo-200">
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none">
+                <CardHeader className="flex flex-row items-center gap-4 pb-4 border-b border-[#0b1f1c]/8 bg-[#f0f4f2]/60">
+                    <div className="p-3 bg-[#0f5c52] rounded-xl shadow-none">
                         <CreditCard className="h-6 w-6 text-white" />
                     </div>
                     <div className="space-y-1">
-                        <CardTitle className="text-xl text-slate-800">Gateway Configuration</CardTitle>
-                        <CardDescription>Select and configure your preferred payment providers.</CardDescription>
+                        <CardTitle className="text-xl text-[#0b1f1c]">Gateway Configuration</CardTitle>
+                        <CardDescription className="text-[#5a736c]">Select and configure your preferred payment providers.</CardDescription>
                     </div>
                 </CardHeader>
                 <CardContent className="pt-8 space-y-8">
                     {/* Provider Selection Tabs */}
                     <div className="space-y-4">
-                        <Label className="text-sm font-bold text-slate-700 uppercase tracking-wider">Select Provider</Label>
+                        <Label className="text-sm font-bold text-[#5a736c] uppercase tracking-wider">Select Provider</Label>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                             {PROVIDERS.map(({ id, label, icon }) => (
                                 <div
@@ -248,15 +248,15 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
                                     className={cn(
                                         "relative p-4 rounded-xl border-2 cursor-pointer transition-all duration-200",
                                         provider === id
-                                            ? 'border-indigo-500 bg-indigo-50/30 ring-4 ring-indigo-50'
-                                            : 'border-slate-100 bg-white hover:border-indigo-200 hover:bg-slate-50/50'
+                                            ? 'border-[#0f5c52] bg-[#0f5c52]/5 ring-4 ring-[#0f5c52]/10'
+                                            : 'border-[#0b1f1c]/8 bg-white hover:border-[#0f5c52]/30 hover:bg-[#f0f4f2]/40'
                                     )}
                                 >
                                     <div className="flex items-center justify-between mb-2">
                                         {icon}
-                                        {provider === id && <div className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse" />}
+                                        {provider === id && <div className="h-2 w-2 rounded-full bg-[#0f5c52] animate-pulse" />}
                                     </div>
-                                    <div className="font-bold text-slate-800 text-sm mb-2">{label}</div>
+                                    <div className="font-bold text-[#0b1f1c] text-sm mb-2">{label}</div>
                                     {getStatusBadge(id)}
                                 </div>
                             ))}
@@ -264,34 +264,34 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
                     </div>
 
                     {/* Configuration Form */}
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 rounded-2xl border border-indigo-50 bg-slate-50/30 space-y-8">
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 rounded-2xl border border-[#0b1f1c]/8 bg-[#f0f4f2]/40 space-y-8">
                         {/* Enable / Test Mode toggles */}
-                        <div className="flex flex-col sm:flex-row gap-6 justify-between border-b border-indigo-50/50 pb-6">
+                        <div className="flex flex-col sm:flex-row gap-6 justify-between border-b border-[#0b1f1c]/8 pb-6">
                             <div className="space-y-1">
-                                <h3 className="text-lg font-bold text-slate-800 capitalize flex items-center gap-2">
+                                <h3 className="text-lg font-bold text-[#0b1f1c] capitalize flex items-center gap-2">
                                     {PROVIDERS.find(p => p.id === provider)?.icon}
                                     {PROVIDERS.find(p => p.id === provider)?.label} Control
                                 </h3>
-                                <p className="text-sm text-slate-500">Manage operational state and environment.</p>
+                                <p className="text-sm text-[#5a736c]">Manage operational state and environment.</p>
                             </div>
                             <div className="flex flex-wrap gap-4">
-                                <div className="flex items-center gap-3 bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
-                                    <Label htmlFor="enabled" className="font-semibold text-slate-700">Enable Gateway</Label>
+                                <div className="flex items-center gap-3 bg-white p-3 rounded-xl border border-[#0b1f1c]/8 shadow-none">
+                                    <Label htmlFor="enabled" className="font-semibold text-[#0b1f1c]">Enable Gateway</Label>
                                     <input
                                         id="enabled"
                                         type="checkbox"
                                         {...form.register("enabled")}
-                                        className="h-5 w-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 transition-colors"
+                                        className="h-5 w-5 rounded border-[#0b1f1c]/20 text-[#0f5c52] focus:ring-[#0f5c52]/30 transition-colors"
                                     />
                                 </div>
                                 {!isCryptomus && (
-                                    <div className="flex items-center gap-3 bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
-                                        <Label htmlFor="testMode" className="font-semibold text-slate-700">Test Mode</Label>
+                                    <div className="flex items-center gap-3 bg-white p-3 rounded-xl border border-[#0b1f1c]/8 shadow-none">
+                                        <Label htmlFor="testMode" className="font-semibold text-[#0b1f1c]">Test Mode</Label>
                                         <input
                                             id="testMode"
                                             type="checkbox"
                                             {...form.register("testMode")}
-                                            className="h-5 w-5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 transition-colors"
+                                            className="h-5 w-5 rounded border-[#0b1f1c]/20 text-amber-600 focus:ring-amber-500 transition-colors"
                                         />
                                     </div>
                                 )}
@@ -301,8 +301,8 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
                         {/* Credentials */}
                         <div className="space-y-6">
                             <div className="flex items-center gap-2 mb-4">
-                                <Shield className="h-4 w-4 text-indigo-500" />
-                                <h4 className="text-sm font-bold text-indigo-900 uppercase tracking-wide">
+                                <Shield className="h-4 w-4 text-[#0f5c52]" />
+                                <h4 className="text-sm font-bold text-[#0b1f1c] uppercase tracking-wide">
                                     {isCryptomus ? 'Cryptomus Credentials' : 'API Credentials'}
                                 </h4>
                             </div>
@@ -310,38 +310,38 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
                             {isCryptomus ? (
                                 <div className="grid gap-6 md:grid-cols-2">
                                     <div className="space-y-2">
-                                        <Label htmlFor="merchantId" className="text-sm font-semibold text-slate-700 uppercase tracking-tight">Merchant UUID</Label>
+                                        <Label htmlFor="merchantId" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">Merchant UUID</Label>
                                         <Input
                                             id="merchantId"
                                             {...form.register("merchantId")}
                                             placeholder="Enter your Cryptomus Merchant UUID"
-                                            className={cn("bg-white border-slate-200 focus-visible:ring-indigo-500 py-5 rounded-lg shadow-sm font-mono text-sm", form.formState.errors.publicKey && "border-red-400")}
+                                            className={cn("bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none font-mono text-sm", form.formState.errors.publicKey && "border-red-400")}
                                         />
                                         {form.formState.errors.publicKey && (
                                             <p className="text-[10px] text-red-500">{form.formState.errors.publicKey.message}</p>
                                         )}
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="paymentKey" className="text-sm font-semibold text-slate-700 uppercase tracking-tight">Payment API Key</Label>
+                                        <Label htmlFor="paymentKey" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">Payment API Key</Label>
                                         <Input
                                             id="paymentKey"
                                             type="password"
                                             {...form.register("paymentKey")}
                                             placeholder="Enter your Cryptomus Payment Key"
-                                            className={cn("bg-white border-slate-200 focus-visible:ring-indigo-500 py-5 rounded-lg shadow-sm", form.formState.errors.secretKey && "border-red-400")}
+                                            className={cn("bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none", form.formState.errors.secretKey && "border-red-400")}
                                         />
                                         {form.formState.errors.secretKey && (
                                             <p className="text-[10px] text-red-500">{form.formState.errors.secretKey.message}</p>
                                         )}
                                     </div>
                                     <div className="space-y-2 md:col-span-2">
-                                        <Label htmlFor="webhookSecret" className="text-sm font-semibold text-slate-700 uppercase tracking-tight">Webhook Secret (optional)</Label>
+                                        <Label htmlFor="webhookSecret" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">Webhook Secret (optional)</Label>
                                         <Input
                                             id="webhookSecret"
                                             type="password"
                                             {...form.register("webhookSecret")}
                                             placeholder="Used to verify Cryptomus webhook signatures"
-                                            className="bg-white border-slate-200 focus-visible:ring-indigo-500 py-5 rounded-lg shadow-sm"
+                                            className="bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none"
                                         />
                                     </div>
                                     <div className="md:col-span-2 p-4 bg-orange-50 border border-orange-100 rounded-xl text-sm text-orange-800">
@@ -357,32 +357,32 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
                             ) : (
                                 <div className="grid gap-6 md:grid-cols-2">
                                     <div className="space-y-2">
-                                        <Label htmlFor="publicKey" className="text-sm font-semibold text-slate-700 uppercase tracking-tight">Public Key</Label>
+                                        <Label htmlFor="publicKey" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">Public Key</Label>
                                         <Input
                                             id="publicKey"
                                             {...form.register("publicKey")}
                                             placeholder={`Enter ${provider} public key`}
-                                            className={cn("bg-white border-slate-200 focus-visible:ring-indigo-500 py-5 rounded-lg shadow-sm", form.formState.errors.publicKey && isEnabled && "border-red-400")}
+                                            className={cn("bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none", form.formState.errors.publicKey && isEnabled && "border-red-400")}
                                         />
                                         {form.formState.errors.publicKey && isEnabled && (
                                             <p className="text-[10px] text-red-500">{form.formState.errors.publicKey.message}</p>
                                         )}
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="secretKey" className="text-sm font-semibold text-slate-700 uppercase tracking-tight">Secret Key</Label>
+                                        <Label htmlFor="secretKey" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">Secret Key</Label>
                                         <Input
                                             id="secretKey"
                                             type="password"
                                             {...form.register("secretKey")}
                                             placeholder={`Enter ${provider} secret key`}
-                                            className={cn("bg-white border-slate-200 focus-visible:ring-indigo-500 py-5 rounded-lg shadow-sm", form.formState.errors.secretKey && isEnabled && "border-red-400")}
+                                            className={cn("bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none", form.formState.errors.secretKey && isEnabled && "border-red-400")}
                                         />
                                         {form.formState.errors.secretKey && isEnabled && (
                                             <p className="text-[10px] text-red-500">{form.formState.errors.secretKey.message}</p>
                                         )}
                                     </div>
                                     <div className="space-y-2 md:col-span-2">
-                                        <Label htmlFor="webhookSecret" className="text-sm font-semibold text-slate-700 uppercase tracking-tight">
+                                        <Label htmlFor="webhookSecret" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">
                                             {provider === 'paypal' ? 'Webhook ID' : 'Webhook Secret'}
                                         </Label>
                                         <Input
@@ -390,7 +390,7 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
                                             type="password"
                                             {...form.register("webhookSecret")}
                                             placeholder={provider === 'paypal' ? 'Enter PayPal Webhook ID' : `Enter ${provider} webhook secret`}
-                                            className="bg-white border-slate-200 focus-visible:ring-indigo-500 py-5 rounded-lg shadow-sm"
+                                            className="bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none"
                                         />
                                     </div>
                                 </div>
@@ -398,11 +398,11 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
                         </div>
 
                         {/* Save Button */}
-                        <div className="pt-4 flex flex-wrap gap-4 items-center border-t border-indigo-50/50">
+                        <div className="pt-4 flex flex-wrap gap-4 items-center border-t border-[#0b1f1c]/8">
                             <Button
                                 type="submit"
                                 disabled={form.formState.isSubmitting}
-                                className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 px-6 py-4 rounded-xl flex gap-2 font-bold disabled:opacity-60"
+                                className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] shadow-none px-6 py-4 rounded-xl flex gap-2 font-bold disabled:opacity-60"
                             >
                                 {form.formState.isSubmitting ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -415,13 +415,13 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
                     </form>
 
                     {/* Security Notice */}
-                    <div className="p-4 bg-indigo-900/5 rounded-2xl border border-indigo-100 flex gap-4">
-                        <div className="p-2 bg-white rounded-xl shadow-sm border border-indigo-50 h-fit">
-                            <AlertCircle className="h-5 w-5 text-indigo-600" />
+                    <div className="p-4 bg-[#0f5c52]/5 rounded-2xl border border-[#0f5c52]/15 flex gap-4">
+                        <div className="p-2 bg-white rounded-xl shadow-none border border-[#0f5c52]/15 h-fit">
+                            <AlertCircle className="h-5 w-5 text-[#0f5c52]" />
                         </div>
                         <div className="space-y-1">
-                            <h5 className="text-sm font-bold text-indigo-900">Security Requirement</h5>
-                            <p className="text-xs text-indigo-800/70 font-medium leading-relaxed">
+                            <h5 className="text-sm font-bold text-[#0b1f1c]">Security Requirement</h5>
+                            <p className="text-xs text-[#5a736c] font-medium leading-relaxed">
                                 Always ensure that API credentials are kept private and never committed to source control.
                                 For Cryptomus, verify webhook signatures on every callback to prevent fraud.
                             </p>

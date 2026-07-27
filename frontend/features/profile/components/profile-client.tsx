@@ -117,28 +117,28 @@ export function ProfileClient({ initialProfile }: { initialProfile: any }) {
         <div className="flex-1 space-y-4">
             <div className="flex items-center justify-between space-y-2">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">Profile Settings</h2>
-                    <p className="text-slate-500 text-sm">Manage your account information and security preferences.</p>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Profile Settings</h2>
+                    <p className="mt-1 text-sm text-[#5a736c]">Manage your account information and security preferences.</p>
                 </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Left: User Overview */}
                 <div className="md:col-span-1 space-y-6">
-                    <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                        <CardHeader className="text-center bg-slate-50/50 border-b border-indigo-50/50 pb-8">
+                    <Card className="shadow-none border-[#0b1f1c]/10 overflow-hidden">
+                        <CardHeader className="text-center bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8 pb-8">
                             <div className="mx-auto pb-4 pt-4">
                                 <Avatar className="h-24 w-24 border-4 border-white shadow-md">
                                     <AvatarImage src="" />
-                                    <AvatarFallback className="text-2xl font-bold bg-indigo-600 text-white">
+                                    <AvatarFallback className="text-2xl font-bold bg-[#0f5c52] text-white">
                                         {user?.name?.split(' ').map(n => n[0]).join('') || "??"}
                                     </AvatarFallback>
                                 </Avatar>
                             </div>
-                            <CardTitle className="text-xl">{user?.name}</CardTitle>
-                            <CardDescription className="font-medium text-slate-500">{user?.email}</CardDescription>
+                            <CardTitle className="text-xl text-[#0b1f1c]">{user?.name}</CardTitle>
+                            <CardDescription className="font-medium text-[#5a736c]">{user?.email}</CardDescription>
                             <div className="mt-4 flex justify-center">
-                                <div className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-indigo-100 text-indigo-700 border border-indigo-200">
+                                <div className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-[#0f5c52]/10 text-[#0f5c52] border border-[#0f5c52]/20">
                                     {user?.role || "User"} Account
                                 </div>
                             </div>
@@ -146,11 +146,11 @@ export function ProfileClient({ initialProfile }: { initialProfile: any }) {
                         <CardContent className="pt-6">
                             <ul className="space-y-4 text-sm">
                                 <li className="flex items-center justify-between">
-                                    <span className="text-slate-500">Member Since</span>
-                                    <span className="font-medium">Recent</span>
+                                    <span className="text-[#5a736c]">Member Since</span>
+                                    <span className="font-medium text-[#0b1f1c]">Recent</span>
                                 </li>
                                 <li className="flex items-center justify-between">
-                                    <span className="text-slate-500">Status</span>
+                                    <span className="text-[#5a736c]">Status</span>
                                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Active</span>
                                 </li>
                             </ul>
@@ -161,34 +161,34 @@ export function ProfileClient({ initialProfile }: { initialProfile: any }) {
                 {/* Right: Forms */}
                 <div className="md:col-span-2 space-y-6">
                     {/* General Section */}
-                    <Card className="shadow-sm border-indigo-100 overflow-hidden">
+                    <Card className="shadow-none border-[#0b1f1c]/10 overflow-hidden">
                         <form onSubmit={nameForm.handleSubmit(onUpdateName)}>
-                            <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                                <CardTitle className="flex items-center gap-2 text-lg">
-                                    <User className="h-5 w-5 text-indigo-500" />
+                            <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                                <CardTitle className="flex items-center gap-2 text-lg text-[#0b1f1c]">
+                                    <User className="h-5 w-5 text-[#0f5c52]" />
                                     Account Details
                                 </CardTitle>
-                                <CardDescription>Update your display name and view account info.</CardDescription>
+                                <CardDescription className="text-[#5a736c]">Update your display name and view account info.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4 pt-6">
                                 <div className="space-y-2">
-                                    <Label htmlFor="usr-name">Full Name</Label>
+                                    <Label htmlFor="usr-name" className="text-[#0b1f1c]">Full Name</Label>
                                     <Input 
                                         id="usr-name" 
                                         placeholder="Full Name"
-                                        className={`focus-visible:ring-indigo-500 ${nameForm.formState.errors.name ? 'border-red-400' : ''}`}
+                                        className={`focus-visible:ring-[#0f5c52]/30 ${nameForm.formState.errors.name ? 'border-red-400' : ''}`}
                                         {...nameForm.register("name")}
                                     />
                                     {nameForm.formState.errors.name && <p className="text-xs text-red-500">{nameForm.formState.errors.name.message}</p>}
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="usr-email">Email Address</Label>
-                                    <Input id="usr-email" value={user?.email || ""} disabled className="bg-slate-50 opacity-80 cursor-not-allowed border-dashed" />
-                                    <p className="text-[10px] text-slate-400">Your registered email address cannot be changed.</p>
+                                    <Label htmlFor="usr-email" className="text-[#0b1f1c]">Email Address</Label>
+                                    <Input id="usr-email" value={user?.email || ""} disabled className="bg-[#f0f4f2]/60 opacity-80 cursor-not-allowed border-dashed" />
+                                    <p className="text-[10px] text-[#5a736c]">Your registered email address cannot be changed.</p>
                                 </div>
                             </CardContent>
-                            <CardFooter className="border-t pt-4 pb-4 bg-slate-50/30">
-                                <Button type="submit" disabled={nameForm.formState.isSubmitting} className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white min-w-[140px]">
+                            <CardFooter className="border-t border-[#0b1f1c]/8 pt-4 pb-4 bg-[#f0f4f2]/30">
+                                <Button type="submit" disabled={nameForm.formState.isSubmitting} className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white min-w-[140px]">
                                     {nameForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                                     {nameForm.formState.isSubmitting ? "Saving..." : "Update Name"}
                                 </Button>
@@ -197,54 +197,54 @@ export function ProfileClient({ initialProfile }: { initialProfile: any }) {
                     </Card>
 
                     {/* Security Section */}
-                    <Card className="shadow-sm border-indigo-100 overflow-hidden">
+                    <Card className="shadow-none border-[#0b1f1c]/10 overflow-hidden">
                         <form onSubmit={passwordForm.handleSubmit(onChangePassword)}>
-                            <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                                <CardTitle className="flex items-center gap-2 text-lg">
-                                    <Lock className="h-5 w-5 text-emerald-500" />
+                            <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                                <CardTitle className="flex items-center gap-2 text-lg text-[#0b1f1c]">
+                                    <Lock className="h-5 w-5 text-[#0f5c52]" />
                                     Security & Password
                                 </CardTitle>
-                                <CardDescription>Change your password regularly to stay secure.</CardDescription>
+                                <CardDescription className="text-[#5a736c]">Change your password regularly to stay secure.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4 pt-6">
                                 <div className="space-y-2">
-                                    <Label htmlFor="cur-pass">Current Password</Label>
+                                    <Label htmlFor="cur-pass" className="text-[#0b1f1c]">Current Password</Label>
                                     <Input 
                                         id="cur-pass" 
                                         type="password" 
                                         placeholder="Enter current password"
-                                        className={`focus-visible:ring-indigo-500 ${passwordForm.formState.errors.current_password ? 'border-red-400' : ''}`}
+                                        className={`focus-visible:ring-[#0f5c52]/30 ${passwordForm.formState.errors.current_password ? 'border-red-400' : ''}`}
                                         {...passwordForm.register("current_password")}
                                     />
                                     {passwordForm.formState.errors.current_password && <p className="text-xs text-red-500">{passwordForm.formState.errors.current_password.message}</p>}
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-2">
-                                        <Label htmlFor="new-pass">New Password</Label>
+                                        <Label htmlFor="new-pass" className="text-[#0b1f1c]">New Password</Label>
                                         <Input 
                                             id="new-pass" 
                                             type="password" 
                                             placeholder="Enter new password"
-                                            className={`focus-visible:ring-indigo-500 ${passwordForm.formState.errors.new_password ? 'border-red-400' : ''}`}
+                                            className={`focus-visible:ring-[#0f5c52]/30 ${passwordForm.formState.errors.new_password ? 'border-red-400' : ''}`}
                                             {...passwordForm.register("new_password")}
                                         />
                                         {passwordForm.formState.errors.new_password && <p className="text-xs text-red-500">{passwordForm.formState.errors.new_password.message}</p>}
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="conf-pass">Confirm Password</Label>
+                                        <Label htmlFor="conf-pass" className="text-[#0b1f1c]">Confirm Password</Label>
                                         <Input 
                                             id="conf-pass" 
                                             type="password" 
                                             placeholder="Confirm new password"
-                                            className={`focus-visible:ring-indigo-500 ${passwordForm.formState.errors.confirm_password ? 'border-red-400' : ''}`}
+                                            className={`focus-visible:ring-[#0f5c52]/30 ${passwordForm.formState.errors.confirm_password ? 'border-red-400' : ''}`}
                                             {...passwordForm.register("confirm_password")}
                                         />
                                         {passwordForm.formState.errors.confirm_password && <p className="text-xs text-red-500">{passwordForm.formState.errors.confirm_password.message}</p>}
                                     </div>
                                 </div>
                             </CardContent>
-                            <CardFooter className="border-t pt-4 pb-4 bg-slate-50/30">
-                                <Button type="submit" disabled={passwordForm.formState.isSubmitting} className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[140px]">
+                            <CardFooter className="border-t border-[#0b1f1c]/8 pt-4 pb-4 bg-[#f0f4f2]/30">
+                                <Button type="submit" disabled={passwordForm.formState.isSubmitting} className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white min-w-[140px]">
                                     {passwordForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />}
                                     {passwordForm.formState.isSubmitting ? "Updating..." : "Update Password"}
                                 </Button>

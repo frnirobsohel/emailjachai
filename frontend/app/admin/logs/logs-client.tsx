@@ -36,7 +36,7 @@ const levelDot: Record<string, string> = {
 }
 
 const sourceColor = (source: string) => {
-    if (source.includes("Worker")) return "text-indigo-400"
+    if (source.includes("Worker")) return "text-[#1a8a78]"
     if (source.includes("Gateway") || source.includes("API")) return "text-orange-400"
     if (source === "System") return "text-teal-400"
     return "text-sky-400"
@@ -165,16 +165,16 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
             {/* Page Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="space-y-1">
-                    <h2 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                        <Activity className="h-8 w-8 text-indigo-600" />
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl flex items-center gap-2">
+                        <Activity className="h-7 w-7 sm:h-8 sm:w-8 text-[#0f5c52]" />
                         System Logs
                     </h2>
-                    <p className="text-slate-500 text-sm">Monitor core events, worker activity, and security audits across the platform.</p>
+                    <p className="text-sm text-[#5a736c]">Monitor core events, worker activity, and security audits across the platform.</p>
                 </div>
                 <div className="flex items-center gap-3">
                     <Button 
                         variant="outline" 
-                        className="bg-white border-slate-200 shadow-sm hover:bg-slate-50 transition-all" 
+                        className="bg-white border-[#0b1f1c]/10 shadow-sm hover:bg-[#f0f4f2]/60 transition-all" 
                         onClick={handleRefresh} 
                         disabled={isLoading}
                     >
@@ -203,10 +203,10 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
                         </div>
                         <div className="h-4 w-px bg-slate-800 mx-1 hidden md:block" />
                         <div className="flex items-center gap-2 text-slate-400 text-xs font-mono">
-                            <Terminal className="h-4 w-4 text-indigo-500" />
+                            <Terminal className="h-4 w-4 text-[#1a8a78]" />
                             <span className="font-semibold text-slate-300">system.log</span>
                             <span className="opacity-40">&mdash;</span>
-                            <span className="text-indigo-400/80">{filtered.length} visible</span>
+                            <span className="text-[#1a8a78]/80">{filtered.length} visible</span>
                             <span className="opacity-40">/</span>
                             <span>{total} entries</span>
                         </div>
@@ -214,11 +214,11 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
 
                     <div className="flex items-center gap-2.5 flex-wrap">
                         <div className="relative group">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-600 group-focus-within:text-indigo-500 transition-colors" />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-600 group-focus-within:text-[#1a8a78] transition-colors" />
                             <Input
                                 id="log-search"
                                 placeholder="Filter by message or source..."
-                                className="pl-9 h-9 text-xs bg-[#0a0c10] border-slate-800 text-slate-300 placeholder:text-slate-600 focus-visible:ring-indigo-500/50 font-mono w-60 shadow-inner"
+                                className="pl-9 h-9 text-xs bg-[#0a0c10] border-slate-800 text-slate-300 placeholder:text-slate-600 focus-visible:ring-[#0f5c52]/30 font-mono w-60 shadow-inner"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
@@ -243,7 +243,7 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
                             ))}
                             <button
                                 onClick={() => setLevelFilter(null)}
-                                className={`px-3 py-1 rounded-md text-[10px] font-mono font-bold transition-all ${!levelFilter ? 'bg-indigo-500/20 text-indigo-400 ring-1 ring-indigo-500/50' : 'text-slate-500 hover:text-slate-300'}`}
+                                className={`px-3 py-1 rounded-md text-[10px] font-mono font-bold transition-all ${!levelFilter ? 'bg-[#1a8a78]/20 text-[#1a8a78] ring-1 ring-[#1a8a78]/50' : 'text-slate-500 hover:text-slate-300'}`}
                             >
                                 ALL
                             </button>
@@ -270,7 +270,7 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
                 >
                     {isInitial && isLoading ? (
                         <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-600 font-mono">
-                            <Loader2 className="h-8 w-8 animate-spin text-indigo-500/50" />
+                            <Loader2 className="h-8 w-8 animate-spin text-[#0f5c52]" />
                             <span className="text-sm tracking-widest animate-pulse uppercase">Initializing Buffer...</span>
                         </div>
                     ) : (
@@ -281,7 +281,7 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
                                         <Filter className="h-6 w-6 opacity-20" />
                                     </div>
                                     <span className="text-sm">No log entries matching your criteria.</span>
-                                    <Button variant="link" className="text-indigo-400 text-xs h-auto p-0" onClick={() => {setSearchTerm(""); setLevelFilter(null)}}>Reset Filters</Button>
+                                    <Button variant="link" className="text-[#1a8a78] text-xs h-auto p-0" onClick={() => {setSearchTerm(""); setLevelFilter(null)}}>Reset Filters</Button>
                                 </div>
                             ) : (
                                 filtered.map((log, index) => (
@@ -293,7 +293,7 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
                                         style={{ gridTemplateColumns: "180px 80px 140px 1fr 130px" }}
                                     >
                                         <div className={`absolute left-0 top-0 bottom-0 w-[2px] transition-all opacity-0 group-hover:opacity-100 ${
-                                            log.level === "ERROR" ? "bg-rose-500" : log.level === "WARN" ? "bg-amber-500" : "bg-indigo-500"
+                                            log.level === "ERROR" ? "bg-rose-500" : log.level === "WARN" ? "bg-amber-500" : "bg-[#1a8a78]"
                                         }`} />
                                         
                                         <span className="text-slate-500 group-hover:text-slate-400 transition-colors whitespace-nowrap">
@@ -323,7 +323,7 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
                             {/* Infinite Scroll Sentinel */}
                             {hasMore && (
                                 <div ref={sentinelRef} className="py-10 flex flex-col items-center justify-center gap-2">
-                                    <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
+                                    <Loader2 className="h-5 w-5 animate-spin text-[#0f5c52]" />
                                     <span className="text-[10px] font-mono text-slate-600 uppercase tracking-widest">Streaming more entries...</span>
                                 </div>
                             )}

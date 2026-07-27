@@ -232,8 +232,8 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
         <div className="flex-1 space-y-6 pb-8">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-bold tracking-tight text-slate-900">Cache Management Center</h2>
-                    <p className="text-slate-500 text-sm flex items-center gap-2">
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Cache Management Center</h2>
+                    <p className="text-sm text-[#5a736c] flex items-center gap-2">
                         Manage verification cache rules and system resources.
                         {lastRefreshed && (
                             <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full ml-3 border border-slate-200">
@@ -293,10 +293,10 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                 {/* Configuration Section */}
                 <div className="space-y-6">
-                    <Card className="shadow-lg border-indigo-50 overflow-hidden ring-1 ring-slate-100">
-                        <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                            <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-                                <Settings2 className="h-5 w-5 text-indigo-600" /> Retention Policies
+                    <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden">
+                        <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                            <CardTitle className="text-lg font-semibold text-[#0b1f1c] flex items-center gap-2">
+                                <Settings2 className="h-5 w-5 text-[#0f5c52]" /> Retention Policies
                             </CardTitle>
                             <CardDescription>Configure how long emails are cached before re-verification.</CardDescription>
                         </CardHeader>
@@ -307,7 +307,7 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
                                     <Label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">B2B / Custom Domains (Days)</Label>
                                     <Input 
                                         type="number" 
-                                        className={`h-9 focus-visible:ring-indigo-500 text-sm ${policiesForm.formState.errors.b2b_retention ? 'border-red-400' : ''}`}
+                                        className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${policiesForm.formState.errors.b2b_retention ? 'border-red-400' : ''}`}
                                         {...policiesForm.register("b2b_retention")}
                                     />
                                     {policiesForm.formState.errors.b2b_retention && <p className="text-xs text-red-500">{policiesForm.formState.errors.b2b_retention.message}</p>}
@@ -319,7 +319,7 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
                                         <Label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Free Valid (Days)</Label>
                                         <Input 
                                             type="number" 
-                                            className={`h-9 focus-visible:ring-indigo-500 text-sm ${policiesForm.formState.errors.free_valid_retention ? 'border-red-400' : ''}`}
+                                            className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${policiesForm.formState.errors.free_valid_retention ? 'border-red-400' : ''}`}
                                             {...policiesForm.register("free_valid_retention")}
                                         />
                                         {policiesForm.formState.errors.free_valid_retention && <p className="text-xs text-red-500">{policiesForm.formState.errors.free_valid_retention.message}</p>}
@@ -329,7 +329,7 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
                                         <Label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Free Invalid (Days)</Label>
                                         <Input 
                                             type="number" 
-                                            className={`h-9 focus-visible:ring-indigo-500 text-sm ${policiesForm.formState.errors.free_invalid_retention ? 'border-red-400' : ''}`}
+                                            className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${policiesForm.formState.errors.free_invalid_retention ? 'border-red-400' : ''}`}
                                             {...policiesForm.register("free_invalid_retention")}
                                         />
                                         {policiesForm.formState.errors.free_invalid_retention && <p className="text-xs text-red-500">{policiesForm.formState.errors.free_invalid_retention.message}</p>}
@@ -346,7 +346,7 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
                                         "shadow-md transition-all active:scale-[0.98] h-9 w-full sm:min-w-[180px]",
                                         isSaved 
                                             ? "bg-emerald-600 hover:bg-emerald-700 text-white" 
-                                            : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                                            : "border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white"
                                     )}
                                 >
                                     {policiesForm.formState.isSubmitting ? (
@@ -502,7 +502,7 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
 
 function StatCard({ title, value, subvalue, icon: Icon, color, bg }: any) {
     return (
-        <Card className="shadow-md border-indigo-50/50 hover:shadow-lg transition-shadow duration-300">
+        <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 hover:shadow-sm transition-shadow duration-300">
             <CardContent className="p-5">
                 <div className="flex justify-between items-start">
                     <div className="space-y-1">

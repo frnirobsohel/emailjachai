@@ -9,6 +9,7 @@ import { StatsCards } from "@/features/dashboard/components/stats-cards"
 import { useDashboardStore, type DashboardStats, type RecentDashboardJob } from "@/stores/dashboard-store"
 import { ApiClient } from "@/lib/api-client"
 import { CreditBadge } from "@/features/dashboard/components/credit-badge"
+import { useUserStore } from "@/stores/user-state"
 
 interface DashboardClientProps {
     initialStats: DashboardStats
@@ -17,17 +18,19 @@ interface DashboardClientProps {
 
 export function DashboardClient({ initialStats, initialRecentJobs }: DashboardClientProps) {
     const store = useDashboardStore()
+    const user = useUserStore((s) => s.user)
+    const firstName = user?.name?.split(" ")[0] || "there"
 
     const fetchDashboardData = async () => {
         try {
             const [statsRes, jobsRes] = await Promise.all([
-                ApiClient.get<DashboardStats>('/dashboard/stats'),
-                ApiClient.get<{ jobs: RecentDashboardJob[], total: number }>('/jobs/list?limit=4&type=all')
-            ]);
-            if (statsRes.status === 'success' && statsRes.data) {
+                ApiClient.get<DashboardStats>("/dashboard/stats"),
+                ApiClient.get<{ jobs: RecentDashboardJob[]; total: number }>("/jobs/list?limit=4&type=all"),
+            ])
+            if (statsRes.status === "success" && statsRes.data) {
                 store.setStats(statsRes.data)
             }
-            if (jobsRes.status === 'success' && jobsRes.data) {
+            if (jobsRes.status === "success" && jobsRes.data) {
                 store.setRecentJobs(jobsRes.data.jobs || [])
             }
         } catch (error) {
@@ -35,34 +38,40 @@ export function DashboardClient({ initialStats, initialRecentJobs }: DashboardCl
         }
     }
 
-    // Initialize store with server-fetched data on mount/navigation
     useEffect(() => {
         if (!store.stats) {
             store.setStats(initialStats)
             store.setRecentJobs(initialRecentJobs)
         }
-        // Always fetch fresh data client-side to override Next.js Router Cache
-        fetchDashboardData()
-    }, [initialStats, initialRecentJobs])
+        // Mount-only refresh — avoid refetch loops when SSR props get new references
+        void fetchDashboardData()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
-    // Use store stats if available, otherwise fallback to initialStats (to prevent flash before hydration)
     const currentStats = store.stats || initialStats
-
-    // Only show loading if we don't have stats yet
     const isLoadingStats = !currentStats
 
     return (
-        <div className="flex-1 space-y-4">
-            <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-                <div className="flex items-center gap-4">
+        <div className="flex-1 space-y-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">
+                        Welcome back, {firstName}
+                    </h2>
+                    <p className="mt-1 text-sm text-[#5a736c]">
+                        Here&apos;s your verification activity overview.
+                    </p>
+                </div>
+                <div className="flex items-center gap-3">
                     <CreditBadge />
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 rounded-md border border-[#0b1f1c]/10 bg-white/70 px-2.5 py-1.5">
                         <span className="relative flex h-2 w-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
                         </span>
-                        <span className="text-xs text-slate-500 font-mono tracking-wider">LIVE</span>
+                        <span className="font-mono text-[10px] font-medium tracking-wider text-[#5a736c]">
+                            LIVE
+                        </span>
                     </div>
                 </div>
             </div>

@@ -202,60 +202,60 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
         <div className="flex-1 space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">Domain Management</h2>
-                    <p className="text-slate-500">Configure domain-based verification policies and blacklists.</p>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Domain Management</h2>
+                    <p className="mt-1 text-sm text-[#5a736c]">Configure domain-based verification policies and blacklists.</p>
                 </div>
             </div>
 
             {/* Stats Overview */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-                <Card className="bg-slate-50/50 border-slate-200">
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-xs font-semibold uppercase text-slate-500">Total Domains</CardTitle>
-                        <div className="text-2xl font-bold">{stats?.total || 0}</div>
+                        <CardTitle className="text-xs font-semibold uppercase text-[#5a736c]">Total Domains</CardTitle>
+                        <div className="text-2xl font-semibold tracking-tight text-[#0b1f1c]">{stats?.total || 0}</div>
                     </CardHeader>
                 </Card>
-                <Card className="bg-blue-50/50 border-blue-100">
+                <Card className="bg-[#0f5c52]/5 border-[#0f5c52]/15 shadow-none">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-xs font-semibold uppercase text-blue-600">Disposable</CardTitle>
-                        <div className="text-2xl font-bold text-blue-700">{stats?.disposable || 0}</div>
+                        <CardTitle className="text-xs font-semibold uppercase text-[#0f5c52]">Disposable</CardTitle>
+                        <div className="text-2xl font-semibold tracking-tight text-[#0f5c52]">{stats?.disposable || 0}</div>
                     </CardHeader>
                 </Card>
-                <Card className="bg-green-50/50 border-green-100">
+                <Card className="bg-emerald-50/50 border-emerald-100 shadow-none">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-xs font-semibold uppercase text-green-600">Free Email</CardTitle>
-                        <div className="text-2xl font-bold text-green-700">{stats?.free || 0}</div>
+                        <CardTitle className="text-xs font-semibold uppercase text-emerald-600">Free Email</CardTitle>
+                        <div className="text-2xl font-semibold tracking-tight text-emerald-700">{stats?.free || 0}</div>
                     </CardHeader>
                 </Card>
-                <Card className="bg-red-50/50 border-red-100">
+                <Card className="bg-rose-50/50 border-rose-100 shadow-none">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-xs font-semibold uppercase text-red-600">Blacklist</CardTitle>
-                        <div className="text-2xl font-bold text-red-700">{stats?.blacklist || 0}</div>
+                        <CardTitle className="text-xs font-semibold uppercase text-rose-600">Blacklist</CardTitle>
+                        <div className="text-2xl font-semibold tracking-tight text-rose-700">{stats?.blacklist || 0}</div>
                     </CardHeader>
                 </Card>
-                <Card className="bg-amber-50/50 border-amber-100">
+                <Card className="bg-amber-50/50 border-amber-100 shadow-none">
                     <CardHeader className="pb-2">
                         <CardTitle className="text-xs font-semibold uppercase text-amber-600">Spam Traps</CardTitle>
-                        <div className="text-2xl font-bold text-amber-700">{stats?.spam || 0}</div>
+                        <div className="text-2xl font-semibold tracking-tight text-amber-700">{stats?.spam || 0}</div>
                     </CardHeader>
                 </Card>
             </div>
 
             {/* Add Domain Section */}
-            <Card className="border-indigo-100 shadow-sm overflow-hidden">
-                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                     <div className="flex items-center justify-between">
                         <div>
-                            <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                                <Plus className="h-5 w-5 text-indigo-500" />
+                            <CardTitle className="text-lg font-semibold text-[#0b1f1c] flex items-center gap-2">
+                                <Plus className="h-5 w-5 text-[#0f5c52]" />
                                 Add New Domain
                             </CardTitle>
-                            <CardDescription>Manually add or upload a list of domains</CardDescription>
+                            <CardDescription className="text-[#5a736c]">Manually add or upload a list of domains</CardDescription>
                         </div>
                         <Button
                             variant="outline"
                             size="sm"
-                            className="border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                            className="border-[#0f5c52]/30 text-[#0f5c52] hover:bg-[#0f5c52]/10"
                             onClick={() => fileInputRef.current?.click()}
                             disabled={isUploading}
                         >
@@ -279,7 +279,7 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                             <Input
                                 id="new-domain"
                                 placeholder="domain.com"
-                                className={cn("border-indigo-50 focus-visible:ring-indigo-500", addForm.formState.errors.domain && "border-red-500")}
+                                className={cn("border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30", addForm.formState.errors.domain && "border-red-500")}
                                 {...addForm.register("domain")}
                             />
                             {addForm.formState.errors.domain && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.domain.message}</p>}
@@ -299,7 +299,7 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                             {addForm.formState.errors.type && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.type.message}</p>}
                         </div>
                         <div className="sm:col-span-1">
-                            <Button type="submit" disabled={addForm.formState.isSubmitting} className="w-full bg-[#0f172b] hover:bg-[#0f172b]/90 text-white shadow-sm">
+                            <Button type="submit" disabled={addForm.formState.isSubmitting} className="w-full border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none">
                                 {addForm.formState.isSubmitting ? "Adding..." : "Add Domain"}
                             </Button>
                         </div>
@@ -308,11 +308,11 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
             </Card>
 
             {/* List Section */}
-            <Card className="border-slate-200 shadow-sm">
-                <CardHeader className="pb-3 border-b border-slate-100 bg-slate-50/30">
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none">
+                <CardHeader className="pb-3 border-b border-[#0b1f1c]/8 bg-[#f0f4f2]/60">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                            <Globe className="h-5 w-5 text-slate-500" />
+                        <CardTitle className="text-lg font-semibold text-[#0b1f1c] flex items-center gap-2">
+                            <Globe className="h-5 w-5 text-[#0f5c52]" />
                             Domain Database
                         </CardTitle>
                         <div className="flex items-center gap-3">
@@ -324,10 +324,10 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                                     placeholder="Search domains..."
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
-                                    className="pl-8 h-9 text-sm"
+                                    className="pl-8 h-9 text-sm focus-visible:ring-[#0f5c52]/30"
                                     aria-label="Search domains"
                                 />
-                                <Filter className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                                <Filter className="absolute left-2.5 top-2.5 h-4 w-4 text-[#6b857c]" />
                             </div>
                             <Label htmlFor="type-filter" className="sr-only">Filter by Type</Label>
                             <SimpleSelect
@@ -349,8 +349,8 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                 </CardHeader>
                 <CardContent className="p-0">
                     <Table>
-                        <TableHeader className="bg-slate-50/50">
-                            <TableRow className="border-b border-slate-100">
+                        <TableHeader className="bg-[#f0f4f2]/60">
+                            <TableRow className="border-b border-[#0b1f1c]/8">
                                 <TableHead className="w-[300px]">Domain</TableHead>
                                 <TableHead>Type</TableHead>
                                 <TableHead>Status</TableHead>
@@ -362,22 +362,22 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                             {domains.length === 0 && isLoading ? (
                                 <TableRow>
                                     <TableCell colSpan={5} className="h-32 text-center">
-                                        <Loader2 className="h-8 w-8 animate-spin mx-auto text-slate-300" />
+                                        <Loader2 className="h-8 w-8 animate-spin mx-auto text-[#0b1f1c]/20" />
                                     </TableCell>
                                 </TableRow>
                             ) : domains.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={5} className="h-32 text-center text-slate-500">
+                                    <TableCell colSpan={5} className="h-32 text-center text-[#5a736c]">
                                         No domains found.
                                     </TableCell>
                                 </TableRow>
                             ) : domains.map((row) => (
-                                <TableRow key={row.id} className="border-b border-slate-50 hover:bg-slate-50/30">
-                                    <TableCell className="font-medium text-slate-900">{row.domain}</TableCell>
+                                <TableRow key={row.id} className="border-b border-[#0b1f1c]/5 hover:bg-[#f0f4f2]/40">
+                                    <TableCell className="font-medium text-[#0b1f1c]">{row.domain}</TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2">
                                             {renderTypeIcon(row.type)}
-                                            <span className="capitalize text-sm text-slate-600">{row.type.replace('-', ' ')}</span>
+                                            <span className="capitalize text-sm text-[#5a736c]">{row.type.replace('-', ' ')}</span>
                                         </div>
                                     </TableCell>
                                     <TableCell>
@@ -386,14 +386,14 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                                             className={cn(
                                                 "text-[10px] h-5 px-1.5 uppercase font-bold",
                                                 row.excluded
-                                                    ? "bg-slate-100 text-slate-500 border-slate-200"
-                                                    : "bg-green-100 text-green-700 border-green-200"
+                                                    ? "bg-[#0b1f1c]/5 text-[#5a736c] border-[#0b1f1c]/10"
+                                                    : "bg-emerald-100 text-emerald-700 border-emerald-200"
                                             )}
                                         >
                                             {row.excluded ? "Inactive" : "Active"}
                                         </Badge>
                                     </TableCell>
-                                    <TableCell className="text-xs text-slate-500">
+                                    <TableCell className="text-xs text-[#5a736c]">
                                         {new Date(row.created_at).toLocaleDateString()}
                                     </TableCell>
                                     <TableCell className="text-right">
@@ -401,7 +401,7 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="h-8 w-8 text-slate-500 hover:text-indigo-600"
+                                                className="h-8 w-8 text-[#5a736c] hover:text-[#0f5c52]"
                                                 disabled={isActionLoading === row.id}
                                                 onClick={() => handleToggleExcluded(row.id)}
                                                 title={row.excluded ? "Enable" : "Disable"}
@@ -411,7 +411,7 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="h-8 w-8 text-slate-500 hover:text-red-600"
+                                                className="h-8 w-8 text-[#5a736c] hover:text-rose-600"
                                                 disabled={isActionLoading === row.id}
                                                 onClick={() => handleDeleteDomain(row.id)}
                                             >
@@ -424,8 +424,8 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                         </TableBody>
                     </Table>
                 </CardContent>
-                <div className="flex items-center justify-between p-4 border-t border-slate-100 bg-slate-50/30">
-                    <p className="text-sm text-slate-500 font-medium">
+                <div className="flex items-center justify-between p-4 border-t border-[#0b1f1c]/8 bg-[#f0f4f2]/60">
+                    <p className="text-sm text-[#5a736c] font-medium">
                         Showing {domains.length} of {total} domains
                     </p>
                     <div className="flex gap-2">
@@ -434,7 +434,7 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                             size="sm"
                             disabled={page === 1 || isLoading}
                             onClick={() => setPage(p => p - 1)}
-                            className="bg-white border-slate-200"
+                            className="bg-white border-[#0b1f1c]/10"
                         >
                             Previous
                         </Button>
@@ -443,7 +443,7 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                             size="sm"
                             disabled={domains.length < 20 || total <= page * 20 || isLoading}
                             onClick={() => setPage(p => p + 1)}
-                            className="bg-white border-slate-200"
+                            className="bg-white border-[#0b1f1c]/10"
                         >
                             Next
                         </Button>
@@ -457,11 +457,11 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
 function renderTypeIcon(type: DomainType) {
     switch (type) {
         case 'disposable':
-            return <Ban className="h-4 w-4 text-blue-500" />
+            return <Ban className="h-4 w-4 text-[#0f5c52]" />
         case 'free':
-            return <CheckCircle className="h-4 w-4 text-green-500" />
+            return <CheckCircle className="h-4 w-4 text-emerald-500" />
         case 'blacklist':
-            return <ShieldAlert className="h-4 w-4 text-red-500" />
+            return <ShieldAlert className="h-4 w-4 text-rose-500" />
         case 'spam-trap':
             return <ShieldAlert className="h-4 w-4 text-amber-500" />
     }

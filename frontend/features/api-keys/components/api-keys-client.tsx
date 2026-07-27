@@ -225,34 +225,39 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
         <div className="flex-1 space-y-4">
             {/* Header */}
             <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">API Keys</h2>
+                <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">API Keys</h2>
+                    <p className="mt-1 text-sm text-[#5a736c]">
+                        Manage keys for programmatic access to email verification.
+                    </p>
+                </div>
                 <CreditBadge />
             </div>
 
             {/* Metrics Cards */}
             <div className="grid gap-4 md:grid-cols-3">
-                <Card className="shadow-sm border-indigo-100 overflow-hidden">
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-500">
+                        <CardTitle className="text-sm font-medium text-[#5a736c]">
                             Active Keys
                         </CardTitle>
-                        <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-indigo-50">
-                            <Key className="h-4 w-4 text-indigo-600" />
+                        <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-[#0f5c52]/10">
+                            <Key className="h-4 w-4 text-[#0f5c52]" />
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-slate-900">
+                        <div className="text-2xl font-bold text-[#0b1f1c]">
                             {activeKeysCount} / 5
                         </div>
-                        <div className="flex items-center text-xs text-slate-400 mt-1">
+                        <div className="flex items-center text-xs text-[#5a736c] mt-1">
                             Key allocation limit
                         </div>
                     </CardContent>
                 </Card>
 
-                <Card className="shadow-sm border-indigo-100 overflow-hidden">
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-500">
+                        <CardTitle className="text-sm font-medium text-[#5a736c]">
                             API Verifications
                         </CardTitle>
                         <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-blue-50">
@@ -260,18 +265,18 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-slate-900">
+                        <div className="text-2xl font-bold text-[#0b1f1c]">
                             {dashboardStats?.api_verifications ? Number(dashboardStats.api_verifications).toLocaleString() : "0"}
                         </div>
-                        <div className="flex items-center text-xs text-slate-400 mt-1">
+                        <div className="flex items-center text-xs text-[#5a736c] mt-1">
                             Total emails verified via API Keys
                         </div>
                     </CardContent>
                 </Card>
 
-                <Card className="shadow-sm border-indigo-100 overflow-hidden">
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-500">
+                        <CardTitle className="text-sm font-medium text-[#5a736c]">
                             Service Status
                         </CardTitle>
                         <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-emerald-50">
@@ -283,7 +288,7 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                             <span className="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
                             Operational
                         </div>
-                        <div className="flex items-center text-xs text-slate-400 mt-1">
+                        <div className="flex items-center text-xs text-[#5a736c] mt-1">
                             Response latency ~248ms
                         </div>
                     </CardContent>
@@ -292,20 +297,20 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
 
              {/* Setup Options */}
             <div className="grid gap-4 md:grid-cols-2">
-                <Card className="flex flex-col border-indigo-100 shadow-sm overflow-hidden">
-                    <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                        <CardTitle>Create New Key</CardTitle>
-                        <CardDescription>Generate a new API key to access our services programmatically.</CardDescription>
+                <Card className="flex flex-col border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                        <CardTitle className="text-[#0b1f1c]">Create New Key</CardTitle>
+                        <CardDescription className="text-[#5a736c]">Generate a new API key to access our services programmatically.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 flex-1">
                         <form onSubmit={createForm.handleSubmit(onCreateKey)} className="space-y-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-semibold text-slate-700">Key Name</label>
+                                <label className="text-sm font-semibold text-[#0b1f1c]">Key Name</label>
                                 <div className="flex gap-3">
                                     <div className="flex-1 space-y-1">
                                         <Input 
                                             placeholder={isLimitReached ? "Active key limit reached (max 5)" : "e.g. Production Web Server"} 
-                                            className={`h-11 bg-slate-50 border-indigo-100 focus-visible:ring-indigo-500 font-medium ${createForm.formState.errors.name ? 'border-red-400' : ''}`}
+                                            className={`h-11 bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 font-medium ${createForm.formState.errors.name ? 'border-red-400' : ''}`}
                                             disabled={isLimitReached || isCreating}
                                             {...createForm.register("name")}
                                         />
@@ -314,7 +319,7 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                                     <Button 
                                         type="submit"
                                         disabled={isLimitReached || isCreating}
-                                        className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-200 h-11 px-6 min-w-[140px]"
+                                        className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none h-11 px-6 min-w-[140px]"
                                     >
                                         {isCreating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                                         {isCreating ? "Generating..." : "Generate Key"}
@@ -389,10 +394,10 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
             )}
 
             {/* API Keys Table */}
-            <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                    <CardTitle className="text-lg font-semibold text-slate-900">Your API Keys</CardTitle>
-                    <CardDescription>Manage your existing keys, verify usage stats, and configure settings.</CardDescription>
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                    <CardTitle className="text-lg font-semibold text-[#0b1f1c]">Your API Keys</CardTitle>
+                    <CardDescription className="text-[#5a736c]">Manage your existing keys, verify usage stats, and configure settings.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
                     <Table>
@@ -440,19 +445,19 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                                                     <MoreVertical className="h-4 w-4" />
                                                 </Button>
                                             </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end" className="w-48 bg-white border border-slate-200 shadow-md rounded-xl p-1 z-50">
+                                            <DropdownMenuContent align="end" className="w-48 bg-white border border-[#0b1f1c]/10 shadow-md rounded-xl p-1 z-50">
                                                 <DropdownMenuItem 
                                                     onClick={() => setDetailKey(key)}
-                                                    className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg cursor-pointer outline-none"
+                                                    className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-[#0f5c52]/10 hover:text-[#0f5c52] rounded-lg cursor-pointer outline-none"
                                                 >
-                                                    <Eye className="h-4 w-4 text-slate-500 hover:text-indigo-600" />
+                                                    <Eye className="h-4 w-4 text-slate-500 hover:text-[#0f5c52]" />
                                                     View Details
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem 
                                                     onClick={() => setRotateConfirmKey(key)}
-                                                    className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg cursor-pointer outline-none"
+                                                    className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-[#0f5c52]/10 hover:text-[#0f5c52] rounded-lg cursor-pointer outline-none"
                                                 >
-                                                    <RefreshCw className="h-4 w-4 text-slate-500 hover:text-indigo-600" />
+                                                    <RefreshCw className="h-4 w-4 text-slate-500 hover:text-[#0f5c52]" />
                                                     Rotate Key
                                                 </DropdownMenuItem>
                                                 <DropdownMenuSeparator className="my-1 border-t border-slate-100" />
@@ -483,22 +488,22 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
             {/* VIEW DETAILS MODAL */}
             {detailKey && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md overflow-hidden">
+                    <div className="bg-white rounded-2xl shadow-2xl border border-[#0b1f1c]/10 w-full max-w-md overflow-hidden">
                         {/* Modal Header */}
-                        <div className="flex items-center justify-between bg-slate-50/80 px-6 py-4 border-b border-slate-100">
+                        <div className="flex items-center justify-between bg-[#f0f4f2]/60 px-6 py-4 border-b border-[#0b1f1c]/8">
                             <div className="flex items-center gap-2.5">
-                                <div className="h-8 w-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                                <div className="h-8 w-8 rounded-lg bg-[#0f5c52]/10 flex items-center justify-center text-[#0f5c52]">
                                     <Eye className="h-4.5 w-4.5" />
                                 </div>
                                 <div>
-                                    <h3 className="font-bold text-slate-900 text-base">{detailKey.name}</h3>
-                                    <p className="text-[11px] text-slate-500 font-medium">API Key Details & Statistics</p>
+                                    <h3 className="font-bold text-[#0b1f1c] text-base">{detailKey.name}</h3>
+                                    <p className="text-[11px] text-[#5a736c] font-medium">API Key Details & Statistics</p>
                                 </div>
                             </div>
                             <Button 
                                 variant="ghost" 
                                 size="sm" 
-                                className="h-8 w-8 p-0 rounded-full hover:bg-slate-200 text-slate-500"
+                                className="h-8 w-8 p-0 rounded-full hover:bg-[#0b1f1c]/10 text-[#5a736c]"
                                 onClick={() => setDetailKey(null)}
                             >
                                 <X className="h-4.5 w-4.5" />
@@ -555,7 +560,7 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                                     </div>
                                     <div className="flex justify-between items-center text-sm">
                                         <div className="flex items-center gap-2 text-slate-500 font-medium">
-                                            <Activity className="h-4 w-4 text-indigo-500" />
+                                            <Activity className="h-4 w-4 text-[#0f5c52]" />
                                             Last Active Time
                                         </div>
                                         <span className="font-semibold text-slate-800 text-xs">{detailKey.last_used || "Never"}</span>
@@ -565,10 +570,10 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                         </div>
 
                         {/* Modal Footer */}
-                        <div className="bg-slate-50/80 px-6 py-4 flex justify-end border-t border-slate-100">
+                        <div className="bg-[#f0f4f2]/60 px-6 py-4 flex justify-end border-t border-[#0b1f1c]/8">
                             <Button 
                                 variant="outline" 
-                                className="border-slate-200 bg-white hover:bg-slate-100 rounded-xl"
+                                className="border-[#0b1f1c]/10 bg-white hover:bg-slate-100 rounded-xl"
                                 onClick={() => setDetailKey(null)}
                             >
                                 Close View
@@ -579,18 +584,18 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
             )}
 
             {/* INTEGRATION CODE SNIPPET CARD */}
-            <Card id="integration-snippets" className="shadow-sm border-indigo-100 overflow-hidden mt-6 transition-all duration-300">
-                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
+            <Card id="integration-snippets" className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden mt-6 transition-all duration-300">
+                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div>
-                            <CardTitle className="text-lg font-semibold text-slate-900">API Integration Code Snippets</CardTitle>
-                            <CardDescription>Integrate our verification services into your applications.</CardDescription>
+                            <CardTitle className="text-lg font-semibold text-[#0b1f1c]">API Integration Code Snippets</CardTitle>
+                            <CardDescription className="text-[#5a736c]">Integrate our verification services into your applications.</CardDescription>
                         </div>
                     </div>
                 </CardHeader>
                 <CardContent className="p-6 space-y-4">
                     {/* Tabs */}
-                    <div className="flex border-b border-slate-100 pb-3 gap-2">
+                    <div className="flex border-b border-[#0b1f1c]/8 pb-3 gap-2">
                         <Button 
                             variant={activeTab === 'curl' ? 'default' : 'ghost'}
                             size="sm"
@@ -598,8 +603,8 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                             className={cn(
                                 "rounded-lg text-xs font-semibold px-3 py-1.5 h-8",
                                 activeTab === 'curl' 
-                                    ? "bg-[#0f172b] hover:bg-[#1e293b] text-white shadow-sm" 
-                                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                                    ? "bg-[#0b1f1c] hover:bg-[#0b1f1c]/90 text-white shadow-sm" 
+                                    : "text-[#5a736c] hover:text-[#0b1f1c] hover:bg-slate-100"
                             )}
                         >
                             cURL Command
@@ -611,15 +616,15 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                             className={cn(
                                 "rounded-lg text-xs font-semibold px-3 py-1.5 h-8",
                                 activeTab === 'js' 
-                                    ? "bg-[#0f172b] hover:bg-[#1e293b] text-white shadow-sm" 
-                                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                                    ? "bg-[#0b1f1c] hover:bg-[#0b1f1c]/90 text-white shadow-sm" 
+                                    : "text-[#5a736c] hover:text-[#0b1f1c] hover:bg-slate-100"
                             )}
                         >
                             JavaScript Fetch
                         </Button>
                     </div>
 
-                    <p className="text-xs text-slate-500 leading-relaxed">
+                    <p className="text-xs text-[#5a736c] leading-relaxed">
                         Use the code below in your backend server applications. Remember to replace the placeholder token with your actual private API key.
                     </p>
 
@@ -678,18 +683,18 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
             {/* ROTATE CONFIRMATION MODAL */}
             {rotateConfirmKey && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-sm overflow-hidden p-6 space-y-4">
+                    <div className="bg-white rounded-2xl shadow-2xl border border-[#0b1f1c]/10 w-full max-w-sm overflow-hidden p-6 space-y-4">
                         <div className="flex items-center gap-3">
                             <div className="h-10 w-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
                                 <RefreshCw className="h-5 w-5" />
                             </div>
                             <div>
-                                <h3 className="font-bold text-slate-900 text-base">Rotate API Key?</h3>
-                                <p className="text-xs text-slate-500 font-semibold">Action is irreversible</p>
+                                <h3 className="font-bold text-[#0b1f1c] text-base">Rotate API Key?</h3>
+                                <p className="text-xs text-[#5a736c] font-semibold">Action is irreversible</p>
                             </div>
                         </div>
 
-                        <div className="text-sm text-slate-600 leading-relaxed">
+                        <div className="text-sm text-[#5a736c] leading-relaxed">
                             Rotating the key **&quot;{rotateConfirmKey.name}&quot;** will immediately revoke its active credential token and generate a new one. Any current apps utilizing this token will fail until updated.
                         </div>
 
@@ -698,7 +703,7 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                                 variant="outline"
                                 onClick={() => setRotateConfirmKey(null)}
                                 disabled={isRotating}
-                                className="flex-1 border-slate-200 bg-white hover:bg-slate-100 rounded-xl"
+                                className="flex-1 border-[#0b1f1c]/10 bg-white hover:bg-slate-100 rounded-xl"
                             >
                                 Cancel
                             </Button>
@@ -717,18 +722,18 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
             {/* REVOKE CONFIRMATION MODAL */}
             {revokeConfirmKey && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-sm overflow-hidden p-6 space-y-4">
+                    <div className="bg-white rounded-2xl shadow-2xl border border-[#0b1f1c]/10 w-full max-w-sm overflow-hidden p-6 space-y-4">
                         <div className="flex items-center gap-3">
                             <div className="h-10 w-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
                                 <AlertTriangle className="h-5 w-5" />
                             </div>
                             <div>
-                                <h3 className="font-bold text-slate-900 text-base">Revoke API Key?</h3>
+                                <h3 className="font-bold text-[#0b1f1c] text-base">Revoke API Key?</h3>
                                 <p className="text-xs text-red-500 font-bold uppercase tracking-wider">Destructive action</p>
                             </div>
                         </div>
 
-                        <div className="text-sm text-slate-600 leading-relaxed">
+                        <div className="text-sm text-[#5a736c] leading-relaxed">
                             Are you absolutely sure you want to revoke and delete **&quot;{revokeConfirmKey.name}&quot;**? Applications using this API key will stop working immediately. This cannot be undone.
                         </div>
 
@@ -737,7 +742,7 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                                 variant="outline"
                                 onClick={() => setRevokeConfirmKey(null)}
                                 disabled={isRevoking}
-                                className="flex-1 border-slate-200 bg-white hover:bg-slate-100 rounded-xl"
+                                className="flex-1 border-[#0b1f1c]/10 bg-white hover:bg-slate-100 rounded-xl"
                             >
                                 Cancel
                             </Button>

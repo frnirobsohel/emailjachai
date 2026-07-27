@@ -9,34 +9,35 @@ import { Mail, Loader2, ArrowRight } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
 import { logger } from "@/lib/logger"
 import { useSettings } from "@/lib/settings-context"
+import { useDashboardStore } from "@/stores/dashboard-store"
 
 export interface VerificationResult {
-    job_id: string;
-    email: string;
-    status: string;
-    score: number;
-    processingTime: number;
+    job_id: string
+    email: string
+    status: string
+    score: number
+    processingTime: number
     detailedChecks: {
-        safeToSend: boolean;
-        deliverable: boolean;
-        invalidSyntax: boolean;
-        disposableEmail: boolean;
-        mxRecords: boolean;
-        smtpConnect: boolean;
-        userExist: boolean;
-        unknown: boolean;
-        mailboxFull: boolean;
-        catchAll: boolean;
-        roleAccount: boolean;
-        freeAccount: boolean;
-        spamTrap?: boolean;
-        blacklist?: boolean;
-    };
-    rawJson: unknown;
+        safeToSend: boolean
+        deliverable: boolean
+        invalidSyntax: boolean
+        disposableEmail: boolean
+        mxRecords: boolean
+        smtpConnect: boolean
+        userExist: boolean
+        unknown: boolean
+        mailboxFull: boolean
+        catchAll: boolean
+        roleAccount: boolean
+        freeAccount: boolean
+        spamTrap?: boolean
+        blacklist?: boolean
+    }
+    rawJson: unknown
 }
 
 interface SingleVerifyFormProps {
-    onVerify: (result: VerificationResult) => void;
+    onVerify: (result: VerificationResult) => void
 }
 
 export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
@@ -54,69 +55,76 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
         setError(null)
 
         try {
-            // Use ApiClient to call the proxied backend
-            const result = await ApiClient.post('/jobs/verify-single', {
-                email: email
-            }, {
-                timeout: 60000
-            });
+            const result = await ApiClient.post(
+                "/jobs/verify-single",
+                { email },
+                { timeout: 60000 }
+            )
 
-            if (result.status === 'success') {
-                onVerify(result.data as VerificationResult);
+            if (result.status === "success") {
+                onVerify(result.data as VerificationResult)
+                void useDashboardStore.getState().fetchStats(true)
             } else {
-                setError(result.message || "Failed to verify email");
+                setError(result.message || "Failed to verify email")
             }
-        } catch (err: any) {
-            logger.error("Verification operation failed:", err);
-            setError(err.message || "An unexpected error occurred during verification");
+        } catch (err: unknown) {
+            logger.error("Verification operation failed:", err)
+            setError(err instanceof Error ? err.message : "An unexpected error occurred during verification")
         } finally {
             setIsLoading(false)
         }
     }
 
     return (
-        <Card className="shadow-sm border-indigo-100 overflow-hidden h-fit">
-            <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-                    <Mail className="h-5 w-5 text-slate-500" />
+        <Card className="h-fit overflow-hidden border-[#0b1f1c]/10 bg-white/90 shadow-none">
+            <CardHeader className="border-b border-[#0b1f1c]/8 bg-[#f0f4f2]/60">
+                <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                    <Mail className="h-5 w-5 text-[#0f5c52]" />
                     Email Verification
                 </CardTitle>
-                <CardDescription>
+                <CardDescription className="text-[#5a736c]">
                     Enter an email address to verify its validity
                 </CardDescription>
             </CardHeader>
             <form onSubmit={handleVerify}>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-4 pt-6">
                     <div className="space-y-2">
-                        <Label htmlFor="email">Email Address</Label>
+                        <Label htmlFor="email" className="text-[#3d564f]">
+                            Email Address
+                        </Label>
                         <div className="relative">
-                            <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                            <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8aa099]" />
                             <Input
                                 id="email"
                                 type="email"
-                                placeholder={isMaintenance ? "Verification is temporarily paused..." : "name@example.com"}
+                                placeholder={
+                                    isMaintenance
+                                        ? "Verification is temporarily paused..."
+                                        : "name@example.com"
+                                }
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 disabled={isLoading || isMaintenance}
-                                className="pl-10 focus-visible:ring-indigo-500"
+                                className="border-[#0b1f1c]/12 pl-10 focus-visible:ring-[#0f5c52]/30"
                                 autoComplete="email"
                                 required
                             />
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                            This action uses 1 credit.
-                        </p>
+                        <p className="text-xs text-[#6b857c]">This action uses 1 credit.</p>
                     </div>
                     {error && (
-                        <div className="p-3 text-sm rounded-md bg-red-50 text-red-900 border border-red-100 flex items-start gap-2">
-                            <span className="text-red-600 font-medium">Error:</span>
+                        <div
+                            role="alert"
+                            className="flex items-start gap-2 rounded-md border border-rose-700/20 bg-rose-50 p-3 text-sm text-rose-800"
+                        >
+                            <span className="font-medium">Error:</span>
                             {error}
                         </div>
                     )}
                     <Button
                         type="submit"
                         disabled={!email || isLoading || isMaintenance}
-                        className="w-full bg-[#0f172b] hover:bg-[#0f172b]/90 text-white shadow-sm"
+                        className="w-full rounded-md border border-[#08352f] bg-[#0f5c52] font-semibold text-white shadow-none hover:bg-[#0b4a42]"
                     >
                         {isLoading ? (
                             <>

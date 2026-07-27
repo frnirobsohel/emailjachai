@@ -131,12 +131,12 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
         { 
             header: "Job ID", 
             accessorKey: "job_id",
-            cell: (job: Job) => <span className="font-medium text-slate-700">{job.job_id.substring(0, 12)}...</span>
+            cell: (job: Job) => <span className="font-medium text-[#3d564f]">{job.job_id.substring(0, 12)}...</span>
         },
         { 
             header: "File Name", 
             accessorKey: "filename",
-            cell: (job: Job) => <span className="font-medium text-slate-900">{job.filename || 'Bulk Upload'}</span>
+            cell: (job: Job) => <span className="font-medium text-[#0b1f1c]">{job.filename || 'Bulk Upload'}</span>
         },
         { 
             header: "Status", 
@@ -151,13 +151,13 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
                 const percent = job.total_emails > 0 ? Math.min(100, Math.round((job.processed_count / job.total_emails) * 100)) : 0;
                 return (
                     <div className="flex items-center gap-2">
-                        <div className="flex-1 bg-slate-100 rounded-full h-2">
+                        <div className="flex-1 bg-[#e4ece9] rounded-full h-2">
                             <div
-                                className={job.status === 'completed' ? "bg-green-500 h-2 rounded-full" : "bg-blue-500 h-2 rounded-full"}
+                                className={job.status === 'completed' ? "bg-emerald-500 h-2 rounded-full" : "bg-[#0f5c52] h-2 rounded-full"}
                                 style={{ width: `${percent}%` }}
                             />
                         </div>
-                        <span className="text-xs text-slate-500 font-medium w-8 text-right">{percent}%</span>
+                        <span className="text-xs text-[#5a736c] font-medium w-8 text-right">{percent}%</span>
                     </div>
                 );
             }
@@ -165,7 +165,7 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
         { 
             header: "Date", 
             accessorKey: "created_at",
-            cell: (job: Job) => <span className="text-slate-500 text-xs">{job.created_at}</span>
+            cell: (job: Job) => <span className="text-[#5a736c] text-xs">{job.created_at}</span>
         },
         { 
             header: "Actions", 
@@ -181,21 +181,21 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
                     <DropdownMenuContent align="end">
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
                         <DropdownMenuItem onClick={() => window.location.href = `/dashboard/jobs/${job.job_id}`}>
-                            <Eye className="mr-2 h-4 w-4 text-slate-500" /> Job Details
+                            <Eye className="mr-2 h-4 w-4 text-[#5a736c]" /> Job Details
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem asChild>
                             <a href={`/next-api/proxy/jobs/download?jobId=${job.job_id}&format=csv`} target="_blank" rel="noopener noreferrer">
-                                <Download className="mr-2 h-4 w-4 text-slate-500" /> Download
+                                <Download className="mr-2 h-4 w-4 text-[#5a736c]" /> Download
                             </a>
                         </DropdownMenuItem>
                         {job.status === "failed" && (
                             <DropdownMenuItem onClick={() => handleRetryJob(job.job_id)} disabled={isRetrying === job.job_id}>
-                                <RefreshCcw className="mr-2 h-4 w-4 text-slate-500" /> Retry Job
+                                <RefreshCcw className="mr-2 h-4 w-4 text-amber-600" /> Retry Job
                             </DropdownMenuItem>
                         )}
                         {confirmDelete === job.job_id ? (
-                            <DropdownMenuItem onClick={() => handleDeleteJob(job.job_id)} className="text-red-600 bg-red-50 focus:bg-red-100 font-bold">
+                            <DropdownMenuItem onClick={() => handleDeleteJob(job.job_id)} className="text-rose-600 bg-rose-50 focus:bg-rose-100 font-bold">
                                 <Trash2 className="mr-2 h-4 w-4 animate-bounce" /> Confirm Delete
                             </DropdownMenuItem>
                         ) : (
@@ -203,7 +203,7 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
                                 e.preventDefault();
                                 setConfirmDelete(job.job_id);
                                 setTimeout(() => setConfirmDelete(null), 3000);
-                            }} className="text-red-600">
+                            }} className="text-rose-600">
                                 <Trash2 className="mr-2 h-4 w-4" /> Delete Job
                             </DropdownMenuItem>
                         )}
@@ -214,16 +214,19 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
     ];
 
     return (
-        <div className="flex-1 space-y-4">
-            <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Email Jobs</h2>
-                <div className="flex items-center space-x-4">
+        <div className="flex-1 space-y-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Email Jobs</h2>
+                    <p className="mt-1 text-sm text-[#5a736c]">Track and manage your verification job history.</p>
+                </div>
+                <div className="flex items-center gap-4">
                     <CreditBadge />
-                    <div className="flex items-center space-x-2">
-                        <Button variant="outline" size="sm" onClick={() => fetchJobs(true)} className="border-indigo-100">
+                    <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => fetchJobs(true)} className="border-[#0b1f1c]/10 text-[#0b1f1c] hover:border-[#0f5c52] hover:text-[#0f5c52]">
                             <RefreshCcw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
                         </Button>
-                        <Button className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white shadow-sm" asChild>
+                        <Button className="rounded-md border border-[#08352f] bg-[#0f5c52] text-white shadow-none hover:bg-[#0b4a42]" asChild>
                             <Link href="/dashboard/bulk-upload">
                                 <Upload className="mr-2 h-4 w-4" /> Upload New List
                             </Link>
@@ -231,24 +234,24 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
                     </div>
                 </div>
             </div>
-            <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                    <CardTitle className="text-lg font-semibold text-slate-900">Job History</CardTitle>
-                    <CardDescription>Manage your email verification tasks.</CardDescription>
+            <Card className="overflow-hidden border-[#0b1f1c]/10 bg-white/90 shadow-none">
+                <CardHeader className="border-b border-[#0b1f1c]/8 bg-[#f0f4f2]/60">
+                    <CardTitle className="text-lg font-semibold text-[#0b1f1c]">Job History</CardTitle>
+                    <CardDescription className="text-[#5a736c]">Manage your email verification tasks.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
                     <DataTable columns={columns} data={jobs} isLoading={isLoading} />
                 </CardContent>
                 {!isLoading && jobs.length > 0 && (
-                    <div className="flex items-center justify-between p-4 border-t border-indigo-50 bg-slate-50/50">
-                        <p className="text-sm text-slate-500">Showing {offset + 1} to {Math.min(offset + limit, total)} of {total} jobs</p>
+                    <div className="flex items-center justify-between p-4 border-t border-[#0b1f1c]/8 bg-[#f0f4f2]/60">
+                        <p className="text-sm text-[#5a736c]">Showing {offset + 1} to {Math.min(offset + limit, total)} of {total} jobs</p>
                         <div className="flex gap-2">
                             <Button
                                 variant="outline"
                                 size="sm"
                                 disabled={offset === 0}
                                 onClick={() => setOffset(Math.max(0, offset - limit))}
-                                className="border-indigo-100 hover:bg-white text-slate-600"
+                                className="border-[#0b1f1c]/10 hover:bg-white text-[#3d564f]"
                             >
                                 Previous
                             </Button>
@@ -257,7 +260,7 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
                                 size="sm"
                                 disabled={offset + limit >= total}
                                 onClick={() => setOffset(offset + limit)}
-                                className="border-indigo-100 hover:bg-white text-slate-600"
+                                className="border-[#0b1f1c]/10 hover:bg-white text-[#3d564f]"
                             >
                                 Next
                             </Button>

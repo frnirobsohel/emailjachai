@@ -31,40 +31,48 @@ interface BuyCreditsProps {
 import { useConfigStore } from "@/stores/config-store"
 
 export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCreditsProps) {
-    const configStore = useConfigStore()
+    const packagesFromStore = useConfigStore((s) => s.packages)
+    const settingsFromStore = useConfigStore((s) => s.settings)
+    const isLoadingPackages = useConfigStore((s) => s.isLoadingPackages)
+    const isLoadingSettings = useConfigStore((s) => s.isLoadingSettings)
 
-    // Initialize store with SSR values to avoid network request on first load
+    // Seed from SSR once, then refresh only if store cache is empty
     useEffect(() => {
-        if (!configStore.packages) {
-            configStore.setPackages(initialPackages)
+        const store = useConfigStore.getState()
+        if (!store.packages) {
+            store.setPackages(initialPackages)
         }
-        if (!configStore.settings) {
-            configStore.setSettings({
-                cryptomus_enabled: initialSettings.cryptomusEnabled ? '1' : '0',
-                stripe_enabled: initialSettings.stripeEnabled ? '1' : '0',
-                paypal_enabled: initialSettings.paypalEnabled ? '1' : '0',
+        if (!store.settings) {
+            store.setSettings({
+                cryptomus_enabled: initialSettings.cryptomusEnabled ? "1" : "0",
+                stripe_enabled: initialSettings.stripeEnabled ? "1" : "0",
+                paypal_enabled: initialSettings.paypalEnabled ? "1" : "0",
             })
         }
-    }, [initialPackages, initialSettings, configStore])
 
-    // Trigger config store fetches on mount (will hit session cache if already initialized)
-    useEffect(() => {
-        configStore.fetchPackages()
-        configStore.fetchSettings()
-    }, [configStore])
+        const next = useConfigStore.getState()
+        // Only network-fetch when cache is still empty (avoids rate-limit loops)
+        if (!next.packages || next.packages.length === 0) {
+            void next.fetchPackages()
+        }
+        if (!next.settings) {
+            void next.fetchSettings()
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only seed + cache-aware fetch
+    }, [])
 
-    const packages = configStore.packages || initialPackages
-    const cryptomusEnabled = configStore.settings 
-        ? configStore.settings.cryptomus_enabled === '1' 
+    const packages = packagesFromStore || initialPackages
+    const cryptomusEnabled = settingsFromStore
+        ? settingsFromStore.cryptomus_enabled === "1"
         : initialSettings.cryptomusEnabled
-    const stripeEnabled = configStore.settings 
-        ? configStore.settings.stripe_enabled === '1' 
+    const stripeEnabled = settingsFromStore
+        ? settingsFromStore.stripe_enabled === "1"
         : initialSettings.stripeEnabled
-    const paypalEnabled = configStore.settings 
-        ? configStore.settings.paypal_enabled === '1' 
+    const paypalEnabled = settingsFromStore
+        ? settingsFromStore.paypal_enabled === "1"
         : initialSettings.paypalEnabled
-    
-    const isLoading = configStore.isLoadingPackages || configStore.isLoadingSettings
+
+    const isLoading = isLoadingPackages || isLoadingSettings
 
     // Payment modal state
     const [selectedPkg, setSelectedPkg] = useState<Package | null>(null)
@@ -146,58 +154,59 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
     return (
         <div className="flex-1 space-y-6">
             <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Buy Credits</h2>
+                <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Buy Credits</h2>
+                    <p className="mt-1 text-sm text-[#5a736c] max-w-2xl">
+                        Purchase credits to verify more emails. Credits depend on the plan you choose.
+                    </p>
+                </div>
                 <CreditBadge />
             </div>
 
-            <p className="text-slate-500 max-w-2xl">
-                Purchase credits to verify more emails. Credits depend on the plan you choose.
-            </p>
-
             <div className="grid gap-6 md:grid-cols-3 mt-8">
                 {packages.map((plan) => (
-                    <Card key={plan.id} className={`flex flex-col shadow-sm border-indigo-100 overflow-hidden ${plan.popular ? 'ring-2 ring-indigo-500 relative' : ''}`}>
+                    <Card key={plan.id} className={`flex flex-col border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden ${plan.popular ? 'ring-2 ring-[#0f5c52] relative' : ''}`}>
                         {plan.popular && (
-                            <div className="absolute top-0 right-0 bg-indigo-500 text-white text-[10px] font-bold px-2 py-1 uppercase tracking-wider rounded-bl-lg">
+                            <div className="absolute top-0 right-0 bg-[#0f5c52] text-white text-[10px] font-bold px-2 py-1 uppercase tracking-wider rounded-bl-lg">
                                 Most Popular
                             </div>
                         )}
-                        <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                            <CardTitle className="text-lg font-semibold text-slate-900">{plan.name}</CardTitle>
-                            <CardDescription>{plan.tagline || "Perfect for growing businesses"}</CardDescription>
+                        <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                            <CardTitle className="text-lg font-semibold text-[#0b1f1c]">{plan.name}</CardTitle>
+                            <CardDescription className="text-[#5a736c]">{plan.tagline || "Perfect for growing businesses"}</CardDescription>
                         </CardHeader>
                         <CardContent className="flex-1 pt-6">
                             <div className="flex items-baseline gap-1 mb-1">
-                                <span className="text-3xl font-bold">${parseFloat(plan.price).toFixed(0)}</span>
-                                <span className="text-slate-500 text-sm">/one-time</span>
+                                <span className="text-3xl font-bold text-[#0b1f1c]">${parseFloat(plan.price).toFixed(0)}</span>
+                                <span className="text-[#5a736c] text-sm">/one-time</span>
                             </div>
-                            <div className="text-sm font-semibold text-indigo-600 mb-6 bg-indigo-50 inline-block px-2 py-0.5 rounded">
+                            <div className="text-sm font-semibold text-[#0f5c52] mb-6 bg-[#0f5c52]/10 inline-block px-2 py-0.5 rounded">
                                 {parseInt(plan.credits_amount.toString()).toLocaleString()} Credits
                             </div>
                             <ul className="space-y-3 text-sm">
                                 {getFeatureList(plan.features).map((feature: string, idx: number) => (
                                     <li key={idx} className="flex items-start">
-                                        <Check className="mr-2 h-4 w-4 text-green-500 shrink-0 mt-0.5" />
-                                        <span className="text-slate-600">{feature}</span>
+                                        <Check className="mr-2 h-4 w-4 text-[#0f5c52] shrink-0 mt-0.5" />
+                                        <span className="text-[#5a736c]">{feature}</span>
                                     </li>
                                 ))}
                                 {getFeatureList(plan.features).length === 0 && (
                                     <>
                                         <li className="flex items-start">
-                                            <Check className="mr-2 h-4 w-4 text-green-500 shrink-0 mt-0.5" />
-                                            <span className="text-slate-600">Email Verification</span>
+                                            <Check className="mr-2 h-4 w-4 text-[#0f5c52] shrink-0 mt-0.5" />
+                                            <span className="text-[#5a736c]">Email Verification</span>
                                         </li>
                                         <li className="flex items-start">
-                                            <Check className="mr-2 h-4 w-4 text-green-500 shrink-0 mt-0.5" />
-                                            <span className="text-slate-600">Bulk Upload & API Access</span>
+                                            <Check className="mr-2 h-4 w-4 text-[#0f5c52] shrink-0 mt-0.5" />
+                                            <span className="text-[#5a736c]">Bulk Upload & API Access</span>
                                         </li>
                                     </>
                                 )}
                             </ul>
                         </CardContent>
-                        <CardFooter className="pt-6 border-t border-slate-50 bg-slate-50/30">
+                        <CardFooter className="pt-6 border-t border-[#0b1f1c]/8 bg-[#f0f4f2]/30">
                             <Button
-                                className={`w-full ${plan.popular ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-[#0f172b] hover:bg-[#0f172b]/90'} text-white shadow-sm`}
+                                className="w-full border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none"
                                 onClick={() => setSelectedPkg(plan)}
                                 disabled={selectedPkg !== null}
                             >
@@ -208,8 +217,8 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
                     </Card>
                 ))}
                 {!isLoading && packages.length === 0 && (
-                    <Card className="md:col-span-3">
-                        <CardContent className="py-10 text-center text-slate-500">
+                    <Card className="md:col-span-3 border-[#0b1f1c]/10 bg-white/90 shadow-none">
+                        <CardContent className="py-10 text-center text-[#5a736c]">
                             No active packages are available right now.
                         </CardContent>
                     </Card>
@@ -219,19 +228,19 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
             {/* Payment method modal */}
             {selectedPkg && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5 relative">
+                    <div className="bg-white rounded-2xl shadow-2xl border border-[#0b1f1c]/10 w-full max-w-md p-6 space-y-5 relative">
                         {/* Close */}
                         <button
                             onClick={() => { if (!paying) setSelectedPkg(null) }}
-                            className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
+                            className="absolute top-4 right-4 text-[#5a736c] hover:text-[#0f5c52] transition-colors"
                         >
                             <X className="h-5 w-5" />
                         </button>
 
                         <div>
-                            <h3 className="text-lg font-bold text-slate-800">Choose Payment Method</h3>
-                            <p className="text-sm text-slate-500 mt-1">
-                                Purchasing <span className="font-semibold text-indigo-600">{selectedPkg.name}</span> —{' '}
+                            <h3 className="text-lg font-bold text-[#0b1f1c]">Choose Payment Method</h3>
+                            <p className="text-sm text-[#5a736c] mt-1">
+                                Purchasing <span className="font-semibold text-[#0f5c52]">{selectedPkg.name}</span> —{' '}
                                 <span className="font-semibold">${parseFloat(selectedPkg.price).toFixed(2)}</span> for{' '}
                                 <span className="font-semibold">{parseInt(selectedPkg.credits_amount.toString()).toLocaleString()} credits</span>
                             </p>
@@ -254,10 +263,10 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
                                         )}
                                     </div>
                                     <div className="flex-1">
-                                        <p className="font-semibold text-slate-800 flex items-center gap-1.5">
+                                        <p className="font-semibold text-[#0b1f1c] flex items-center gap-1.5">
                                             Pay with Card (Stripe)
                                         </p>
-                                        <p className="text-xs text-slate-500">Secure checkout via Stripe</p>
+                                        <p className="text-xs text-[#5a736c]">Secure checkout via Stripe</p>
                                     </div>
                                 </button>
                             )}
@@ -277,10 +286,10 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
                                         )}
                                     </div>
                                     <div className="flex-1">
-                                        <p className="font-semibold text-slate-800 flex items-center gap-1.5">
+                                        <p className="font-semibold text-[#0b1f1c] flex items-center gap-1.5">
                                             Pay with PayPal
                                         </p>
-                                        <p className="text-xs text-slate-500">Fast and secure payment via PayPal</p>
+                                        <p className="text-xs text-[#5a736c]">Fast and secure payment via PayPal</p>
                                     </div>
                                 </button>
                             )}
@@ -300,18 +309,18 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
                                         )}
                                     </div>
                                     <div className="flex-1">
-                                        <p className="font-semibold text-slate-800 flex items-center gap-1.5">
+                                        <p className="font-semibold text-[#0b1f1c] flex items-center gap-1.5">
                                             Pay with Crypto
-                                            <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
+                                            <ExternalLink className="h-3.5 w-3.5 text-[#5a736c]" />
                                         </p>
-                                        <p className="text-xs text-slate-500">Powered by Cryptomus · USDT, BTC, ETH & more</p>
+                                        <p className="text-xs text-[#5a736c]">Powered by Cryptomus · USDT, BTC, ETH & more</p>
                                     </div>
                                     <span className="text-[10px] font-bold bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full uppercase tracking-wide">Crypto</span>
                                 </button>
                             )}
                         </div>
 
-                        <p className="text-[11px] text-slate-400 text-center">
+                        <p className="text-[11px] text-[#5a736c] text-center">
                             Credits are added to your account immediately after payment confirmation.
                         </p>
                     </div>

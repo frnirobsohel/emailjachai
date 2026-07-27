@@ -298,16 +298,18 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
         <div className="flex-1 space-y-4">
             {/* Header */}
             <div className="flex items-center justify-between">
-                <h2 className="text-3xl font-bold tracking-tight text-slate-900">Manage Users</h2>
+                <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Manage Users</h2>
+                </div>
                 <div className="flex gap-2">
                     <Button
                         variant="outline"
                         onClick={() => { setIsLoading(true); fetchUsers(); }}
-                        className="border-slate-200 text-slate-600"
+                        className="border-[#0b1f1c]/10 text-[#5a736c]"
                     >
                         <RefreshCcw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
                     </Button>
-                    <Button className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white" onClick={() => setIsAddModalOpen(true)}>
+                    <Button className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none" onClick={() => setIsAddModalOpen(true)}>
                         <UserPlus className="mr-2 h-4 w-4" /> Add User
                     </Button>
                 </div>
@@ -315,62 +317,62 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
 
             {/* Summary Cards */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Card className="shadow-sm border-slate-200">
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-600">Total Users</CardTitle>
-                        <Users className="h-4 w-4 text-slate-400" />
+                        <CardTitle className="text-sm font-medium text-[#5a736c]">Total Users</CardTitle>
+                        <Users className="h-4 w-4 text-[#0f5c52]" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{users.length}</div>
+                        <div className="text-2xl font-semibold tracking-tight text-[#0b1f1c]">{users.length}</div>
                     </CardContent>
                 </Card>
-                <Card className="shadow-sm border-slate-200">
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-600">Inactive Users</CardTitle>
+                        <CardTitle className="text-sm font-medium text-[#5a736c]">Inactive Users</CardTitle>
                         <UserX className="h-4 w-4 text-amber-500" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{users.filter(u => u.status === 'Inactive').length}</div>
+                        <div className="text-2xl font-semibold tracking-tight text-[#0b1f1c]">{users.filter(u => u.status === 'Inactive').length}</div>
                     </CardContent>
                 </Card>
-                <Card className="shadow-sm border-slate-200">
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-600">Suspended</CardTitle>
-                        <Ban className="h-4 w-4 text-red-500" />
+                        <CardTitle className="text-sm font-medium text-[#5a736c]">Suspended</CardTitle>
+                        <Ban className="h-4 w-4 text-rose-500" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{users.filter(u => u.status === 'Suspended').length}</div>
+                        <div className="text-2xl font-semibold tracking-tight text-[#0b1f1c]">{users.filter(u => u.status === 'Suspended').length}</div>
                     </CardContent>
                 </Card>
-                <Card className="shadow-sm border-slate-200">
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-600">Paid Members</CardTitle>
-                        <CreditCard className="h-4 w-4 text-green-500" />
+                        <CardTitle className="text-sm font-medium text-[#5a736c]">Paid Members</CardTitle>
+                        <CreditCard className="h-4 w-4 text-emerald-500" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{users.filter(u => u.credits > 100 || (u.role && u.role !== 'user' && u.role !== 'demo')).length}</div>
-                        <p className="text-xs text-slate-400 font-normal">Credits &gt; 100 or higher role</p>
+                        <div className="text-2xl font-semibold tracking-tight text-[#0b1f1c]">{users.filter(u => u.credits > 100 || (u.role && u.role !== 'user' && u.role !== 'demo')).length}</div>
+                        <p className="text-xs text-[#6b857c] font-normal">Credits &gt; 100 or higher role</p>
                     </CardContent>
                 </Card>
             </div>
 
             {/* User Table */}
-            <Card className="shadow-lg border-indigo-50 overflow-hidden ring-1 ring-slate-100">
-                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div>
-                            <CardTitle className="text-lg font-semibold text-slate-900">User Directory</CardTitle>
-                            <CardDescription>View and manage all registered users and their roles.</CardDescription>
+                            <CardTitle className="text-lg font-semibold text-[#0b1f1c]">User Directory</CardTitle>
+                            <CardDescription className="text-[#5a736c]">View and manage all registered users and their roles.</CardDescription>
                         </div>
                         <div className="flex items-center gap-2">
                             <div className="relative w-full sm:w-48">
-                                <Filter className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                                <Filter className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-[#6b857c]" />
                                 <Input
                                     id="user-search"
                                     name="search"
                                     aria-label="Search users"
                                     placeholder="Search users..."
-                                    className="pl-8 h-8 text-xs focus-visible:ring-indigo-500"
+                                    className="pl-8 h-8 text-xs focus-visible:ring-[#0f5c52]/30"
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                 />
@@ -383,7 +385,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                         { label: "All Roles", value: "all" },
                                         ...roles.map(r => ({ label: roleMeta[r].label, value: r }))
                                     ]}
-                                    className="h-8 text-xs border-slate-200 focus:ring-indigo-500"
+                                    className="h-8 text-xs border-[#0b1f1c]/10 focus:ring-[#0f5c52]/30"
                                 />
                             </div>
                         </div>
@@ -392,52 +394,52 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
 
                 <CardContent className="p-0">
                     <Table>
-                        <TableHeader className="bg-slate-50">
-                            <TableRow className="border-b border-slate-100 hover:bg-transparent">
-                                <TableHead className="font-semibold text-slate-900">User</TableHead>
-                                <TableHead className="font-semibold text-slate-900">Role</TableHead>
-                                <TableHead className="font-semibold text-slate-900">Plan</TableHead>
-                                <TableHead className="font-semibold text-slate-900 text-center">Credits</TableHead>
-                                <TableHead className="font-semibold text-slate-900">Status</TableHead>
-                                <TableHead className="font-semibold text-slate-900">Joined</TableHead>
-                                <TableHead className="font-semibold text-slate-900 text-right">Actions</TableHead>
+                        <TableHeader className="bg-[#f0f4f2]/60">
+                            <TableRow className="border-b border-[#0b1f1c]/8 hover:bg-transparent">
+                                <TableHead className="font-semibold text-[#0b1f1c]">User</TableHead>
+                                <TableHead className="font-semibold text-[#0b1f1c]">Role</TableHead>
+                                <TableHead className="font-semibold text-[#0b1f1c]">Plan</TableHead>
+                                <TableHead className="font-semibold text-[#0b1f1c] text-center">Credits</TableHead>
+                                <TableHead className="font-semibold text-[#0b1f1c]">Status</TableHead>
+                                <TableHead className="font-semibold text-[#0b1f1c]">Joined</TableHead>
+                                <TableHead className="font-semibold text-[#0b1f1c] text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {isLoading && users.length === 0 ? (
                                 [1, 2, 3, 4, 5].map(i => (
-                                    <TableRow key={i} className="hover:bg-transparent border-b border-slate-50/50">
+                                    <TableRow key={i} className="hover:bg-transparent border-b border-[#0b1f1c]/5">
                                         <TableCell>
                                             <div className="flex items-center gap-3">
-                                                <div className="h-8 w-8 rounded-full bg-slate-100 animate-pulse flex-shrink-0"></div>
+                                                <div className="h-8 w-8 rounded-full bg-[#0b1f1c]/5 animate-pulse flex-shrink-0"></div>
                                                 <div className="space-y-2">
-                                                    <div className="h-3 w-24 bg-slate-100 animate-pulse rounded"></div>
-                                                    <div className="h-2 w-32 bg-slate-100 animate-pulse rounded"></div>
+                                                    <div className="h-3 w-24 bg-[#0b1f1c]/5 animate-pulse rounded"></div>
+                                                    <div className="h-2 w-32 bg-[#0b1f1c]/5 animate-pulse rounded"></div>
                                                 </div>
                                             </div>
                                         </TableCell>
-                                        <TableCell><div className="h-5 w-16 bg-slate-100 animate-pulse rounded-full"></div></TableCell>
-                                        <TableCell><div className="h-4 w-20 bg-slate-100 animate-pulse rounded"></div></TableCell>
-                                        <TableCell className="text-center"><div className="h-5 w-12 bg-slate-100 animate-pulse rounded mx-auto"></div></TableCell>
-                                        <TableCell><div className="h-5 w-16 bg-slate-100 animate-pulse rounded-full"></div></TableCell>
-                                        <TableCell><div className="h-4 w-24 bg-slate-100 animate-pulse rounded"></div></TableCell>
-                                        <TableCell className="text-right"><div className="h-8 w-8 bg-slate-100 animate-pulse rounded ml-auto"></div></TableCell>
+                                        <TableCell><div className="h-5 w-16 bg-[#0b1f1c]/5 animate-pulse rounded-full"></div></TableCell>
+                                        <TableCell><div className="h-4 w-20 bg-[#0b1f1c]/5 animate-pulse rounded"></div></TableCell>
+                                        <TableCell className="text-center"><div className="h-5 w-12 bg-[#0b1f1c]/5 animate-pulse rounded mx-auto"></div></TableCell>
+                                        <TableCell><div className="h-5 w-16 bg-[#0b1f1c]/5 animate-pulse rounded-full"></div></TableCell>
+                                        <TableCell><div className="h-4 w-24 bg-[#0b1f1c]/5 animate-pulse rounded"></div></TableCell>
+                                        <TableCell className="text-right"><div className="h-8 w-8 bg-[#0b1f1c]/5 animate-pulse rounded ml-auto"></div></TableCell>
                                     </TableRow>
                                 ))
                             ) : (
                                 filtered.map((user) => {
                                     const { label, color, icon: RoleIcon } = roleMeta[user.role]
                                     return (
-                                        <TableRow key={user.id} className="border-b border-slate-50 hover:bg-slate-50/50 group transition-colors">
+                                        <TableRow key={user.id} className="border-b border-[#0b1f1c]/5 hover:bg-[#f0f4f2]/40 group transition-colors">
                                             {/* User */}
                                             <TableCell>
                                                 <div className="flex items-center gap-3">
-                                                    <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-600 text-xs flex-shrink-0 uppercase">
+                                                    <div className="h-8 w-8 rounded-full bg-[#0f5c52]/10 flex items-center justify-center font-bold text-[#0f5c52] text-xs flex-shrink-0 uppercase">
                                                         {user.name.charAt(0)}
                                                     </div>
                                                     <div className="flex flex-col">
-                                                        <span className="font-medium text-slate-900 text-sm">{user.name}</span>
-                                                        <span className="text-xs text-slate-500">{user.email}</span>
+                                                        <span className="font-medium text-[#0b1f1c] text-sm">{user.name}</span>
+                                                        <span className="text-xs text-[#5a736c]">{user.email}</span>
                                                     </div>
                                                 </div>
                                             </TableCell>
@@ -454,13 +456,13 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                             </TableCell>
 
                                             {/* Plan */}
-                                            <TableCell className="text-slate-600 font-medium text-sm">
+                                            <TableCell className="text-[#5a736c] font-medium text-sm">
                                                 {user.plan}
                                             </TableCell>
 
                                             {/* Credits */}
                                             <TableCell className="text-center">
-                                                <Badge variant="outline" className="font-bold text-indigo-700 bg-indigo-50 border-indigo-100">
+                                                <Badge variant="outline" className="font-bold text-[#0f5c52] bg-[#0f5c52]/10 border-[#0f5c52]/20">
                                                     {user.credits?.toLocaleString()}
                                                 </Badge>
                                             </TableCell>
@@ -469,46 +471,46 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                             <TableCell>
                                                 <Badge variant="secondary" className={
                                                     user.status === "Active"
-                                                        ? "bg-green-100 text-green-700 ring-1 ring-inset ring-green-600/20 shadow-none font-medium"
+                                                        ? "bg-emerald-100 text-emerald-700 ring-1 ring-inset ring-emerald-600/20 shadow-none font-medium"
                                                         : user.status === "Inactive"
                                                             ? "bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-600/20 shadow-none font-medium"
-                                                            : "bg-red-100 text-red-700 ring-1 ring-inset ring-red-600/20 shadow-none font-medium"
+                                                            : "bg-rose-100 text-rose-700 ring-1 ring-inset ring-rose-600/20 shadow-none font-medium"
                                                 }>
                                                     {user.status}
                                                 </Badge>
                                             </TableCell>
 
                                             {/* Joined */}
-                                            <TableCell className="text-slate-500 text-sm">{user.joined}</TableCell>
+                                            <TableCell className="text-[#5a736c] text-sm">{user.joined}</TableCell>
 
                                             {/* Actions */}
                                             <TableCell className="text-right">
                                                 <DropdownMenu>
                                                     <DropdownMenuTrigger asChild>
-                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50">
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-[#5a736c] hover:text-[#0f5c52] hover:bg-[#0f5c52]/10">
                                                             <MoreHorizontal className="h-4 w-4" />
                                                         </Button>
                                                     </DropdownMenuTrigger>
                                                     <DropdownMenuContent
                                                         align="end"
-                                                        className="w-52 bg-white border border-slate-200 shadow-lg rounded-lg py-1"
+                                                        className="w-52 bg-white border border-[#0b1f1c]/10 shadow-lg rounded-lg py-1"
                                                     >
                                                         {/* Header: name+email left, Login right */}
-                                                        <div className="flex items-center justify-between px-2 py-2 border-b border-slate-100 mb-1 gap-2">
+                                                        <div className="flex items-center justify-between px-2 py-2 border-b border-[#0b1f1c]/8 mb-1 gap-2">
                                                             <div className="min-w-0">
-                                                                <p className="text-xs font-semibold text-slate-800 truncate">{user.name}</p>
-                                                                <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
+                                                                <p className="text-xs font-semibold text-[#0b1f1c] truncate">{user.name}</p>
+                                                                <p className="text-[10px] text-[#6b857c] truncate">{user.email}</p>
                                                             </div>
                                                             <button
                                                                 title="Login as User"
                                                                 onClick={() => setLoginAsTarget(user)}
-                                                                className="p-1.5 rounded-md text-indigo-600 hover:bg-indigo-50 transition-colors flex-shrink-0"
+                                                                className="p-1.5 rounded-md text-[#0f5c52] hover:bg-[#0f5c52]/10 transition-colors flex-shrink-0"
                                                             >
                                                                 <LogIn className="h-3.5 w-3.5" />
                                                             </button>
                                                         </div>
 
-                                                        <DropdownMenuItem className="cursor-pointer mx-1 rounded-md focus:bg-slate-50">
+                                                        <DropdownMenuItem className="cursor-pointer mx-1 rounded-md focus:bg-[#f0f4f2]/60">
                                                             <span className="flex items-center w-full cursor-pointer" onClick={() => {
                                                                 setEditUserTarget(user);
                                                                 editForm.reset({
@@ -518,39 +520,39 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                                                     role: user.role
                                                                 });
                                                             }}>
-                                                                <Edit className="mr-2 h-4 w-4 text-slate-400" /> Edit Profile
+                                                                <Edit className="mr-2 h-4 w-4 text-[#6b857c]" /> Edit Profile
                                                             </span>
                                                         </DropdownMenuItem>
-                                                        <DropdownMenuItem className="cursor-pointer mx-1 rounded-md focus:bg-slate-50">
-                                                            <Mail className="mr-2 h-4 w-4 text-slate-400" /> Email User
+                                                        <DropdownMenuItem className="cursor-pointer mx-1 rounded-md focus:bg-[#f0f4f2]/60">
+                                                            <Mail className="mr-2 h-4 w-4 text-[#6b857c]" /> Email User
                                                         </DropdownMenuItem>
 
                                                         {/* More actions submenu */}
                                                         <DropdownMenuSub>
-                                                            <DropdownMenuSubTrigger className="cursor-pointer mx-1 rounded-md focus:bg-slate-50 data-[state=open]:bg-slate-50">
-                                                                <MoreHorizontal className="mr-2 h-4 w-4 text-slate-400" /> More Actions
+                                                            <DropdownMenuSubTrigger className="cursor-pointer mx-1 rounded-md focus:bg-[#f0f4f2]/60 data-[state=open]:bg-[#f0f4f2]/60">
+                                                                <MoreHorizontal className="mr-2 h-4 w-4 text-[#6b857c]" /> More Actions
                                                             </DropdownMenuSubTrigger>
                                                             <DropdownMenuPortal>
-                                                                <DropdownMenuSubContent className="w-44 bg-white border border-slate-200 shadow-lg rounded-lg py-1">
-                                                                    <DropdownMenuItem className="cursor-pointer mx-1 rounded-md focus:bg-slate-50">
-                                                                        <KeyRound className="mr-2 h-4 w-4 text-slate-400" /> Reset Password
+                                                                <DropdownMenuSubContent className="w-44 bg-white border border-[#0b1f1c]/10 shadow-lg rounded-lg py-1">
+                                                                    <DropdownMenuItem className="cursor-pointer mx-1 rounded-md focus:bg-[#f0f4f2]/60">
+                                                                        <KeyRound className="mr-2 h-4 w-4 text-[#6b857c]" /> Reset Password
                                                                     </DropdownMenuItem>
                                                                     <DropdownMenuItem
-                                                                        className="cursor-pointer mx-1 rounded-md focus:bg-slate-50"
+                                                                        className="cursor-pointer mx-1 rounded-md focus:bg-[#f0f4f2]/60"
                                                                         onClick={() => {
                                                                             setAdjustCreditsTarget(user);
                                                                             adjustCreditsForm.reset({ id: user.id, amount: 0, amountPaid: 0 });
                                                                         }}
                                                                     >
-                                                                        <CreditCard className="mr-2 h-4 w-4 text-slate-400" /> Adjust Credits
+                                                                        <CreditCard className="mr-2 h-4 w-4 text-[#6b857c]" /> Adjust Credits
                                                                     </DropdownMenuItem>
                                                                     <DropdownMenuItem
-                                                                        className="cursor-pointer mx-1 rounded-md focus:bg-slate-50"
+                                                                        className="cursor-pointer mx-1 rounded-md focus:bg-[#f0f4f2]/60"
                                                                         onClick={() => copyUserId(user.id)}
                                                                     >
                                                                         {copiedId === user.id
-                                                                            ? <CheckCheck className="mr-2 h-4 w-4 text-green-500" />
-                                                                            : <Copy className="mr-2 h-4 w-4 text-slate-400" />}
+                                                                            ? <CheckCheck className="mr-2 h-4 w-4 text-emerald-500" />
+                                                                            : <Copy className="mr-2 h-4 w-4 text-[#6b857c]" />}
                                                                         {copiedId === user.id ? "Copied!" : "Copy User ID"}
                                                                     </DropdownMenuItem>
                                                                 </DropdownMenuSubContent>
@@ -559,22 +561,22 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
 
                                                         {/* Change Role submenu */}
                                                         <DropdownMenuSub>
-                                                            <DropdownMenuSubTrigger className="cursor-pointer mx-1 rounded-md focus:bg-slate-50 data-[state=open]:bg-slate-50">
-                                                                <UserCog className="mr-2 h-4 w-4 text-slate-400" /> Change Role
+                                                            <DropdownMenuSubTrigger className="cursor-pointer mx-1 rounded-md focus:bg-[#f0f4f2]/60 data-[state=open]:bg-[#f0f4f2]/60">
+                                                                <UserCog className="mr-2 h-4 w-4 text-[#6b857c]" /> Change Role
                                                             </DropdownMenuSubTrigger>
                                                             <DropdownMenuPortal>
-                                                                <DropdownMenuSubContent className="w-40 bg-white border border-slate-200 shadow-lg rounded-lg py-1">
+                                                                <DropdownMenuSubContent className="w-40 bg-white border border-[#0b1f1c]/10 shadow-lg rounded-lg py-1">
                                                                     {roles.map(r => {
                                                                         const { label: rLabel, icon: RIcon } = roleMeta[r]
                                                                         return (
                                                                             <DropdownMenuItem
                                                                                 key={r}
-                                                                                className={`cursor-pointer mx-1 rounded-md focus:bg-slate-50 ${user.role === r ? "font-bold text-indigo-600" : ""}`}
+                                                                                className={`cursor-pointer mx-1 rounded-md focus:bg-[#f0f4f2]/60 ${user.role === r ? "font-bold text-[#0f5c52]" : ""}`}
                                                                                 onClick={() => performAction({ action: 'update_role', user_id: user.id, role: r })}
                                                                             >
                                                                                 <RIcon className="mr-2 h-3.5 w-3.5" />
                                                                                 {rLabel}
-                                                                                {user.role === r && <span className="ml-auto text-indigo-500 text-xs">✓</span>}
+                                                                                {user.role === r && <span className="ml-auto text-[#0f5c52] text-xs">✓</span>}
                                                                             </DropdownMenuItem>
                                                                         )
                                                                     })}
@@ -582,15 +584,15 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                                             </DropdownMenuPortal>
                                                         </DropdownMenuSub>
                                                         <DropdownMenuSub>
-                                                            <DropdownMenuSubTrigger className="cursor-pointer mx-1 rounded-md focus:bg-slate-50 data-[state=open]:bg-slate-50">
-                                                                <AlertTriangle className="mr-2 h-4 w-4 text-slate-400" /> Danger Zone
+                                                            <DropdownMenuSubTrigger className="cursor-pointer mx-1 rounded-md focus:bg-[#f0f4f2]/60 data-[state=open]:bg-[#f0f4f2]/60">
+                                                                <AlertTriangle className="mr-2 h-4 w-4 text-[#6b857c]" /> Danger Zone
                                                             </DropdownMenuSubTrigger>
                                                             <DropdownMenuPortal>
-                                                                <DropdownMenuSubContent className="w-44 bg-white border border-slate-200 shadow-lg rounded-lg py-1">
+                                                                <DropdownMenuSubContent className="w-44 bg-white border border-[#0b1f1c]/10 shadow-lg rounded-lg py-1">
                                                                     <DropdownMenuItem
                                                                         className={`cursor-pointer mx-1 rounded-md ${user.status === "Active"
                                                                             ? "text-amber-600 focus:text-amber-600 focus:bg-amber-50"
-                                                                            : "text-green-600 focus:text-green-600 focus:bg-green-50"
+                                                                            : "text-emerald-600 focus:text-emerald-600 focus:bg-emerald-50"
                                                                             }`}
                                                                         onClick={() => performAction({
                                                                             action: 'toggle_status',
@@ -605,7 +607,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                                                                 : <><CheckCheck className="mr-2 h-4 w-4" /> Reopen Account</>}
                                                                     </DropdownMenuItem>
                                                                     <DropdownMenuItem
-                                                                        className="cursor-pointer mx-1 rounded-md text-red-600 focus:text-red-600 focus:bg-red-50"
+                                                                        className="cursor-pointer mx-1 rounded-md text-rose-600 focus:text-rose-600 focus:bg-rose-50"
                                                                         onClick={() => deleteUser(user.id)}
                                                                     >
                                                                         <Trash2 className="mr-2 h-4 w-4" /> Delete User
@@ -623,7 +625,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                             )}
                             {(!isLoading && filtered.length === 0 && users.length > 0) && (
                                 <TableRow>
-                                    <TableCell colSpan={7} className="text-center py-10 text-slate-400">
+                                    <TableCell colSpan={7} className="text-center py-10 text-[#6b857c]">
                                         No users found matching your search or filter.
                                     </TableCell>
                                 </TableRow>
@@ -632,11 +634,11 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                     </Table>
                 </CardContent>
 
-                <div className="flex items-center justify-between p-4 border-t border-indigo-50 bg-slate-50/50">
-                    <p className="text-sm text-slate-500">Showing {filtered.length} of {users.length} users</p>
+                <div className="flex items-center justify-between p-4 border-t border-[#0b1f1c]/8 bg-[#f0f4f2]/60">
+                    <p className="text-sm text-[#5a736c]">Showing {filtered.length} of {users.length} users</p>
                     <div className="flex gap-2">
-                        <Button variant="outline" size="sm" disabled className="border-indigo-100 text-slate-600">Previous</Button>
-                        <Button variant="outline" size="sm" disabled className="border-indigo-100 text-slate-600">Next</Button>
+                        <Button variant="outline" size="sm" disabled className="border-[#0b1f1c]/10 text-[#5a736c]">Previous</Button>
+                        <Button variant="outline" size="sm" disabled className="border-[#0b1f1c]/10 text-[#5a736c]">Next</Button>
                     </div>
                 </div>
             </Card>
@@ -646,12 +648,12 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
                     <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-sm mx-4 p-6 space-y-4">
                         <div className="flex items-center gap-3">
-                            <div className="p-2 bg-indigo-50 rounded-lg">
-                                <LogIn className="h-5 w-5 text-indigo-600" />
+                            <div className="p-2 bg-[#0f5c52]/10 rounded-lg">
+                                <LogIn className="h-5 w-5 text-[#0f5c52]" />
                             </div>
                             <div>
-                                <h3 className="font-bold text-slate-900 text-base">Login as User</h3>
-                                <p className="text-xs text-slate-500">Admin impersonation</p>
+                                <h3 className="font-bold text-[#0b1f1c] text-base">Login as User</h3>
+                                <p className="text-xs text-[#5a736c]">Admin impersonation</p>
                             </div>
                         </div>
 
@@ -665,13 +667,13 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                         <div className="flex gap-2 pt-1">
                             <button
                                 onClick={() => setLoginAsTarget(null)}
-                                className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                                className="flex-1 py-2 text-sm font-medium rounded-lg border border-[#0b1f1c]/10 text-[#5a736c] hover:bg-[#f0f4f2]/60 transition-colors"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={async () => { if (!loginAsTarget) return; try { const response = await fetch('/next-api/auth/impersonate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: loginAsTarget.id }) }); const result = await response.json(); if (result.status === 'success') { localStorage.removeItem('sidebar_user'); localStorage.removeItem('sidebar_role'); localStorage.removeItem('sidebar_user_synced_at'); window.location.href = '/dashboard'; } else { toast.error(result.message || 'Failed to login as user'); } } catch (err) { console.error('Impersonation failed', err); toast.error('An error occurred during impersonation.'); } finally { setLoginAsTarget(null); } }}
-                                className="flex-1 py-2 text-sm font-medium rounded-lg bg-[#0f172b] hover:bg-[#0f172b]/90 text-white transition-colors flex items-center justify-center gap-2"
+                                className="flex-1 py-2 text-sm font-medium rounded-lg border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none transition-colors flex items-center justify-center gap-2"
                             >
                                 <LogIn className="h-4 w-4" /> Confirm Login
                             </button>
@@ -685,37 +687,37 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
                     <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-sm mx-4 p-6 space-y-4">
                         <div className="flex items-center gap-3">
-                            <div className="p-2 bg-indigo-50 rounded-lg">
-                                <CreditCard className="h-5 w-5 text-indigo-600" />
+                            <div className="p-2 bg-[#0f5c52]/10 rounded-lg">
+                                <CreditCard className="h-5 w-5 text-[#0f5c52]" />
                             </div>
                             <div>
-                                <h3 className="font-bold text-slate-900 text-base">Adjust Credits</h3>
-                                <p className="text-xs text-slate-500">Manage user balance</p>
+                                <h3 className="font-bold text-[#0b1f1c] text-base">Adjust Credits</h3>
+                                <p className="text-xs text-[#5a736c]">Manage user balance</p>
                             </div>
                         </div>
 
                         <div className="space-y-2">
                             <div className="flex justify-between items-center text-sm">
-                                <span className="text-slate-500">User:</span>
-                                <span className="font-medium text-slate-900">{adjustCreditsTarget.name}</span>
+                                <span className="text-[#5a736c]">User:</span>
+                                <span className="font-medium text-[#0b1f1c]">{adjustCreditsTarget.name}</span>
                             </div>
                             <div className="flex justify-between items-center text-sm">
-                                <span className="text-slate-500">Current Balance:</span>
-                                <span className="font-bold text-slate-900">{adjustCreditsTarget.credits.toLocaleString()}</span>
+                                <span className="text-[#5a736c]">Current Balance:</span>
+                                <span className="font-bold text-[#0b1f1c]">{adjustCreditsTarget.credits.toLocaleString()}</span>
                             </div>
                         </div>
 
                         <form onSubmit={adjustCreditsForm.handleSubmit(handleAdjustCreditsSubmit)}>
                             <div className="space-y-4">
                                 <div>
-                                    <label htmlFor="credit-amount" className="text-xs font-semibold text-slate-600 mb-1 block">Credits to Add/Deduct</label>
+                                    <label htmlFor="credit-amount" className="text-xs font-semibold text-[#5a736c] mb-1 block">Credits to Add/Deduct</label>
                                     <div className="flex items-center gap-2">
                                         <button
                                             type="button"
                                             onClick={() => adjustCreditsForm.setValue("amount", (adjustCreditsForm.getValues("amount") || 0) - 1000)}
-                                            className="p-2 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                                            className="p-2 bg-[#0b1f1c]/5 hover:bg-[#0b1f1c]/10 rounded-lg transition-colors"
                                         >
-                                            <Minus className="h-4 w-4 text-slate-600" />
+                                            <Minus className="h-4 w-4 text-[#5a736c]" />
                                         </button>
                                         <div className="flex-1">
                                             <Input
@@ -729,7 +731,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                         <button
                                             type="button"
                                             onClick={() => adjustCreditsForm.setValue("amount", (adjustCreditsForm.getValues("amount") || 0) + 1000)}
-                                            className="p-2 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors text-indigo-600"
+                                            className="p-2 bg-[#0f5c52]/10 hover:bg-[#0f5c52]/20 rounded-lg transition-colors text-[#0f5c52]"
                                         >
                                             <Plus className="h-4 w-4" />
                                         </button>
@@ -737,9 +739,9 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                 </div>
 
                                 <div>
-                                    <label htmlFor="manual_price" className="text-xs font-semibold text-slate-600 mb-1 block">Price Paid (track as revenue)</label>
+                                    <label htmlFor="manual_price" className="text-xs font-semibold text-[#5a736c] mb-1 block">Price Paid (track as revenue)</label>
                                     <div className="relative">
-                                        <div className="absolute left-3 top-2.5 text-slate-400 text-sm">$</div>
+                                        <div className="absolute left-3 top-2.5 text-[#6b857c] text-sm">$</div>
                                         <Input
                                             type="number"
                                             placeholder="0.00"
@@ -752,22 +754,22 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                     {adjustCreditsForm.formState.errors.amountPaid && <p className="text-[10px] text-red-500 mt-1">{adjustCreditsForm.formState.errors.amountPaid.message}</p>}
                                 </div>
                             </div>
-                            <p className="text-[10px] text-center text-slate-400 mt-4 mb-2">Total revenue will be updated if price is greater than 0.</p>
+                            <p className="text-[10px] text-center text-[#6b857c] mt-4 mb-2">Total revenue will be updated if price is greater than 0.</p>
 
                             <div className="flex gap-2 pt-1">
                                 <button
                                     type="button"
                                     onClick={() => setAdjustCreditsTarget(null)}
-                                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-[#0b1f1c]/10 text-[#5a736c] hover:bg-[#f0f4f2]/60 transition-colors"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={adjustCreditsForm.formState.isSubmitting}
-                                    className="flex-1 py-2 text-sm font-medium rounded-lg bg-[#0f172b] hover:bg-[#0f172b]/90 text-white transition-colors"
-                                >
-                                    {adjustCreditsForm.formState.isSubmitting ? "Updating..." : "Update Balance"}
+                                className="flex-1 py-2 text-sm font-medium rounded-lg border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none transition-colors"
+                            >
+                                {adjustCreditsForm.formState.isSubmitting ? "Updating..." : "Update Balance"}
                                 </button>
                             </div>
                         </form>
@@ -778,20 +780,20 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
             {/* Add User Modal */}
             {isAddModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-                    <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md mx-4 p-6 space-y-4">
+                    <div className="bg-white rounded-xl shadow-2xl border border-[#0b1f1c]/10 w-full max-w-md mx-4 p-6 space-y-4">
                         <div className="flex items-center gap-3">
-                            <div className="p-2 bg-indigo-50 rounded-lg">
-                                <UserPlus className="h-5 w-5 text-indigo-600" />
+                            <div className="p-2 bg-[#0f5c52]/10 rounded-lg">
+                                <UserPlus className="h-5 w-5 text-[#0f5c52]" />
                             </div>
                             <div>
-                                <h3 className="font-bold text-slate-900 text-base">Add New User</h3>
-                                <p className="text-xs text-slate-500">Create a user record manually</p>
+                                <h3 className="font-bold text-[#0b1f1c] text-base">Add New User</h3>
+                                <p className="text-xs text-[#5a736c]">Create a user record manually</p>
                             </div>
                         </div>
 
                         <form onSubmit={addForm.handleSubmit(handleAddSubmit)} className="space-y-3">
                             <div>
-                                <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Full Name</label>
+                                <label className="text-xs font-semibold text-[#5a736c] mb-1 block font-medium">Full Name</label>
                                 <Input
                                     placeholder="e.g. John Doe"
                                     {...addForm.register("name")}
@@ -799,7 +801,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                 {addForm.formState.errors.name && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.name.message}</p>}
                             </div>
                             <div>
-                                <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Email Address</label>
+                                <label className="text-xs font-semibold text-[#5a736c] mb-1 block font-medium">Email Address</label>
                                 <Input
                                     type="email"
                                     placeholder="john@example.com"
@@ -808,7 +810,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                 {addForm.formState.errors.email && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.email.message}</p>}
                             </div>
                             <div>
-                                <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Password</label>
+                                <label className="text-xs font-semibold text-[#5a736c] mb-1 block font-medium">Password</label>
                                 <Input
                                     type="password"
                                     placeholder="Min 6 characters"
@@ -818,17 +820,17 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Role</label>
+                                    <label className="text-xs font-semibold text-[#5a736c] mb-1 block font-medium">Role</label>
                                     <SimpleSelect
                                         value={addForm.watch("role")}
                                         onChange={(e) => addForm.setValue("role", e.target.value as Role)}
                                         options={roles.map(r => ({ label: roleMeta[r].label, value: r }))}
-                                        className="h-10 text-xs border-slate-200 focus:ring-indigo-500"
+                                        className="h-10 text-xs border-[#0b1f1c]/10 focus:ring-[#0f5c52]/30"
                                     />
                                     {addForm.formState.errors.role && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.role.message}</p>}
                                 </div>
                                 <div>
-                                    <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Initial Credits</label>
+                                    <label className="text-xs font-semibold text-[#5a736c] mb-1 block font-medium">Initial Credits</label>
                                     <Input
                                         type="number"
                                         placeholder="0"
@@ -841,14 +843,14 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                 <button
                                     type="button"
                                     onClick={() => { setIsAddModalOpen(false); addForm.reset(); }}
-                                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-[#0b1f1c]/10 text-[#5a736c] hover:bg-[#f0f4f2]/60 transition-colors"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={addForm.formState.isSubmitting}
-                                    className="flex-1 py-2 text-sm font-medium rounded-lg bg-[#0f172b] hover:bg-[#0f172b]/90 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                 >
                                     {addForm.formState.isSubmitting ? "Creating..." : "Create User"}
                                 </button>
@@ -861,27 +863,27 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
             {/* Edit User Modal */}
             {editUserTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-                    <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md mx-4 p-6 space-y-4">
+                    <div className="bg-white rounded-xl shadow-2xl border border-[#0b1f1c]/10 w-full max-w-md mx-4 p-6 space-y-4">
                         <div className="flex items-center gap-3">
-                            <div className="p-2 bg-indigo-50 rounded-lg">
-                                <Edit className="h-5 w-5 text-indigo-600" />
+                            <div className="p-2 bg-[#0f5c52]/10 rounded-lg">
+                                <Edit className="h-5 w-5 text-[#0f5c52]" />
                             </div>
                             <div>
-                                <h3 className="font-bold text-slate-900 text-base">Edit User Profile</h3>
-                                <p className="text-xs text-slate-500">Update account details</p>
+                                <h3 className="font-bold text-[#0b1f1c] text-base">Edit User Profile</h3>
+                                <p className="text-xs text-[#5a736c]">Update account details</p>
                             </div>
                         </div>
 
                         <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-3">
                             <div>
-                                <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Full Name</label>
+                                <label className="text-xs font-semibold text-[#5a736c] mb-1 block font-medium">Full Name</label>
                                 <Input
                                     {...editForm.register("name")}
                                 />
                                 {editForm.formState.errors.name && <p className="text-[10px] text-red-500 mt-1">{editForm.formState.errors.name.message}</p>}
                             </div>
                             <div>
-                                <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Email Address</label>
+                                <label className="text-xs font-semibold text-[#5a736c] mb-1 block font-medium">Email Address</label>
                                 <Input
                                     type="email"
                                     {...editForm.register("email")}
@@ -889,12 +891,12 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                 {editForm.formState.errors.email && <p className="text-[10px] text-red-500 mt-1">{editForm.formState.errors.email.message}</p>}
                             </div>
                             <div>
-                                <label className="text-xs font-semibold text-slate-600 mb-1 block font-medium">Role</label>
+                                <label className="text-xs font-semibold text-[#5a736c] mb-1 block font-medium">Role</label>
                                 <SimpleSelect
                                     value={editForm.watch("role")}
                                     onChange={(e) => editForm.setValue("role", e.target.value as Role)}
                                     options={roles.map(r => ({ label: roleMeta[r].label, value: r }))}
-                                    className="h-10 text-xs border-slate-200 focus:ring-indigo-500"
+                                    className="h-10 text-xs border-[#0b1f1c]/10 focus:ring-[#0f5c52]/30"
                                 />
                                 {editForm.formState.errors.role && <p className="text-[10px] text-red-500 mt-1">{editForm.formState.errors.role.message}</p>}
                             </div>
@@ -902,14 +904,14 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                 <button
                                     type="button"
                                     onClick={() => setEditUserTarget(null)}
-                                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-[#0b1f1c]/10 text-[#5a736c] hover:bg-[#f0f4f2]/60 transition-colors"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={editForm.formState.isSubmitting}
-                                    className="flex-1 py-2 text-sm font-medium rounded-lg bg-[#0f172b] hover:bg-[#0f172b]/90 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                 >
                                     {editForm.formState.isSubmitting ? "Saving..." : "Save Changes"}
                                 </button>

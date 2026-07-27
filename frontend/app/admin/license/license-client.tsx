@@ -312,19 +312,19 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
         <div className="flex-1 space-y-6 pb-10 relative">
             {/* Restoration Overlay */}
             {isRestoring && (
-                <div className="absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm rounded-xl flex items-center justify-center p-6">
-                    <Card className="w-full max-w-md shadow-2xl border-indigo-500/50">
+                <div className="absolute inset-0 z-50 bg-[#0b1f1c]/60 backdrop-blur-sm rounded-xl flex items-center justify-center p-6">
+                    <Card className="w-full max-w-md shadow-2xl border-[#0f5c52]/30">
                         <CardContent className="pt-8 pb-8 space-y-6 text-center">
-                            <div className="h-16 w-16 rounded-full bg-indigo-50 flex items-center justify-center mx-auto mb-4">
-                                <RefreshCcw className="h-8 w-8 text-indigo-600 animate-spin" />
+                            <div className="h-16 w-16 rounded-full bg-[#0f5c52]/10 flex items-center justify-center mx-auto mb-4">
+                                <RefreshCcw className="h-8 w-8 text-[#0f5c52] animate-spin" />
                             </div>
                             <div className="space-y-2">
-                                <h3 className="text-xl font-bold text-slate-900">System Restoration in Progress</h3>
-                                <p className="text-sm text-slate-500">Restoring files and database from backup. Please wait and do not refresh the page.</p>
+                                <h3 className="text-xl font-bold text-[#0b1f1c]">System Restoration in Progress</h3>
+                                <p className="text-sm text-[#5a736c]">Restoring files and database from backup. Please wait and do not refresh the page.</p>
                             </div>
                             <div className="space-y-2">
-                                <Progress value={restoreProgress} className="h-2" />
-                                <p className="text-xs font-bold text-indigo-600 uppercase tracking-widest">{restoreProgress}% Complete</p>
+                                <Progress value={restoreProgress} className="h-2" indicatorClassName="bg-[#0f5c52]" />
+                                <p className="text-xs font-bold text-[#0f5c52] uppercase tracking-widest">{restoreProgress}% Complete</p>
                             </div>
                         </CardContent>
                     </Card>
@@ -342,13 +342,13 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                         </CardHeader>
                         <CardContent className="pt-6 space-y-4 text-center">
                             <p className="text-sm text-slate-600 leading-relaxed">
-                                Are you sure you want to restore <span className="font-bold text-slate-900">{showRestoreConfirm.name}</span>?
+                                Are you sure you want to restore <span className="font-bold text-[#0b1f1c]">{showRestoreConfirm.name}</span>?
                                 <br /><br />
                                 <span className="text-red-500 font-semibold italic text-xs">Warning: Current data will be overwritten!</span>
                             </p>
                             <div className="flex gap-3 justify-center">
                                 <Button variant="outline" size="sm" onClick={() => setShowRestoreConfirm(null)}>Cancel</Button>
-                                <Button className="bg-indigo-600 hover:bg-indigo-700" size="sm" onClick={startRestore}>Yes, Restore Now</Button>
+                                <Button className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none" size="sm" onClick={startRestore}>Yes, Restore Now</Button>
                             </div>
                         </CardContent>
                     </Card>
@@ -357,8 +357,8 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
 
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-slate-900">Update and Licence</h2>
-                    <p className="text-slate-500">Manage system versions, licenses, and data security.</p>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Update and Licence</h2>
+                    <p className="mt-1 text-sm text-[#5a736c]">Manage system versions, licenses, and data security.</p>
                 </div>
             </div>
 
@@ -380,28 +380,28 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
 
             <div className="grid gap-6 md:grid-cols-2">
                 {/* License Card */}
-                <Card className="shadow-sm border-indigo-100 overflow-hidden h-full">
-                    <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-                            <ShieldCheck className="h-5 w-5 text-green-500" /> Licence Information
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden h-full">
+                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                            <ShieldCheck className="h-5 w-5 text-emerald-500" /> Licence Information
                         </CardTitle>
-                        <CardDescription>Manage your application license and subscription status.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">Manage your application license and subscription status.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6 pt-6">
-                        <div className="flex justify-between items-center p-4 rounded-xl bg-slate-50 border border-slate-100">
+                        <div className="flex justify-between items-center p-4 rounded-xl bg-[#f0f4f2]/60 border border-[#0b1f1c]/8">
                             <div>
-                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider mb-1">Subscription Status</p>
-                                <p className="text-base font-bold text-green-600 flex items-center gap-1.5">
+                                <p className="text-xs text-[#5a736c] uppercase font-bold tracking-wider mb-1">Subscription Status</p>
+                                <p className="text-base font-bold text-emerald-600 flex items-center gap-1.5">
                                     <CheckCircle className="h-4 w-4" /> {licenseInfo?.license_status || "Checking..."}
                                 </p>
                             </div>
-                            <Button size="sm" variant="outline" className="bg-white hover:bg-slate-50" onClick={fetchSystemStatus}>
-                                <RefreshCcw className="h-3.5 w-3.5 mr-1.5 text-slate-500" /> Refresh
+                            <Button size="sm" variant="outline" className="bg-white hover:bg-[#f0f4f2]/60" onClick={fetchSystemStatus}>
+                                <RefreshCcw className="h-3.5 w-3.5 mr-1.5 text-[#5a736c]" /> Refresh
                             </Button>
                         </div>
 
                         <div className="space-y-3">
-                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Licence Key</label>
+                            <label className="text-xs font-bold text-[#5a736c] uppercase tracking-wider">Licence Key</label>
                             {isEditingLicense ? (
                                 <form onSubmit={licenseForm.handleSubmit(onLicenseSubmit)} className="space-y-2">
                                     <div className="flex gap-2">
@@ -417,7 +417,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                                         <Button
                                             type="submit"
                                             disabled={licenseForm.formState.isSubmitting}
-                                            className="bg-indigo-600 hover:bg-indigo-700 text-white shrink-0"
+                                            className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none shrink-0"
                                         >
                                             {licenseForm.formState.isSubmitting
                                                 ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -442,13 +442,13 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                                             {licenseForm.formState.errors.license_key.message}
                                         </p>
                                     )}
-                                    <p className="text-[10px] text-slate-400">
+                                    <p className="text-[10px] text-[#6b857c]">
                                         Format: 16 alphanumeric characters separated by dashes (e.g. A1B2-C3D4-E5F6-G7H8)
                                     </p>
                                 </form>
                             ) : (
                                 <div className="flex gap-2">
-                                    <div className="flex-1 px-4 py-2.5 rounded-lg border bg-slate-50 font-mono text-sm text-slate-700 flex items-center shadow-inner">
+                                    <div className="flex-1 px-4 py-2.5 rounded-lg border border-[#0b1f1c]/10 bg-[#f0f4f2]/60 font-mono text-sm text-[#0b1f1c] flex items-center shadow-inner">
                                         {licenseInfo?.license_key ? licenseInfo.license_key : "XXXX-XXXX-XXXX-XXXX"}
                                     </div>
                                     <Button
@@ -460,7 +460,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                                             licenseForm.reset()
                                         }}
                                     >
-                                        <Key className="h-4 w-4 text-indigo-500" />
+                                        <Key className="h-4 w-4 text-[#0f5c52]" />
                                     </Button>
                                 </div>
                             )}
@@ -469,12 +469,12 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                 </Card>
 
                 {/* Software Update Card */}
-                <Card className="shadow-sm border-indigo-100 overflow-hidden h-full flex flex-col">
-                    <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-                            <ArrowUpCircle className="h-5 w-5 text-indigo-500" /> Software Update
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden h-full flex flex-col">
+                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                            <ArrowUpCircle className="h-5 w-5 text-[#0f5c52]" /> Software Update
                         </CardTitle>
-                        <CardDescription>Upload update packages to upgrade your system.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">Upload update packages to upgrade your system.</CardDescription>
                     </CardHeader>
                     <CardContent className="flex-1 pt-6 flex flex-col justify-center">
                         {updateStatus === "idle" || updateStatus === "dragging" ? (
@@ -486,8 +486,8 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                                 className={cn(
                                     "relative group cursor-pointer border-2 border-dashed rounded-xl p-8 transition-all duration-200 flex flex-col items-center justify-center text-center",
                                     updateStatus === "dragging"
-                                        ? "border-indigo-500 bg-indigo-50/50 scale-[0.99]"
-                                        : "border-slate-200 hover:border-indigo-400 hover:bg-slate-50"
+                                        ? "border-[#0f5c52] bg-[#0f5c52]/5 scale-[0.99]"
+                                        : "border-[#0b1f1c]/10 hover:border-[#0f5c52]/40 hover:bg-[#f0f4f2]/40"
                                 )}
                             >
                                 <input
@@ -497,28 +497,28 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                                     className="hidden"
                                     accept=".zip,.pkg"
                                 />
-                                <div className="h-12 w-12 rounded-full bg-indigo-50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-200">
-                                    <UploadCloud className="h-6 w-6 text-indigo-500" />
+                                <div className="h-12 w-12 rounded-full bg-[#0f5c52]/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-200">
+                                    <UploadCloud className="h-6 w-6 text-[#0f5c52]" />
                                 </div>
-                                <h3 className="text-sm font-semibold text-slate-900 mb-1">Drop update file here</h3>
-                                <p className="text-xs text-slate-500">or click to browse from your computer</p>
-                                <p className="text-[10px] text-slate-400 mt-4 uppercase font-bold tracking-tighter">Supported: .ZIP, .PKG</p>
+                                <h3 className="text-sm font-semibold text-[#0b1f1c] mb-1">Drop update file here</h3>
+                                <p className="text-xs text-[#5a736c]">or click to browse from your computer</p>
+                                <p className="text-[10px] text-[#6b857c] mt-4 uppercase font-bold tracking-tighter">Supported: .ZIP, .PKG</p>
                             </div>
                         ) : (
                             <div className="space-y-4 py-4">
                                 {updateStatus === "uploading" && (
                                     <div className="space-y-3">
                                         <div className="flex items-center gap-3">
-                                            <div className="h-10 w-10 rounded-lg bg-indigo-50 flex items-center justify-center">
-                                                <FileArchive className="h-5 w-5 text-indigo-500" />
+                                            <div className="h-10 w-10 rounded-lg bg-[#0f5c52]/10 flex items-center justify-center">
+                                                <FileArchive className="h-5 w-5 text-[#0f5c52]" />
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-semibold text-slate-900 truncate">{uploadedFile?.name}</p>
-                                                <p className="text-xs text-slate-500">Uploading package...</p>
+                                                <p className="text-sm font-semibold text-[#0b1f1c] truncate">{uploadedFile?.name}</p>
+                                                <p className="text-xs text-[#5a736c]">Uploading package...</p>
                                             </div>
                                         </div>
-                                        <Progress value={uploadProgress} className="h-2" />
-                                        <div className="flex justify-between text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+                                        <Progress value={uploadProgress} className="h-2" indicatorClassName="bg-[#0f5c52]" />
+                                        <div className="flex justify-between text-[10px] font-bold uppercase text-[#6b857c] tracking-wider">
                                             <span>{uploadProgress}% Complete</span>
                                             <span>Uploading...</span>
                                         </div>
@@ -536,33 +536,33 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                                 )}
 
                                 {updateStatus === "latest" && (
-                                    <div className="p-6 rounded-xl bg-green-50 border border-green-100 flex flex-col items-center text-center gap-3">
-                                        <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
-                                            <CheckCircle className="h-6 w-6 text-green-600" />
+                                    <div className="p-6 rounded-xl bg-emerald-50 border border-emerald-100 flex flex-col items-center text-center gap-3">
+                                        <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center">
+                                            <CheckCircle className="h-6 w-6 text-emerald-600" />
                                         </div>
                                         <div>
-                                            <p className="text-sm font-bold text-green-900">System Updated Successfully</p>
-                                            <p className="text-xs text-green-700">Your application is now running the latest version.</p>
+                                            <p className="text-sm font-bold text-emerald-900">System Updated Successfully</p>
+                                            <p className="text-xs text-emerald-700">Your application is now running the latest version.</p>
                                         </div>
                                         <Button size="sm" variant="outline" className="mt-2 bg-white" onClick={resetUpdate}>Done</Button>
                                     </div>
                                 )}
 
                                 {updateStatus === "error" && (
-                                    <div className="p-6 rounded-xl bg-red-50 border border-red-100 flex flex-col items-center text-center gap-3">
-                                        <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center">
-                                            <AlertCircle className="h-6 w-6 text-red-600" />
+                                    <div className="p-6 rounded-xl bg-rose-50 border border-rose-100 flex flex-col items-center text-center gap-3">
+                                        <div className="h-12 w-12 rounded-full bg-rose-100 flex items-center justify-center">
+                                            <AlertCircle className="h-6 w-6 text-rose-600" />
                                         </div>
                                         <div>
-                                            <p className="text-sm font-bold text-red-900">Upload Failed</p>
-                                            <p className="text-xs text-red-700">Please try again or check the server logs.</p>
+                                            <p className="text-sm font-bold text-rose-900">Upload Failed</p>
+                                            <p className="text-xs text-rose-700">Please try again or check the server logs.</p>
                                         </div>
                                         <Button size="sm" variant="outline" className="mt-2 bg-white" onClick={resetUpdate}>Try Again</Button>
                                     </div>
                                 )}
                             </div>
                         )}
-                        <div className="flex items-center justify-between text-[10px] text-slate-400 pt-4 uppercase font-bold tracking-widest">
+                        <div className="flex items-center justify-between text-[10px] text-[#6b857c] pt-4 uppercase font-bold tracking-widest">
                             <span>Author: {licenseInfo?.author || "Sohel Akter"}</span>
                             <span>Version: {licenseInfo?.version !== undefined ? licenseInfo.version : ""}</span>
                         </div>
@@ -571,18 +571,18 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
             </div>
 
             {/* System Maintenance (Horizontal Card) */}
-            <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50 flex flex-row items-center justify-between space-y-0">
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8 flex flex-row items-center justify-between space-y-0">
                     <div>
-                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
                             <Wrench className="h-5 w-5 text-amber-500" /> System Maintenance Control
                         </CardTitle>
-                        <CardDescription>Configure global maintenance mode to perform safe database or server upgrades.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">Configure global maintenance mode to perform safe database or server upgrades.</CardDescription>
                     </div>
-                    <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-slate-100 shadow-sm shrink-0">
+                    <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-[#0b1f1c]/8 shadow-none shrink-0">
                         <div className="text-right">
-                            <p className="text-xs font-semibold text-slate-900">Maintenance Status</p>
-                            <p className="text-[10px] text-slate-500">
+                            <p className="text-xs font-semibold text-[#0b1f1c]">Maintenance Status</p>
+                            <p className="text-[10px] text-[#5a736c]">
                                 {maintenanceMode ? "New validations blocked" : "System fully operational"}
                             </p>
                         </div>
@@ -604,7 +604,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                         {/* Message Input & Draining Info (7 cols) */}
                         <div className="md:col-span-7 space-y-4">
                             <div className="space-y-2">
-                                <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                <Label className="text-xs font-bold text-[#5a736c] uppercase tracking-wider">
                                     Notification Banner Message
                                 </Label>
                                 <Textarea
@@ -626,14 +626,14 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                         {/* Banner Preview & Save Action (5 cols) */}
                         <div className="md:col-span-5 space-y-4 flex flex-col justify-between min-h-[175px]">
                             <div className="space-y-2">
-                                <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                <Label className="text-xs font-bold text-[#5a736c] uppercase tracking-wider">
                                     Real-time Banner Preview
                                 </Label>
                                 <div className={cn(
                                     "p-4 rounded-xl border text-xs transition-all duration-300 min-h-[90px] flex items-center justify-center",
                                     maintenanceMode 
                                         ? "bg-amber-50/80 border-amber-200 text-amber-900 shadow-inner" 
-                                        : "bg-slate-50 border-slate-200 text-slate-400 italic"
+                                        : "bg-[#f0f4f2]/60 border-[#0b1f1c]/10 text-[#6b857c] italic"
                                 )}>
                                     {maintenanceMode ? (
                                         <div className="flex gap-2 items-start">
@@ -647,7 +647,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                             </div>
 
                             <Button
-                                className="w-full bg-amber-600 hover:bg-amber-700 text-white font-medium shadow-sm transition-colors duration-200"
+                                className="w-full bg-amber-600 hover:bg-amber-700 text-white font-medium shadow-none transition-colors duration-200"
                                 size="sm"
                                 disabled={isSavingMaintenance}
                                 onClick={handleSaveMaintenance}
@@ -666,20 +666,20 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
             </Card>
 
             {/* System Backup Card */}
-            <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50 flex flex-row items-center justify-between space-y-0">
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8 flex flex-row items-center justify-between space-y-0">
                     <div>
-                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-                            <Database className="h-5 w-5 text-indigo-500" /> System Backup & Recovery
+                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                            <Database className="h-5 w-5 text-[#0f5c52]" /> System Backup & Recovery
                         </CardTitle>
-                        <CardDescription>Generate and download full system, database, or user details backups.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">Generate and download full system, database, or user details backups.</CardDescription>
                     </div>
                     <div className="flex gap-2">
                         <Button
                             onClick={() => generateBackup("Full System")}
                             disabled={isBackingUp}
                             size="sm"
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
+                            className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none"
                         >
                             {isBackingUp ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : <HardDriveDownload className="h-3.5 w-3.5 mr-2" />}
                             Full Backup
@@ -690,44 +690,44 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                 </CardHeader>
                 <CardContent className="pt-6">
                     <div className="space-y-4">
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                        <div className="flex items-center gap-2 text-xs font-bold text-[#6b857c] uppercase tracking-wider mb-2">
                             <History className="h-3.5 w-3.5" /> Backup History
                         </div>
                         <div className="grid gap-3">
                             {backupList.length === 0 ? (
-                                <p className="text-sm text-slate-400 text-center py-6">No backups yet. Create your first backup above.</p>
+                                <p className="text-sm text-[#6b857c] text-center py-6">No backups yet. Create your first backup above.</p>
                             ) : backupList.map((backup) => (
-                                <div key={backup.id} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-white hover:bg-slate-50 transition-colors group">
+                                <div key={backup.id} className="flex items-center justify-between p-3 rounded-lg border border-[#0b1f1c]/8 bg-white hover:bg-[#f0f4f2]/40 transition-colors group">
                                     <div className="flex items-center gap-3">
-                                        <div className="h-9 w-9 rounded-lg bg-slate-50 flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
-                                            {backup.type === "Full System" ? <UploadCloud className="h-4 w-4 text-slate-400 group-hover:text-indigo-500" /> :
-                                             backup.type === "Database" ? <Database className="h-4 w-4 text-slate-400 group-hover:text-indigo-500" /> :
-                                             <FileArchive className="h-4 w-4 text-slate-400 group-hover:text-indigo-500" />}
+                                        <div className="h-9 w-9 rounded-lg bg-[#f0f4f2]/60 flex items-center justify-center group-hover:bg-[#0f5c52]/10 transition-colors">
+                                            {backup.type === "Full System" ? <UploadCloud className="h-4 w-4 text-[#6b857c] group-hover:text-[#0f5c52]" /> :
+                                             backup.type === "Database" ? <Database className="h-4 w-4 text-[#6b857c] group-hover:text-[#0f5c52]" /> :
+                                             <FileArchive className="h-4 w-4 text-[#6b857c] group-hover:text-[#0f5c52]" />}
                                         </div>
                                         <div>
                                             <div className="flex items-center gap-2">
-                                                <p className="text-sm font-semibold text-slate-900">{backup.name}</p>
-                                                <span className="px-1.5 py-0.5 rounded-full bg-slate-100 text-[9px] font-bold text-slate-500 uppercase tracking-tighter">
+                                                <p className="text-sm font-semibold text-[#0b1f1c]">{backup.name}</p>
+                                                <span className="px-1.5 py-0.5 rounded-full bg-[#0b1f1c]/5 text-[9px] font-bold text-[#5a736c] uppercase tracking-tighter">
                                                     {backup.type}
                                                 </span>
                                             </div>
-                                            <p className="text-[10px] text-slate-500">{backup.date} • {backup.size}</p>
+                                            <p className="text-[10px] text-[#6b857c]">{backup.date} • {backup.size}</p>
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
                                         <Button
                                             size="icon" variant="ghost" title="Restore"
-                                            className="h-8 w-8 text-slate-400 hover:text-indigo-600"
+                                            className="h-8 w-8 text-[#6b857c] hover:text-[#0f5c52]"
                                             onClick={() => setShowRestoreConfirm({ id: backup.id, name: backup.name })}
                                         >
                                             <RotateCcw className="h-4 w-4" />
                                         </Button>
-                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-indigo-600">
+                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-[#6b857c] hover:text-[#0f5c52]">
                                             <Download className="h-4 w-4" />
                                         </Button>
                                         <Button
                                             size="icon" variant="ghost"
-                                            className="h-8 w-8 text-slate-400 hover:text-red-500"
+                                            className="h-8 w-8 text-[#6b857c] hover:text-rose-500"
                                             onClick={() => deleteBackup(backup.name)}
                                         >
                                             <Trash2 className="h-4 w-4" />
@@ -741,31 +741,31 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
             </Card>
 
             {/* Version Changelog */}
-            <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                    <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-                        <History className="h-5 w-5 text-slate-400" /> Version Changelog
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                    <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                        <History className="h-5 w-5 text-[#6b857c]" /> Version Changelog
                     </CardTitle>
-                    <CardDescription>Recent release notes and patch history.</CardDescription>
+                    <CardDescription className="text-[#5a736c]">Recent release notes and patch history.</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6 pb-2">
-                    <div className="relative border-l-2 border-slate-100 ml-2 space-y-6 pb-2">
+                    <div className="relative border-l-2 border-[#0b1f1c]/8 ml-2 space-y-6 pb-2">
                         <div className="relative pl-6">
-                            <span className="absolute -left-[9px] top-1 h-4 w-4 rounded-full bg-indigo-600 border-2 border-white shadow-sm flex items-center justify-center ring-2 ring-indigo-100" />
+                            <span className="absolute -left-[9px] top-1 h-4 w-4 rounded-full bg-[#0f5c52] border-2 border-white shadow-none flex items-center justify-center ring-2 ring-[#0f5c52]/15" />
                             <div className="flex flex-wrap items-center gap-2 mb-1">
-                                <span className="font-bold text-slate-900 text-sm">{licenseInfo?.version !== undefined ? licenseInfo.version : ""}</span>
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-600 text-white tracking-wide">Latest</span>
-                                <span className="text-xs text-slate-400">{licenseInfo?.release_date || "Feb 20, 2024"}</span>
+                                <span className="font-bold text-[#0b1f1c] text-sm">{licenseInfo?.version !== undefined ? licenseInfo.version : ""}</span>
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#0f5c52] text-white tracking-wide">Latest</span>
+                                <span className="text-xs text-[#6b857c]">{licenseInfo?.release_date || "Feb 20, 2024"}</span>
                             </div>
-                            <p className="text-sm text-slate-600">New bulk verification engine, 40% faster throughput.</p>
+                            <p className="text-sm text-[#5a736c]">New bulk verification engine, 40% faster throughput.</p>
                         </div>
                         <div className="relative pl-6">
-                            <span className="absolute -left-[9px] top-1 h-4 w-4 rounded-full bg-slate-300 border-2 border-white shadow-sm ring-2 ring-slate-100" />
+                            <span className="absolute -left-[9px] top-1 h-4 w-4 rounded-full bg-[#0b1f1c]/20 border-2 border-white shadow-none ring-2 ring-[#0b1f1c]/5" />
                             <div className="flex flex-wrap items-center gap-2 mb-1">
-                                <span className="font-bold text-slate-900 text-sm">v2.3.8</span>
-                                <span className="text-xs text-slate-400">Jan 30, 2024</span>
+                                <span className="font-bold text-[#0b1f1c] text-sm">v2.3.8</span>
+                                <span className="text-xs text-[#6b857c]">Jan 30, 2024</span>
                             </div>
-                            <p className="text-sm text-slate-600">Security patch: hardened API key validation.</p>
+                            <p className="text-sm text-[#5a736c]">Security patch: hardened API key validation.</p>
                         </div>
                     </div>
                 </CardContent>

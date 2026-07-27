@@ -113,13 +113,13 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
         <form onSubmit={form.handleSubmit(handleSaveSubmit)} className="flex-1 space-y-4">
             <div className="flex items-center justify-between space-y-2">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">Brand Settings</h2>
-                    <p className="text-slate-500 text-sm">Customize the identity and look of your platform.</p>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Brand Settings</h2>
+                    <p className="mt-1 text-sm text-[#5a736c]">Customize the identity and look of your platform.</p>
                 </div>
                 <Button
                     type="submit"
                     disabled={form.formState.isSubmitting || isLoading}
-                    className="bg-[#0f172b] hover:bg-[#0f172b]/90 text-white min-w-[140px]"
+                    className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none min-w-[140px]"
                 >
                     {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                     {form.formState.isSubmitting ? 'Saving...' : 'Save Changes'}
@@ -128,13 +128,13 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
 
             <div className="grid gap-6 md:grid-cols-2">
                 {/* General Branding */}
-                <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                    <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-                            <Globe className="h-5 w-5 text-slate-500" />
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                            <Globe className="h-5 w-5 text-[#0f5c52]" />
                             General Branding
                         </CardTitle>
-                        <CardDescription>Configure basic identity settings for your application.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">Configure basic identity settings for your application.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 pt-6">
                         <div className="space-y-2">
@@ -168,7 +168,7 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                                 />
                             </div>
                             {form.formState.errors.logo_url && <p className="text-[10px] text-red-500">{form.formState.errors.logo_url.message}</p>}
-                            <p className="text-[10px] text-slate-400">Direct link to your brand logo image.</p>
+                            <p className="text-[10px] text-[#6b857c]">Direct link to your brand logo image.</p>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="favicon-url" className="text-sm font-medium">Favicon URL</Label>
@@ -181,26 +181,26 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                                 />
                             </div>
                             {form.formState.errors.favicon_url && <p className="text-[10px] text-red-500">{form.formState.errors.favicon_url.message}</p>}
-                            <p className="text-[10px] text-slate-400">Direct link to your website favicon.</p>
+                            <p className="text-[10px] text-[#6b857c]">Direct link to your website favicon.</p>
                         </div>
                     </CardContent>
                 </Card>
 
                 {/* Appearance & Theme */}
-                <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                    <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-                            <Palette className="h-5 w-5 text-slate-500" />
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                            <Palette className="h-5 w-5 text-[#0f5c52]" />
                             Appearance & Theme
                         </CardTitle>
-                        <CardDescription>Manage the look and feel of the user dashboard.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">Manage the look and feel of the user dashboard.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 pt-6">
                         <div className="space-y-2">
                             <Label htmlFor="primary-color" className="text-sm font-medium">Primary Brand Color</Label>
                             <div className="flex gap-3 items-center">
                                 <div
-                                    className="h-10 w-10 rounded-md border border-slate-200"
+                                    className="h-10 w-10 rounded-md border border-[#0b1f1c]/10"
                                     style={{ backgroundColor: form.watch('primary_color') || '#0F172B' }}
                                 ></div>
                                 <Input
@@ -209,7 +209,7 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                                     placeholder="#0F172B"
                                     {...form.register("primary_color")}
                                 />
-                                <p className="text-xs text-slate-400">HEX color code</p>
+                                <p className="text-xs text-[#6b857c]">HEX color code</p>
                             </div>
                             {form.formState.errors.primary_color && <p className="text-[10px] text-red-500">{form.formState.errors.primary_color.message}</p>}
                         </div>
@@ -219,16 +219,16 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                                 <button
                                     type="button"
                                     onClick={() => form.setValue('nav_style', 'dark')}
-                                    className={`border rounded-md p-3 transition-all ${form.watch('nav_style') === 'dark' ? "bg-slate-100 border-indigo-200 ring-1 ring-indigo-500" : "hover:bg-slate-50"}`}
+                                    className={`border rounded-md p-3 transition-all ${form.watch('nav_style') === 'dark' ? "bg-[#f0f4f2] border-[#0f5c52]/30 ring-1 ring-[#0f5c52]" : "hover:bg-[#f0f4f2]/60"}`}
                                 >
-                                    <p className="text-xs font-bold text-center">Dark Sidebar</p>
+                                    <p className="text-xs font-bold text-center text-[#0b1f1c]">Dark Sidebar</p>
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => form.setValue('nav_style', 'light')}
-                                    className={`border rounded-md p-3 transition-all ${form.watch('nav_style') === 'light' ? "bg-slate-100 border-indigo-200 ring-1 ring-indigo-500" : "hover:bg-slate-50"}`}
+                                    className={`border rounded-md p-3 transition-all ${form.watch('nav_style') === 'light' ? "bg-[#f0f4f2] border-[#0f5c52]/30 ring-1 ring-[#0f5c52]" : "hover:bg-[#f0f4f2]/60"}`}
                                 >
-                                    <p className="text-xs font-bold text-center">Light Sidebar</p>
+                                    <p className="text-xs font-bold text-center text-[#0b1f1c]">Light Sidebar</p>
                                 </button>
                             </div>
                         </div>
@@ -236,13 +236,13 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                 </Card>
 
                 {/* Contact & Support */}
-                <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                    <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-                            <Mail className="h-5 w-5 text-slate-500" />
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                            <Mail className="h-5 w-5 text-[#0f5c52]" />
                             Contact & Support
                         </CardTitle>
-                        <CardDescription>How users get in touch with you.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">How users get in touch with you.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 pt-6">
                         <div className="space-y-2">
@@ -269,13 +269,13 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                 </Card>
 
                 {/* Social Presence */}
-                <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                    <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-                            <Share2 className="h-5 w-5 text-slate-500" />
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                            <Share2 className="h-5 w-5 text-[#0f5c52]" />
                             Social Presence
                         </CardTitle>
-                        <CardDescription>Configure your social media links for the footer.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">Configure your social media links for the footer.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 pt-6">
                         <div className="space-y-2">

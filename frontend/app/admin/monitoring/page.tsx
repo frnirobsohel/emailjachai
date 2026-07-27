@@ -52,20 +52,21 @@ export default function MonitoringPage() {
 
     const stats = [
         { title: "Avg Latency", value: `${currentMetrics.latency}ms`, icon: Zap, color: "text-amber-500" },
-        { title: "CPU Load", value: `${currentMetrics.cpu}%`, icon: Cpu, color: "text-indigo-500" },
-        { title: "Memory", value: `${currentMetrics.ram}%`, icon: Memory, color: "text-green-500" },
-        { title: "Active Req", value: `${currentMetrics.reqs}/s`, icon: Activity, color: "text-blue-500" },
+        { title: "CPU Load", value: `${currentMetrics.cpu}%`, icon: Cpu, color: "text-[#0f5c52]" },
+        { title: "Memory", value: `${currentMetrics.ram}%`, icon: Memory, color: "text-emerald-500" },
+        { title: "Active Req", value: `${currentMetrics.reqs}/s`, icon: Activity, color: "text-[#1a8a78]" },
     ];
 
     return (
         <div className="flex-1 space-y-4">
-            <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Server Monitoring</h2>
+            <div className="flex flex-col gap-1">
+                <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Server Monitoring</h2>
+                <p className="text-sm text-[#5a736c]">Live infrastructure health and performance telemetry.</p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 {stats.map((stat) => (
-                    <Card key={stat.title} className="shadow-sm border-indigo-100">
+                    <Card key={stat.title} className="shadow-none border-[#0b1f1c]/10 bg-white/90">
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-xs font-medium text-slate-500 uppercase">{stat.title}</CardTitle>
                             <stat.icon className={`h-4 w-4 ${stat.color}`} />
@@ -77,9 +78,9 @@ export default function MonitoringPage() {
                 ))}
             </div>
 
-            <Card className="shadow-sm border-indigo-100 overflow-hidden mt-6">
-                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                    <CardTitle className="text-lg font-semibold text-slate-900">Performance Metrics</CardTitle>
+            <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden mt-6">
+                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                    <CardTitle className="text-lg font-semibold text-[#0b1f1c]">Performance Metrics</CardTitle>
                     <CardDescription>Live visualization of server performance over time.</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6 overflow-hidden">
@@ -89,12 +90,12 @@ export default function MonitoringPage() {
                                 <AreaChart data={metrics}>
                                     <defs>
                                         <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1}/>
-                                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                                            <stop offset="5%" stopColor="#0f5c52" stopOpacity={0.15}/>
+                                            <stop offset="95%" stopColor="#0f5c52" stopOpacity={0}/>
                                         </linearGradient>
                                         <linearGradient id="colorRam" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
-                                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                            <stop offset="5%" stopColor="#1a8a78" stopOpacity={0.15}/>
+                                            <stop offset="95%" stopColor="#1a8a78" stopOpacity={0}/>
                                         </linearGradient>
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -116,7 +117,7 @@ export default function MonitoringPage() {
                                     <Area 
                                         type="monotone" 
                                         dataKey="cpu" 
-                                        stroke="#6366f1" 
+                                        stroke="#0f5c52" 
                                         fillOpacity={1} 
                                         fill="url(#colorCpu)" 
                                         strokeWidth={2}
@@ -125,7 +126,7 @@ export default function MonitoringPage() {
                                     <Area 
                                         type="monotone" 
                                         dataKey="ram" 
-                                        stroke="#10b981" 
+                                        stroke="#1a8a78" 
                                         fillOpacity={1} 
                                         fill="url(#colorRam)" 
                                         strokeWidth={2}

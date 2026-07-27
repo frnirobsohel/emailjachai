@@ -84,31 +84,32 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
     return (
         <div className="flex-1 space-y-4">
             <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Credits History</h2>
+                <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Credits History</h2>
+                    <p className="mt-1 text-sm text-[#5a736c] max-w-2xl">
+                        View your credit purchase and usage history.
+                    </p>
+                </div>
             </div>
 
-            <p className="text-slate-500 max-w-2xl">
-                View your credit purchase and usage history.
-            </p>
-
             <div className="grid gap-4 md:grid-cols-3">
-                <Card className="shadow-sm border-indigo-100 overflow-hidden">
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-600">
+                        <CardTitle className="text-sm font-medium text-[#5a736c]">
                             Credits Remaining
                         </CardTitle>
-                        <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-indigo-100 text-indigo-600">
+                        <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-[#0f5c52]/10 text-[#0f5c52]">
                             <Wallet className="h-4 w-4" />
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-slate-900">{stats.credits_remaining}</div>
+                        <div className="text-2xl font-bold text-[#0b1f1c]">{stats.credits_remaining}</div>
                         <p className="text-xs text-muted-foreground mt-1">Available to use</p>
                     </CardContent>
                 </Card>
-                <Card className="shadow-sm border-indigo-100 overflow-hidden">
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-600">
+                        <CardTitle className="text-sm font-medium text-[#5a736c]">
                             Total Credits Purchased
                         </CardTitle>
                         <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-emerald-100 text-emerald-600">
@@ -116,13 +117,13 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-slate-900">{stats.total_purchased}</div>
+                        <div className="text-2xl font-bold text-[#0b1f1c]">{stats.total_purchased}</div>
                         <p className="text-xs text-muted-foreground mt-1">Lifetime purchases</p>
                     </CardContent>
                 </Card>
-                <Card className="shadow-sm border-indigo-100 overflow-hidden">
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-600">
+                        <CardTitle className="text-sm font-medium text-[#5a736c]">
                             Refunds
                         </CardTitle>
                         <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-amber-100 text-amber-600">
@@ -130,16 +131,16 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-slate-900">{stats.total_refunds}</div>
+                        <div className="text-2xl font-bold text-[#0b1f1c]">{stats.total_refunds}</div>
                         <p className="text-xs text-muted-foreground mt-1">Total refunded credits</p>
                     </CardContent>
                 </Card>
             </div>
 
-            <Card className="shadow-sm border-indigo-100 overflow-hidden">
-                <CardHeader className="bg-slate-50/50 border-b border-indigo-50/50">
-                    <CardTitle className="text-lg font-semibold text-slate-900">Recent Transactions</CardTitle>
-                    <CardDescription>A list of your recent credit changes.</CardDescription>
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                    <CardTitle className="text-lg font-semibold text-[#0b1f1c]">Recent Transactions</CardTitle>
+                    <CardDescription className="text-[#5a736c]">A list of your recent credit changes.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
                     <Table>
@@ -169,7 +170,7 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
                                         <Badge 
                                             variant="secondary" 
                                             className={
-                                                txn.type === 'Purchase' ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-50 ring-1 ring-inset ring-indigo-600/20 shadow-none font-medium text-[10px]' :
+                                                txn.type === 'Purchase' ? 'bg-[#0f5c52]/10 text-[#0f5c52] hover:bg-[#0f5c52]/10 ring-1 ring-inset ring-[#0f5c52]/20 shadow-none font-medium text-[10px]' :
                                                 txn.type === 'Refund' ? 'bg-green-50 text-green-700 hover:bg-green-50 ring-1 ring-inset ring-green-600/20 shadow-none font-medium text-[10px]' :
                                                 txn.type === 'Transfer In' ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-50 ring-1 ring-inset ring-emerald-600/20 shadow-none font-medium text-[10px]' :
                                                 txn.type === 'Transfer Out' ? 'bg-amber-50 text-amber-700 hover:bg-amber-50 ring-1 ring-inset ring-amber-600/20 shadow-none font-medium text-[10px]' :
@@ -214,15 +215,15 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
                     </Table>
                 </CardContent>
                 {!isLoading && transactions.length > 0 && (
-                    <div className="flex items-center justify-between p-4 border-t border-indigo-50 bg-slate-50/50">
-                        <p className="text-sm text-slate-500">Showing {offset + 1} to {Math.min(offset + limit, total)} of {total} transactions</p>
+                    <div className="flex items-center justify-between p-4 border-t border-[#0b1f1c]/8 bg-[#f0f4f2]/30">
+                        <p className="text-sm text-[#5a736c]">Showing {offset + 1} to {Math.min(offset + limit, total)} of {total} transactions</p>
                         <div className="flex gap-2">
                             <Button
                                 variant="outline"
                                 size="sm"
                                 disabled={offset === 0}
                                 onClick={() => setOffset(Math.max(0, offset - limit))}
-                                className="border-indigo-100 hover:bg-white text-slate-600"
+                                className="border-[#0b1f1c]/10 hover:bg-white text-[#0b1f1c]"
                             >
                                 Previous
                             </Button>
@@ -231,7 +232,7 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
                                 size="sm"
                                 disabled={offset + limit >= total}
                                 onClick={() => setOffset(offset + limit)}
-                                className="border-indigo-100 hover:bg-white text-slate-600"
+                                className="border-[#0b1f1c]/10 hover:bg-white text-[#0b1f1c]"
                             >
                                 Next
                             </Button>
