@@ -5,7 +5,7 @@ export const metadata: Metadata = {
 }
 
 import { fetchServer } from "@/lib/fetch-server"
-import type { DashboardStats } from "@/stores/dashboard-store"
+import type { DashboardStats, RecentDashboardJob } from "@/stores/dashboard-store"
 import { DashboardClient } from "./dashboard-client"
 
 const EMPTY_STATS: DashboardStats = {
@@ -34,7 +34,7 @@ const EMPTY_STATS: DashboardStats = {
 
 export default async function DashboardPage() {
     let stats = EMPTY_STATS;
-    let initialRecentJobs: any[] = [];
+    let initialRecentJobs: RecentDashboardJob[] = [];
 
     // Fetch stats + recent jobs in parallel on the server for fast initial load
     const [statsResult, jobsResult] = await Promise.all([
@@ -47,7 +47,7 @@ export default async function DashboardPage() {
     }
 
     if (jobsResult.status === 'success' && jobsResult.data) {
-        initialRecentJobs = (jobsResult.data as any)?.jobs || [];
+        initialRecentJobs = (jobsResult.data as { jobs?: RecentDashboardJob[] })?.jobs || [];
     }
 
     return <DashboardClient initialStats={stats} initialRecentJobs={initialRecentJobs} />;

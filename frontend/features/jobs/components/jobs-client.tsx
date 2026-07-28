@@ -86,9 +86,9 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
             } else {
                 toast.error(data.message || 'Failed to delete job', { id: toastId });
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             logger.error("Failed to delete job technical error:", error);
-            toast.error(error.message || 'An unexpected error occurred while deleting the job.', { id: toastId });
+            toast.error(error instanceof Error ? error.message : 'An unexpected error occurred while deleting the job.', { id: toastId });
         } finally {
             setIsDeleting(null);
         }
@@ -105,9 +105,9 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
             } else {
                 toast.error(data.message || 'Failed to retry job', { id: toastId });
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             logger.error("Failed to retry job technical error:", error);
-            toast.error(error.message || 'An unexpected error occurred while retrying the job.', { id: toastId });
+            toast.error(error instanceof Error ? error.message : 'An unexpected error occurred while retrying the job.', { id: toastId });
         } finally {
             setIsRetrying(null);
         }
@@ -118,7 +118,7 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
         if (initialJobs) {
             store.setJobs(initialJobs, initialTotal);
         }
-    }, [initialJobs, initialTotal]);
+    }, [initialJobs, initialTotal, store]);
 
     // Silent refetch on mount / page change — avoid skeleton flash when rows already exist
     useEffect(() => {

@@ -15,7 +15,7 @@ describe('Zustand User Store', () => {
         expect(state.user).toBeNull();
         expect(state.isAuthenticated).toBe(false);
         // Ensure token does not exist in store anymore
-        expect((state as any).token).toBeUndefined();
+        expect(Object.prototype.hasOwnProperty.call(state, 'token')).toBe(false);
     });
 
     it('should set user details but NOT save token to localStorage', () => {

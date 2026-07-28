@@ -1,13 +1,12 @@
 "use client"
 
-import { useState, useMemo, useEffect, useRef } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Settings, Save, Beaker, FileText, CheckCircle, XCircle, Loader2 } from "lucide-react"
+import { Settings, Save, FileText, Loader2 } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import { SimpleSelect } from "@/components/ui/simple-select"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Switch } from "@/components/ui/switch"
 import { ApiClient } from "@/lib/api-client"
 import { useForm } from "react-hook-form"
@@ -171,6 +170,7 @@ export function SmtpClient({
 
     useEffect(() => {
         void fetchSmtpData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only refresh
     }, []);
 
     useEffect(() => {
@@ -194,7 +194,8 @@ export function SmtpClient({
             }
         });
         return () => subscription.unsubscribe();
-    }, [smtpForm.watch, hasStoredPassword]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- watch subscription setup once
+    }, [hasStoredPassword]);
 
     const handleSaveSettings = async (values: z.infer<typeof smtpSettingsSchema>) => {
         try {
@@ -214,8 +215,8 @@ export function SmtpClient({
             } else {
                 toast.error(result.message || "Failed to save settings.");
             }
-        } catch (error: any) {
-            toast.error(error.message || "Server error occurred.");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Server error occurred.");
         }
     }
 
@@ -231,8 +232,8 @@ export function SmtpClient({
             } else {
                 toast.error(result.message || "Connection failed.", { id: toastId });
             }
-        } catch (error: any) {
-            toast.error(error.message || "Server error occurred.", { id: toastId });
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Server error occurred.", { id: toastId });
         }
     }
 
@@ -251,8 +252,8 @@ export function SmtpClient({
             } else {
                 toast.error(result.message || "Failed to save template.");
             }
-        } catch (error: any) {
-            toast.error(error.message || "Server error occurred.");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Server error occurred.");
         }
     }
 
@@ -267,7 +268,6 @@ export function SmtpClient({
     }
 
     const hasValidCredentials = (smtpForm.watch('host') || "").trim() !== '' && (smtpForm.watch('username') || "").trim() !== '' && ((smtpForm.watch('password') || "").trim() !== '' || hasStoredPassword);
-    const isGlobalSmtpActive = smtpForm.watch('is_active') && hasValidCredentials;
 
     return (
         <div className="flex-1 space-y-6">
@@ -321,7 +321,7 @@ export function SmtpClient({
                                 <label className="text-sm font-medium">Encryption</label>
                                 <SimpleSelect
                                     value={smtpForm.watch('encryption')}
-                                    onChange={(e) => smtpForm.setValue('encryption', e.target.value as any)}
+                                    onChange={(e) => smtpForm.setValue('encryption', e.target.value as 'none' | 'ssl' | 'tls')}
                                     options={[
                                         { label: 'None', value: 'none' },
                                         { label: 'SSL', value: 'ssl' },

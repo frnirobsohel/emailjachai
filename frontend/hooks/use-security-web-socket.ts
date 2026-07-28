@@ -1,12 +1,17 @@
 import { useEffect } from 'react'
-import { useSecurityStore } from '@/stores/security-store'
+import {
+  useSecurityStore,
+  type SecurityLog,
+  type BlockedEntry,
+  type SecurityStats,
+} from '@/stores/security-store'
 import { WsMessage } from '@/hooks/use-socket'
 
 export function useSecurityWebSocket() {
   useEffect(() => {
     const handleSecurityLog = (event: CustomEvent<WsMessage>) => {
-      const data = event.detail.data;
-      const store = useSecurityStore.getState();
+      const data = event.detail.data as SecurityLog
+      const store = useSecurityStore.getState()
       store.addLog(data)
       store.updateStats({
         total_verified: store.stats.total_verified + 1,
@@ -15,16 +20,16 @@ export function useSecurityWebSocket() {
     }
 
     const handleBlocklistUpdate = (event: CustomEvent<WsMessage>) => {
-      const store = useSecurityStore.getState();
-      store.addBlocked(event.detail.data)
+      const store = useSecurityStore.getState()
+      store.addBlocked(event.detail.data as BlockedEntry)
       store.updateStats({
         currently_blocked: store.stats.currently_blocked + 1
       })
     }
 
     const handleStatsUpdate = (event: CustomEvent<WsMessage>) => {
-      const store = useSecurityStore.getState();
-      store.updateStats(event.detail.data)
+      const store = useSecurityStore.getState()
+      store.updateStats(event.detail.data as Partial<SecurityStats>)
     }
 
     window.addEventListener('ws:security_log', handleSecurityLog as EventListener)

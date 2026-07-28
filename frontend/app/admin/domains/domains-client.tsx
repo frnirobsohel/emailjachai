@@ -120,9 +120,9 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
             } else {
                 toast.error(res.message || "Failed to add domain")
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error("Add domain failed", err)
-            toast.error(err.message || "An error occurred")
+            toast.error(err instanceof Error ? err.message : "An error occurred")
         }
     }
 
@@ -137,9 +137,9 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
             } else {
                 toast.error(res.message || "Failed to toggle domain status")
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error("Toggle domain failed", err)
-            toast.error(err.message || "An error occurred")
+            toast.error(err instanceof Error ? err.message : "An error occurred")
         } finally {
             setIsActionLoading(null)
         }
@@ -159,9 +159,9 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
             } else {
                 toast.error(res.message || "Failed to delete domain")
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error("Delete domain failed", err)
-            toast.error(err.message || "An error occurred")
+            toast.error(err instanceof Error ? err.message : "An error occurred")
         } finally {
             setIsActionLoading(null)
         }
@@ -191,9 +191,9 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
             } else {
                 toast.error(res.message || 'Upload failed')
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error("Upload failed", err)
-            toast.error(err.message || "Upload failed")
+            toast.error(err instanceof Error ? err.message : "Upload failed")
         } finally {
             setIsUploading(false)
             if (fileInputRef.current) fileInputRef.current.value = ''

@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -27,10 +26,16 @@ const passwordSchema = z.object({
     path: ["confirm_password"]
 })
 
-export function ProfileClient({ initialProfile }: { initialProfile: any }) {
-    const router = useRouter()
+interface ProfileUser {
+    id: number
+    name: string
+    email: string
+    role: string
+}
+
+export function ProfileClient({ initialProfile }: { initialProfile: ProfileUser | null }) {
     const [isLoading, setIsLoading] = useState(false)
-    const [user, setUser] = useState<{ id: number; name: string; email: string; role: string } | null>(initialProfile)
+    const [user, setUser] = useState<ProfileUser | null>(initialProfile)
 
     const nameForm = useForm<z.infer<typeof nameSchema>>({
         resolver: zodResolver(nameSchema),
@@ -46,9 +51,9 @@ export function ProfileClient({ initialProfile }: { initialProfile: any }) {
         const fetchProfile = async () => {
             try {
                 setIsLoading(true);
-                const result = await ApiClient.get<any>('/auth/me');
+                const result = await ApiClient.get<{ user?: ProfileUser } | ProfileUser>('/auth/me');
                 if (result.status === 'success' && result.data) {
-                    const profile = result.data.user || result.data;
+                    const profile = ('user' in result.data && result.data.user) ? result.data.user : result.data as ProfileUser;
                     setUser(profile);
                     nameForm.reset({ name: profile.name });
                 }
@@ -79,8 +84,8 @@ export function ProfileClient({ initialProfile }: { initialProfile: any }) {
             } else {
                 toast.error(result.message || "Failed to update profile");
             }
-        } catch (error: any) {
-            toast.error(error.message || "An unexpected error occurred");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "An unexpected error occurred");
         }
     };
 
@@ -97,8 +102,8 @@ export function ProfileClient({ initialProfile }: { initialProfile: any }) {
             } else {
                 toast.error(result.message || "Failed to change password");
             }
-        } catch (error: any) {
-            toast.error(error.message || "An unexpected error occurred");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "An unexpected error occurred");
         }
     };
 

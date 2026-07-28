@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useAdminStore } from '@/stores/admin-store'
+import { useAdminStore, type AdminDashboardStats } from '@/stores/admin-store'
 import { WsMessage } from '@/hooks/use-socket'
 
 export function useAdminWebSocket() {
@@ -7,7 +7,7 @@ export function useAdminWebSocket() {
 
   useEffect(() => {
     const handleStatsUpdate = (event: CustomEvent<WsMessage>) => {
-      setData(event.detail.data)
+      setData(event.detail.data as AdminDashboardStats)
     }
 
     window.addEventListener('ws:admin_stats_update', handleStatsUpdate as EventListener)

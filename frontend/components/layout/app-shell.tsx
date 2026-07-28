@@ -1,6 +1,6 @@
 "use client"
 
-import { useSocket } from "@/hooks/use-socket";
+import { useSocket, type WsMessage } from "@/hooks/use-socket";
 import { useEffect } from "react";
 import { useCreditStore } from "@/stores/credit-state";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -29,9 +29,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         // Handle credit updates globally via WebSocket (legacy/fallback)
-        const handleCreditUpdate = (event: any) => {
-            const { data } = event.detail;
-            if (data && typeof data.balance === 'number') {
+        const handleCreditUpdate = (event: Event) => {
+            const data = (event as CustomEvent<WsMessage>).detail.data as Record<string, unknown>;
+            if (typeof data.balance === 'number') {
                 logger.info(`Credits updated (legacy): ${data.balance}`);
                 setBalance(data.balance);
                 useCreditStore.getState().setLastFetched(Date.now());
@@ -39,9 +39,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         };
 
         // Handle user update event sent by the Go backend (contains updated credits)
-        const handleUserUpdate = (event: any) => {
-            const { data } = event.detail;
-            if (data && typeof data.credits === 'number') {
+        const handleUserUpdate = (event: Event) => {
+            const data = (event as CustomEvent<WsMessage>).detail.data as Record<string, unknown>;
+            if (typeof data.credits === 'number') {
                 logger.info(`User credits updated: ${data.credits}`);
                 setBalance(data.credits);
                 useCreditStore.getState().setLastFetched(Date.now());
@@ -59,12 +59,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             }
         };
 
-        window.addEventListener('ws:credit_update' as any, handleCreditUpdate);
-        window.addEventListener('ws:user_update' as any, handleUserUpdate);
+        window.addEventListener('ws:credit_update', handleCreditUpdate as EventListener);
+        window.addEventListener('ws:user_update', handleUserUpdate as EventListener);
 
         return () => {
-            window.removeEventListener('ws:credit_update' as any, handleCreditUpdate);
-            window.removeEventListener('ws:user_update' as any, handleUserUpdate);
+            window.removeEventListener('ws:credit_update', handleCreditUpdate as EventListener);
+            window.removeEventListener('ws:user_update', handleUserUpdate as EventListener);
         };
     }, [setBalance]);
 

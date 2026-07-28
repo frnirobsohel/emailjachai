@@ -4,7 +4,7 @@ import { logger } from '@/lib/logger';
 export interface WsMessage {
     type: string;
     job_id?: string;
-    data: any;
+    data: unknown;
     user_id?: number;
 }
 
@@ -174,7 +174,7 @@ export function useSocket(enabled = true) {
         };
     }, [clearReconnectTimer, connect, enabled]);
 
-    const sendMessage = useCallback((msg: any) => {
+    const sendMessage = useCallback((msg: Record<string, unknown>) => {
         if (socketRef.current?.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify(msg));
         } else {

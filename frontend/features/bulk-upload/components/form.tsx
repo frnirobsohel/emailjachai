@@ -4,7 +4,6 @@ import { useState, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
     Upload,
@@ -156,8 +155,8 @@ export function BulkUploadForm() {
                 void dash.fetchStats(true)
             }
 
-        } catch (err: any) {
-            setError(err.message || "An unexpected error occurred during upload.");
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An unexpected error occurred during upload.");
         } finally {
             setIsUploading(false)
             setSelectedFile(null)

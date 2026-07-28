@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import type { LucideIcon } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,7 +15,6 @@ import {
     Save,
     Settings2,
     Trash2,
-    BarChart3,
     Download,
     RefreshCcw,
     Database,
@@ -36,7 +36,26 @@ const settingsSchema = z.object({
     max_active_jobs_per_user: z.string().min(1, "Required").regex(/^\d+$/, "Must be a number")
 })
 
-export function JobControlClient({ initialSettings, initialStats }: { initialSettings: Record<string, string>, initialStats: any }) {
+type JobOverview = {
+    processed_emails?: string
+    total_emails?: string
+    total_jobs?: number
+    processed_today?: string
+    jobs_today?: number
+    processed_30d?: string
+    jobs_30d?: number
+}
+
+type JobStats = {
+    overview?: JobOverview
+}
+
+type SettingRow = {
+    setting_key: string
+    setting_value: string
+}
+
+export function JobControlClient({ initialSettings, initialStats }: { initialSettings: Record<string, string>, initialStats: JobStats | null }) {
     const settingsForm = useForm<z.infer<typeof settingsSchema>>({
         resolver: zodResolver(settingsSchema),
         defaultValues: {
@@ -47,7 +66,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
         }
     })
 
-    const [stats, setStats] = useState<any>(initialStats)
+    const [stats, setStats] = useState<JobStats | null>(initialStats)
     const [isLoading, setIsLoading] = useState(false)
     const [isSaved, setIsSaved] = useState(false)
     const [isCleaning, setIsCleaning] = useState(false)
@@ -63,13 +82,13 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
         setIsLoading(true);
         try {
             const [settingsRes, statsRes] = await Promise.all([
-                ApiClient.get('/admin/settings'),
-                ApiClient.get('/admin/jobs/stats')
+                ApiClient.get<SettingRow[]>('/admin/settings'),
+                ApiClient.get<JobStats>('/admin/jobs/stats')
             ]);
 
             if (settingsRes.status === 'success' && Array.isArray(settingsRes.data)) {
                 const mappedSettings: Record<string, string> = {};
-                settingsRes.data.forEach((s: any) => {
+                settingsRes.data.forEach((s: SettingRow) => {
                     mappedSettings[s.setting_key] = s.setting_value;
                 });
 
@@ -81,7 +100,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 });
             }
 
-            if (statsRes.status === 'success') {
+            if (statsRes.status === 'success' && statsRes.data) {
                 setStats(statsRes.data);
             }
             setLastRefreshed(new Date());
@@ -124,8 +143,8 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
             } else {
                 toast.error(result.message || "Failed to save settings");
             }
-        } catch (error: any) {
-            toast.error(error.message || "Error saving settings");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Error saving settings");
         }
     };
 
@@ -144,8 +163,8 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 toast.error(result.message || "Cleanup failed");
                 setShowCleanupModal(false);
             }
-        } catch (error: any) {
-            toast.error(error.message || "An error occurred during cleanup");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "An error occurred during cleanup");
             setShowCleanupModal(false);
         } finally {
             setIsCleaning(false);
@@ -393,7 +412,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                             </CardHeader>
                                             <CardContent className="pt-6 pb-2">
                                                 <p className="text-sm text-slate-600 mb-4">
-                                                    Are you sure you want to proceed? This cannot be undone and will affect all users' data for this period.
+                                                    Are you sure you want to proceed? This cannot be undone and will affect all users&apos; data for this period.
                                                 </p>
                                             </CardContent>
                                             <CardFooter className="flex justify-end gap-3 p-4 bg-slate-50/50 border-t border-slate-100">
@@ -503,7 +522,14 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
     )
 }
 
-function StatCard({ title, value, subvalue, icon: Icon, color, bg }: any) {
+function StatCard({ title, value, subvalue, icon: Icon, color, bg }: {
+    title: string
+    value: string | number
+    subvalue: string
+    icon: LucideIcon
+    color: string
+    bg: string
+}) {
     return (
         <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 hover:shadow-sm transition-shadow duration-300">
             <CardContent className="p-5">

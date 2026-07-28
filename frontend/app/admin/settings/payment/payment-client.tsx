@@ -123,6 +123,7 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
 
     useEffect(() => {
         void fetchConfigs();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only refresh
     }, []);
 
     // When tab switches: save current form values back, then reset to new provider's data
@@ -194,8 +195,8 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
             } else {
                 toast.error(res.message || "Failed to save settings")
             }
-        } catch (e: any) {
-            toast.error(e.message || "Failed to save settings")
+        } catch (e: unknown) {
+            toast.error(e instanceof Error ? e.message : "Failed to save settings")
         }
     }
 

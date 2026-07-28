@@ -91,8 +91,8 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
             } else {
                 toast.error(res.message || "Failed to update maintenance settings")
             }
-        } catch (err: any) {
-            toast.error(err.message || "An error occurred while saving")
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : "An error occurred while saving")
         } finally {
             setIsSavingMaintenance(false)
         }
@@ -111,7 +111,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
             if (result.status === 'success' && result.data) {
                 setLicenseInfo(result.data)
             }
-        } catch (error) {
+        } catch {
             toast.error("Failed to refresh system status")
         }
     }
@@ -122,14 +122,14 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
             if (result.status === 'success' && result.data) {
                 setBackups(Array.isArray(result.data) ? result.data : [])
             }
-        } catch (error) {
+        } catch {
             toast.error("Failed to load backup list")
         }
     }
 
     const fetchMaintenanceSettings = async () => {
         try {
-            const res = await ApiClient.get<any[]>('/admin/settings')
+            const res = await ApiClient.get<Array<{ setting_key: string; setting_value: string }>>('/admin/settings')
             if (res.status === 'success' && Array.isArray(res.data)) {
                 const modeSetting = res.data.find(s => s.setting_key === 'maintenance_mode')
                 const msgSetting = res.data.find(s => s.setting_key === 'maintenance_message')
@@ -169,8 +169,8 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
             } else {
                 toast.error(res.message || "Failed to activate license key")
             }
-        } catch (error: any) {
-            toast.error(error.message || "An unexpected error occurred")
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "An unexpected error occurred")
         }
     }
 
@@ -207,7 +207,9 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                     try {
                         const parsed = JSON.parse(xhr.responseText)
                         errMsg = parsed.message || errMsg
-                    } catch (_) {}
+                    } catch {
+                        // ignore malformed error response
+                    }
                     toast.error(errMsg)
                     setUpdateStatus("error")
                 }
@@ -219,8 +221,8 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
             }
 
             xhr.send(formData)
-        } catch (error: any) {
-            toast.error(error.message || "Failed to upload update package")
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Failed to upload update package")
             setUpdateStatus("error")
         }
     }
@@ -238,8 +240,8 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
             } else {
                 toast.error(result.message || "Backup failed", { id: toastId })
             }
-        } catch (error: any) {
-            toast.error(error.message || "Backup failed", { id: toastId })
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Backup failed", { id: toastId })
         } finally {
             setIsBackingUp(false)
         }
@@ -255,8 +257,8 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
             } else {
                 toast.error(result.message || "Failed to delete backup", { id: toastId })
             }
-        } catch (error: any) {
-            toast.error(error.message || "Failed to delete backup", { id: toastId })
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Failed to delete backup", { id: toastId })
         }
     }
 
@@ -278,8 +280,8 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
             } else {
                 toast.error(res.message || "Failed to restore database")
             }
-        } catch (err: any) {
-            toast.error(err.message || "Connection error during restore")
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : "Connection error during restore")
         } finally {
             setTimeout(() => setIsRestoring(false), 1000)
         }

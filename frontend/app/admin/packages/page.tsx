@@ -5,10 +5,10 @@ export const metadata: Metadata = {
 }
 
 import { fetchServer } from "@/lib/fetch-server"
-import { PackagesClient } from "./packages-client"
+import { PackagesClient, type PackageRow } from "./packages-client"
 
 export default async function PackagesPage() {
-    let initialData: any[] = [];
+    let initialData: PackageRow[] = [];
     
     try {
         const result = await fetchServer('/admin/packages');

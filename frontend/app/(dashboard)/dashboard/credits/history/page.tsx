@@ -30,8 +30,9 @@ export default async function CreditsHistoryPage() {
         }
 
         if (historyResult.status === 'success' && historyResult.data) {
-            initialTransactions = (historyResult.data as any).transactions || [];
-            initialTotal = (historyResult.data as any).total || 0;
+            const historyData = historyResult.data as { transactions?: Transaction[]; total?: number };
+            initialTransactions = historyData.transactions || [];
+            initialTotal = historyData.total || 0;
         }
     } catch (e) {
         console.error("Failed to fetch credits history data:", e);

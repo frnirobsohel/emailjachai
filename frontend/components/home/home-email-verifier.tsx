@@ -31,14 +31,14 @@ export function HomeEmailVerifier() {
 
     const fetchStatus = async () => {
         try {
-            const res = await ApiClient.get<any>("/jobs/verify-public/status", {
+            const res = await ApiClient.get<{ limit: number; remaining: number }>("/jobs/verify-public/status", {
                 withCredentials: true,
             })
-            if (res.status === "success") {
+            if (res.status === "success" && res.data) {
                 setLimit(res.data.limit)
                 setRemaining(res.data.remaining)
-                localStorage.setItem("free_verify_limit", res.data.limit)
-                localStorage.setItem("free_verify_remaining", res.data.remaining)
+                localStorage.setItem("free_verify_limit", String(res.data.limit))
+                localStorage.setItem("free_verify_remaining", String(res.data.remaining))
             }
         } catch {
             console.error("Failed to load verifier status")
@@ -64,7 +64,7 @@ export function HomeEmailVerifier() {
         setStatus(null)
 
         try {
-            const res = await ApiClient.post<any>(
+            const res = await ApiClient.post<{ status?: string }>(
                 "/jobs/verify-public",
                 { email },
                 {
@@ -81,8 +81,8 @@ export function HomeEmailVerifier() {
             } else {
                 setStatus(res?.message || "Unknown")
             }
-        } catch (error: any) {
-            setStatus(error?.message || "Error connecting to server")
+        } catch (error: unknown) {
+            setStatus(error instanceof Error ? error.message : "Error connecting to server")
         } finally {
             setIsLoading(false)
         }

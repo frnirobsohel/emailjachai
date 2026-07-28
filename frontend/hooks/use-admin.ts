@@ -6,7 +6,7 @@ export function useAdmin() {
     const { user } = useUserStore();
     const isAdmin = user?.role === 'admin';
 
-    const performAdminAction = useCallback(async (endpoint: string, data?: any) => {
+    const performAdminAction = useCallback(async (endpoint: string, data?: Record<string, unknown>) => {
         if (!isAdmin) {
             throw new Error('Unauthorized: Admin access required');
         }

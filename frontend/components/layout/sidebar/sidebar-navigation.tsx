@@ -56,6 +56,27 @@ function isRouteActive(pathname: string, href: string, allHrefs: string[]) {
     )
 }
 
+type SectionKey = "user" | "admin" | "system" | "reseller"
+
+const SYSTEM_PATHS = [
+    "/admin/logs",
+    "/admin/server",
+    "/admin/monitoring",
+    "/admin/job-control",
+    "/admin/cache-control",
+    "/admin/public-verifier",
+]
+
+function getOpenSectionFromPathname(pathname: string | null | undefined): SectionKey | null {
+    if (pathname?.startsWith("/admin")) {
+        return SYSTEM_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ? "system" : "admin"
+    }
+    if (pathname?.startsWith("/dashboard")) {
+        return pathname.startsWith("/dashboard/reseller") ? "reseller" : "user"
+    }
+    return null
+}
+
 function NavTooltip({
     label,
     show,
@@ -115,34 +136,152 @@ function NavTooltip({
     )
 }
 
+function NavLink({
+    route,
+    allHrefs,
+    pathname,
+    isSidebarCollapsed,
+}: {
+    route: NavRoute
+    allHrefs: string[]
+    pathname: string
+    isSidebarCollapsed: boolean
+}) {
+    const active = isRouteActive(pathname, route.href, allHrefs)
+
+    return (
+        <NavTooltip label={route.label} show={isSidebarCollapsed}>
+            <Link
+                href={route.href}
+                className={cn(
+                    "group relative flex h-9 w-full items-center overflow-hidden rounded-md transition-colors",
+                    active
+                        ? "bg-[#0f5c52]/22 text-[#08352f]"
+                        : "text-[#2f4741] hover:bg-[#0b1f1c]/10 hover:text-[#0b1f1c]"
+                )}
+            >
+                {active && (
+                    <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-[#0f5c52]" />
+                )}
+
+                <div className="flex h-full w-11 flex-shrink-0 items-center justify-center">
+                    <route.icon
+                        className={cn(
+                            "h-4 w-4 transition-colors",
+                            active ? "text-[#0f5c52]" : "text-[#6b857c] group-hover:text-[#0b1f1c]"
+                        )}
+                    />
+                </div>
+
+                <span
+                    className={cn(
+                        "overflow-hidden whitespace-nowrap pr-2 text-sm font-medium",
+                        isSidebarCollapsed ? "hidden" : "flex-1"
+                    )}
+                >
+                    {route.label}
+                </span>
+            </Link>
+        </NavTooltip>
+    )
+}
+
+function SectionHeader({
+    section,
+    label,
+    Icon,
+    accentColor = "text-[#5a736c]",
+    isSidebarCollapsed,
+    openSection,
+    onToggle,
+}: {
+    section: SectionKey
+    label: string
+    Icon: React.ElementType
+    accentColor?: string
+    isSidebarCollapsed: boolean
+    openSection: SectionKey | null
+    onToggle: (section: SectionKey) => void
+}) {
+    return (
+        <NavTooltip label={label} show={isSidebarCollapsed}>
+            <button
+                onClick={() => onToggle(section)}
+                className="group mb-1 flex h-8 w-full items-center overflow-hidden rounded-md transition-colors hover:bg-[#0b1f1c]/5 focus:outline-none"
+            >
+                <div className="flex h-full w-11 flex-shrink-0 items-center justify-center">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-md border border-[#0b1f1c]/12 bg-white/75 shadow-sm backdrop-blur-sm transition-colors group-hover:bg-white">
+                        <Icon className={cn("h-3.5 w-3.5 transition-colors group-hover:text-[#0b1f1c]", accentColor)} />
+                    </div>
+                </div>
+
+                <div
+                    className={cn(
+                        "flex flex-1 items-center justify-between overflow-hidden pr-2",
+                        isSidebarCollapsed ? "hidden" : "w-auto opacity-100"
+                    )}
+                >
+                    <span className="whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-[#6b857c] transition-colors group-hover:text-[#3d564f]">
+                        {label}
+                    </span>
+                    {openSection === section ? (
+                        <ChevronDown className="h-3 w-3 flex-shrink-0 text-[#6b857c]" />
+                    ) : (
+                        <ChevronRight className="h-3 w-3 flex-shrink-0 text-[#6b857c]" />
+                    )}
+                </div>
+            </button>
+        </NavTooltip>
+    )
+}
+
+function SectionList({
+    routes,
+    isOpen,
+    pathname,
+    isSidebarCollapsed,
+}: {
+    routes: NavRoute[]
+    isOpen: boolean
+    pathname: string
+    isSidebarCollapsed: boolean
+}) {
+    const allHrefs = routes.map((r) => r.href)
+    return (
+        <div
+            className={cn(
+                "overflow-hidden transition-all duration-300 ease-in-out",
+                isOpen ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
+            )}
+        >
+            <div className="mt-1 space-y-0.5 pb-1">
+                {routes.map((route) => (
+                    <NavLink
+                        key={route.href}
+                        route={route}
+                        allHrefs={allHrefs}
+                        pathname={pathname}
+                        isSidebarCollapsed={isSidebarCollapsed}
+                    />
+                ))}
+            </div>
+        </div>
+    )
+}
+
 export function SidebarNavigation({
     userRole,
     pathname,
     isSidebarCollapsed,
 }: SidebarNavigationProps) {
-    const [openSection, setOpenSection] = useState<"user" | "admin" | "system" | "reseller" | null>(null)
+    const [openSection, setOpenSection] = useState<SectionKey | null>(() => getOpenSectionFromPathname(pathname))
 
     useEffect(() => {
-        if (pathname?.startsWith("/admin")) {
-            const systemPaths = [
-                "/admin/logs",
-                "/admin/server",
-                "/admin/monitoring",
-                "/admin/job-control",
-                "/admin/cache-control",
-                "/admin/public-verifier",
-            ]
-            setOpenSection(systemPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ? "system" : "admin")
-        } else if (pathname?.startsWith("/dashboard")) {
-            if (pathname.startsWith("/dashboard/reseller")) {
-                setOpenSection("reseller")
-            } else {
-                setOpenSection("user")
-            }
-        }
+        // Sync expanded section when navigating between dashboard/admin routes
+        setOpenSection(getOpenSectionFromPathname(pathname))
     }, [pathname])
 
-    const toggleSection = (section: "user" | "admin" | "system" | "reseller") => {
+    const toggleSection = (section: SectionKey) => {
         setOpenSection((prev) => (prev === section ? null : section))
     }
 
@@ -180,110 +319,23 @@ export function SidebarNavigation({
         { label: "Transfer Credits", icon: ArrowRightLeft, href: "/dashboard/reseller/transfer" },
     ]
 
-    const NavLink = ({ route, allHrefs }: { route: NavRoute; allHrefs: string[] }) => {
-        const active = isRouteActive(pathname, route.href, allHrefs)
-
-        return (
-            <NavTooltip label={route.label} show={isSidebarCollapsed}>
-                <Link
-                    href={route.href}
-                    className={cn(
-                        "group relative flex h-9 w-full items-center overflow-hidden rounded-md transition-colors",
-                        active
-                            ? "bg-[#0f5c52]/22 text-[#08352f]"
-                            : "text-[#2f4741] hover:bg-[#0b1f1c]/10 hover:text-[#0b1f1c]"
-                    )}
-                >
-                    {active && (
-                        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-[#0f5c52]" />
-                    )}
-
-                    <div className="flex h-full w-11 flex-shrink-0 items-center justify-center">
-                        <route.icon
-                            className={cn(
-                                "h-4 w-4 transition-colors",
-                                active ? "text-[#0f5c52]" : "text-[#6b857c] group-hover:text-[#0b1f1c]"
-                            )}
-                        />
-                    </div>
-
-                    <span
-                        className={cn(
-                            "overflow-hidden whitespace-nowrap pr-2 text-sm font-medium",
-                            isSidebarCollapsed ? "hidden" : "flex-1"
-                        )}
-                    >
-                        {route.label}
-                    </span>
-                </Link>
-            </NavTooltip>
-        )
-    }
-
-    const SectionHeader = ({
-        section,
-        label,
-        Icon,
-        accentColor = "text-[#5a736c]",
-    }: {
-        section: "user" | "admin" | "system" | "reseller"
-        label: string
-        Icon: React.ElementType
-        accentColor?: string
-    }) => (
-        <NavTooltip label={label} show={isSidebarCollapsed}>
-            <button
-                onClick={() => toggleSection(section)}
-                className="group mb-1 flex h-8 w-full items-center overflow-hidden rounded-md transition-colors hover:bg-[#0b1f1c]/5 focus:outline-none"
-            >
-                <div className="flex h-full w-11 flex-shrink-0 items-center justify-center">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-md border border-[#0b1f1c]/12 bg-white/75 shadow-sm backdrop-blur-sm transition-colors group-hover:bg-white">
-                        <Icon className={cn("h-3.5 w-3.5 transition-colors group-hover:text-[#0b1f1c]", accentColor)} />
-                    </div>
-                </div>
-
-                <div
-                    className={cn(
-                        "flex flex-1 items-center justify-between overflow-hidden pr-2",
-                        isSidebarCollapsed ? "hidden" : "w-auto opacity-100"
-                    )}
-                >
-                    <span className="whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-[#6b857c] transition-colors group-hover:text-[#3d564f]">
-                        {label}
-                    </span>
-                    {openSection === section ? (
-                        <ChevronDown className="h-3 w-3 flex-shrink-0 text-[#6b857c]" />
-                    ) : (
-                        <ChevronRight className="h-3 w-3 flex-shrink-0 text-[#6b857c]" />
-                    )}
-                </div>
-            </button>
-        </NavTooltip>
-    )
-
-    const SectionList = ({ routes, isOpen }: { routes: NavRoute[]; isOpen: boolean }) => {
-        const allHrefs = routes.map((r) => r.href)
-        return (
-            <div
-                className={cn(
-                    "overflow-hidden transition-all duration-300 ease-in-out",
-                    isOpen ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
-                )}
-            >
-                <div className="mt-1 space-y-0.5 pb-1">
-                    {routes.map((route) => (
-                        <NavLink key={route.href} route={route} allHrefs={allHrefs} />
-                    ))}
-                </div>
-            </div>
-        )
-    }
-
     return (
         <div className="custom-scrollbar flex-1 space-y-1 overflow-x-hidden overflow-y-auto px-2.5 py-4">
             <div className="mb-1">
-                <SectionHeader section="user" label="My Workspace" Icon={User} />
-                <SectionList routes={userRoutes} isOpen={openSection === "user"} />
+                <SectionHeader
+                    section="user"
+                    label="My Workspace"
+                    Icon={User}
+                    isSidebarCollapsed={isSidebarCollapsed}
+                    openSection={openSection}
+                    onToggle={toggleSection}
+                />
+                <SectionList
+                    routes={userRoutes}
+                    isOpen={openSection === "user"}
+                    pathname={pathname}
+                    isSidebarCollapsed={isSidebarCollapsed}
+                />
             </div>
 
             {userRole === "reseller" && (
@@ -293,8 +345,16 @@ export function SidebarNavigation({
                         label="Reseller Portal"
                         Icon={Package}
                         accentColor="text-amber-600"
+                        isSidebarCollapsed={isSidebarCollapsed}
+                        openSection={openSection}
+                        onToggle={toggleSection}
                     />
-                    <SectionList routes={resellerRoutes} isOpen={openSection === "reseller"} />
+                    <SectionList
+                        routes={resellerRoutes}
+                        isOpen={openSection === "reseller"}
+                        pathname={pathname}
+                        isSidebarCollapsed={isSidebarCollapsed}
+                    />
                 </div>
             )}
 
@@ -305,8 +365,16 @@ export function SidebarNavigation({
                         label="Administration"
                         Icon={ShieldCheck}
                         accentColor="text-rose-600"
+                        isSidebarCollapsed={isSidebarCollapsed}
+                        openSection={openSection}
+                        onToggle={toggleSection}
                     />
-                    <SectionList routes={adminRoutes} isOpen={openSection === "admin"} />
+                    <SectionList
+                        routes={adminRoutes}
+                        isOpen={openSection === "admin"}
+                        pathname={pathname}
+                        isSidebarCollapsed={isSidebarCollapsed}
+                    />
                 </div>
             )}
 
@@ -317,8 +385,16 @@ export function SidebarNavigation({
                         label="System"
                         Icon={Activity}
                         accentColor="text-emerald-600"
+                        isSidebarCollapsed={isSidebarCollapsed}
+                        openSection={openSection}
+                        onToggle={toggleSection}
                     />
-                    <SectionList routes={systemRoutes} isOpen={openSection === "system"} />
+                    <SectionList
+                        routes={systemRoutes}
+                        isOpen={openSection === "system"}
+                        pathname={pathname}
+                        isSidebarCollapsed={isSidebarCollapsed}
+                    />
                 </div>
             )}
         </div>

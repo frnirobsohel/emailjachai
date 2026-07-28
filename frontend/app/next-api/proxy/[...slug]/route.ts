@@ -44,7 +44,7 @@ async function proxyRequest(request: NextRequest, { params }: { params: Promise<
     });
 
     // Forward the client's actual IP address to the backend
-    const clientIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || (request as any).ip || '';
+    const clientIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '';
     if (clientIp) {
         headers.set('X-Forwarded-For', clientIp);
     }
@@ -94,7 +94,7 @@ async function proxyRequest(request: NextRequest, { params }: { params: Promise<
 
         if (slug === 'admin/settings/update' && response.ok) {
             try {
-                (revalidateTag as any)('public-settings');
+                revalidateTag('public-settings', { expire: 0 });
             } catch (err) {
                 console.error("Failed to revalidate public-settings tag:", err);
             }

@@ -4,9 +4,8 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Palette, Globe, Mail, Share2, Save, CheckCircle, XCircle, Loader2 } from "lucide-react"
+import { Palette, Globe, Mail, Share2, Save, Loader2 } from "lucide-react"
 import { Label } from "@/components/ui/label"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ApiClient } from "@/lib/api-client"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -89,6 +88,7 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
 
     useEffect(() => {
         void fetchSettings();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only refresh
     }, []);
 
     const handleSaveSubmit = async (values: BrandSettingsValues) => {
@@ -103,8 +103,8 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
             } else {
                 toast.error(result.message || "Failed to save settings.");
             }
-        } catch (error: any) {
-            toast.error(error.message || "Server error occurred.");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Server error occurred.");
         }
     }
 

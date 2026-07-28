@@ -6,11 +6,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Input } from "@/components/ui/input"
 import { 
     Key, Copy, Trash2, Plus, CheckCircle2, AlertTriangle, Loader2, 
-    MoreVertical, Eye, RefreshCw, Code, Coins, Activity, ShieldCheck, X, Check, Terminal 
+    MoreVertical, Eye, RefreshCw, Coins, Activity, ShieldCheck, X, Check, Terminal 
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { CreditBadge } from "@/features/dashboard/components/credit-badge"
-import { useDashboardStore, DashboardStats } from "@/stores/dashboard-store"
+import { useDashboardStore } from "@/stores/dashboard-store"
 import {
     Table,
     TableBody,
@@ -127,8 +127,8 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
             } else {
                 toast.error(data.message || "Failed to create API key");
             }
-        } catch (error: any) {
-            toast.error(error.message || "Failed to create API key");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Failed to create API key");
         } finally {
             setIsCreating(false)
         }
@@ -156,8 +156,8 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
             } else {
                 toast.error(data.message || "Failed to rotate API key", { id: toastId })
             }
-        } catch (error: any) {
-            toast.error(error.message || "Failed to rotate API key", { id: toastId })
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Failed to rotate API key", { id: toastId })
         } finally {
             setIsRotating(false)
         }
@@ -178,8 +178,8 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
             } else {
                 toast.error(data.message || "Failed to revoke API key", { id: toastId })
             }
-        } catch (error: any) {
-            toast.error(error.message || "Failed to revoke API key", { id: toastId })
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Failed to revoke API key", { id: toastId })
         } finally {
             setIsRevoking(false)
         }

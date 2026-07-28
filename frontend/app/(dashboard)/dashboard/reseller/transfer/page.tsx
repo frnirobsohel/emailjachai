@@ -7,11 +7,19 @@ export const metadata: Metadata = {
 import { fetchServer } from "@/lib/fetch-server"
 import { ResellerTransferClient } from "./reseller-transfer-client"
 
+type AuthMeUser = {
+    role?: string
+}
+
+type AuthMeResponse = {
+    user?: AuthMeUser
+} & AuthMeUser
+
 export default async function ResellerTransferPage() {
     let initialRole = "user";
     
     try {
-        const result = await fetchServer('/auth/me');
+        const result = await fetchServer<AuthMeResponse>('/auth/me');
         if (result.status === 'success' && result.data) {
             const profile = result.data.user || result.data;
             initialRole = profile.role || "user";

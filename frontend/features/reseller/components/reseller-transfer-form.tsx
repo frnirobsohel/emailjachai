@@ -53,8 +53,8 @@ export function ResellerTransferForm() {
             } else {
                 toast.error(result.message || "Transfer failed. Please check the email and your balance.")
             }
-        } catch (err: any) {
-            toast.error(err.message || "An unexpected error occurred during transfer.")
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : "An unexpected error occurred during transfer.")
         }
     }
 

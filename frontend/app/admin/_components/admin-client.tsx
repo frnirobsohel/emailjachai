@@ -4,10 +4,10 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, CreditCard, Activity, DollarSign, ArrowUpRight, ArrowDownRight, RefreshCcw } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
-import { useAdminStore } from "@/stores/admin-store"
+import { useAdminStore, type AdminDashboardStats } from "@/stores/admin-store"
 import { useAdminWebSocket } from "@/hooks/use-admin-web-socket"
 
-export function AdminDashboardClient({ initialData }: { initialData: any }) {
+export function AdminDashboardClient({ initialData }: { initialData: AdminDashboardStats | null }) {
     const store = useAdminStore()
     const data = store.data || initialData
     const [isLoading, setIsLoading] = useState(false)
@@ -19,7 +19,7 @@ export function AdminDashboardClient({ initialData }: { initialData: any }) {
         try {
             const result = await ApiClient.get('/admin/dashboard/stats');
             if (result.status === 'success') {
-                store.setData(result.data as any);
+                store.setData(result.data as AdminDashboardStats);
             }
         } catch (error) {
             console.error("Failed to fetch admin stats:", error);
@@ -34,6 +34,7 @@ export function AdminDashboardClient({ initialData }: { initialData: any }) {
             store.setData(initialData);
         }
         void fetchStats();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: seed SSR then refresh
     }, []);
 
     useEffect(() => {
@@ -42,6 +43,7 @@ export function AdminDashboardClient({ initialData }: { initialData: any }) {
         };
         window.addEventListener("focus", onFocus);
         return () => window.removeEventListener("focus", onFocus);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- focus listener should not re-bind on fetchStats change
     }, []);
 
 
@@ -142,7 +144,7 @@ export function AdminDashboardClient({ initialData }: { initialData: any }) {
                                     </div>
                                 ))
                             ) : (
-                                (data?.recent_users || []).map((user: any) => (
+                                (data?.recent_users || []).map((user) => (
                                     <div key={user.email} className="flex items-center justify-between p-2 hover:bg-[#f0f4f2]/60 rounded-lg transition-colors">
                                         <div className="flex items-center gap-3">
                                             <div className="h-8 w-8 rounded-full bg-[#0f5c52]/10 flex items-center justify-center font-bold text-[#0f5c52] text-xs text-uppercase">
@@ -180,7 +182,7 @@ export function AdminDashboardClient({ initialData }: { initialData: any }) {
                                     </div>
                                 ))
                             ) : (
-                                (data?.recent_logs || []).map((log: any, i: number) => (
+                                (data?.recent_logs || []).map((log, i: number) => (
                                     <div key={i} className="flex gap-3 border-l-2 border-[#0b1f1c]/10 pl-4 py-1 relative">
                                         <div className={`absolute -left-[5px] top-2 h-2 w-2 rounded-full ${log.status === 'success' ? 'bg-emerald-500' :
                                             log.status === 'warning' ? 'bg-amber-500' :

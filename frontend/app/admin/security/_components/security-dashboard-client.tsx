@@ -6,10 +6,10 @@ import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ShieldAlert, ShieldCheck, Activity, Ban, RefreshCcw, Search, Eye, EyeOff, Terminal, Shield } from "lucide-react"
-import { useSecurityStore } from "@/stores/security-store"
+import { useSecurityStore, type SecurityHydrateData } from "@/stores/security-store"
 import { useSecurityWebSocket } from "@/hooks/use-security-web-socket"
 
-export function SecurityDashboardClient({ initialData }: { initialData?: any }) {
+export function SecurityDashboardClient({ initialData }: { initialData?: SecurityHydrateData }) {
     const [activeTab, setActiveTab] = useState<"stream" | "blocklist">("stream")
     
     // Connect Zustand Store
@@ -22,11 +22,12 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
     useEffect(() => {
         if (store.hasInitialized) {
             store.initialize(true)
-        } else if (initialData && (initialData.stats || initialData.logs.length > 0)) {
+        } else if (initialData && (initialData.stats || (initialData.logs?.length ?? 0) > 0)) {
             store.hydrate(initialData)
         } else {
             store.initialize()
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only hydrate from SSR
     }, [initialData])
 
     // Use store state if initialized, otherwise fallback to initialData (to prevent flash)
@@ -184,30 +185,30 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
                 {/* Content */}
                 <div className="divide-y divide-slate-800/30 overflow-y-auto custom-scrollbar bg-[#0a0c10]" style={{ height: "400px" }}>
                     {activeTab === 'stream' ? (
-                        currentLogs.map((log: any) => (
+                        currentLogs.map((log) => (
                             <div key={log.id} className="grid items-center px-6 py-3 font-mono text-[11px] hover:bg-white/[0.02] transition-colors group relative" style={{ gridTemplateColumns: "repeat(6, minmax(0, 1fr))" }}>
-                                <span className="text-slate-500 group-hover:text-slate-400 transition-colors">{new Date(log.created_at).toLocaleTimeString()}</span>
+                                <span className="text-slate-500 group-hover:text-slate-400 transition-colors">{log.created_at ? new Date(log.created_at).toLocaleTimeString() : '—'}</span>
                                 <span className="text-slate-300 font-semibold tabular-nums">{log.ip}</span>
                                 <span className="text-slate-500 truncate mr-2" title={log.cookie_id}>{log.cookie_id}</span>
                                 <span className="text-slate-500 truncate mr-2" title={log.browser}>{log.browser}</span>
                                 <span className="text-[#1a8a78] truncate mr-2">{log.email}</span>
                                 <div className={`text-right font-bold ${log.status === 'valid' ? 'text-emerald-400' : log.status === 'blocked' ? 'text-rose-400' : 'text-amber-400'}`}>
-                                    {log.status.toUpperCase()}
+                                    {(log.status ?? 'unknown').toUpperCase()}
                                 </div>
                             </div>
                         ))
                     ) : (
-                        currentBlocked.map((block: any) => (
+                        currentBlocked.map((block) => (
                             <div key={block.id} className="grid items-center px-6 py-3 font-mono text-[11px] hover:bg-white/[0.02] transition-colors group relative bg-rose-500/[0.02]" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
                                 <div className="absolute left-0 top-0 bottom-0 w-[2px] opacity-100 bg-rose-500" />
-                                <span className="text-slate-500">{new Date(block.blocked_at).toLocaleTimeString()}</span>
+                                <span className="text-slate-500">{block.blocked_at ? new Date(block.blocked_at).toLocaleTimeString() : '—'}</span>
                                 <span className="text-slate-300 font-semibold truncate mr-2" title={block.value}>{block.value}</span>
                                 <div>
-                                    <span className="text-rose-400 font-bold bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">{block.type.toUpperCase()}</span>
+                                    <span className="text-rose-400 font-bold bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">{(block.type ?? 'unknown').toUpperCase()}</span>
                                 </div>
                                 <span className="text-rose-300/80 truncate mr-2" title={block.reason}>{block.reason}</span>
                                 <div className="text-right">
-                                    <button onClick={() => store.unblockClient(block.id)} className="text-[10px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded px-3 py-1 transition-all focus:outline-none">
+                                    <button onClick={() => block.id != null && store.unblockClient(block.id)} className="text-[10px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded px-3 py-1 transition-all focus:outline-none">
                                         UNBLOCK
                                     </button>
                                 </div>
@@ -241,7 +242,7 @@ export function SecurityDashboardClient({ initialData }: { initialData?: any }) 
                 </CardHeader>
                 <CardContent className="pt-6">
                     <div className="grid gap-4 md:grid-cols-3">
-                        {currentPackages.map((pkg: any) => (
+                        {currentPackages.map((pkg) => (
                             <div key={pkg.id} className="border border-slate-200 dark:border-slate-800 rounded-lg p-4 flex items-center justify-between hover:border-[#0f5c52]/30 dark:hover:border-[#1a8a78]/40 transition-colors bg-white dark:bg-slate-950">
                                 <div>
                                     <h4 className="font-medium text-slate-900 dark:text-white">{pkg.name}</h4>

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
+import type { LucideIcon } from "lucide-react"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -38,7 +39,35 @@ const lookupSchema = z.object({
     email: z.string().email("Invalid email address")
 })
 
-export function CacheControlClient({ initialStats }: { initialStats: any }) {
+type CachePolicies = {
+    b2b_retention: string
+    free_valid_retention: string
+    free_invalid_retention: string
+}
+
+type CacheStatsData = {
+    total_cached: number
+    free_cached: number
+    b2b_cached: number
+    hit_ratio: string
+    policies?: CachePolicies
+}
+
+type CacheLookupResult = {
+    email: string
+    status: string
+    score: number | string
+    is_free: boolean
+    created_at: string
+}
+
+type CacheStatsInitial = Partial<CacheStatsData> & {
+    policies?: Partial<CachePolicies>
+}
+
+export type { CacheStatsInitial }
+
+export function CacheControlClient({ initialStats }: { initialStats: CacheStatsInitial | null }) {
     // Stats State
     const [stats, setStats] = useState({
         total_cached: initialStats?.total_cached || 0,
@@ -62,7 +91,7 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
     })
     
     // Operations State
-    const [lookupResult, setLookupResult] = useState<any>(null)
+    const [lookupResult, setLookupResult] = useState<CacheLookupResult | null>(null)
     const [isSaved, setIsSaved] = useState(false)
     const [isLoadingStats, setIsLoadingStats] = useState(false)
     const [isPurging, setIsPurging] = useState(false)
@@ -78,7 +107,7 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
     const fetchStats = useCallback(async () => {
         setIsLoadingStats(true)
         try {
-            const res = await ApiClient.get<any>('/admin/cache/stats')
+            const res = await ApiClient.get<CacheStatsData>('/admin/cache/stats')
             if (res.status === 'success' && res.data) {
                 setStats({
                     total_cached: res.data.total_cached || 0,
@@ -95,8 +124,8 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
                 }
                 setLastRefreshed(new Date())
             }
-        } catch (error: any) {
-            toast.error(error.message || "Failed to load cache stats")
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Failed to load cache stats")
         } finally {
             setIsLoadingStats(false)
         }
@@ -109,7 +138,7 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
     const onSavePolicies = async (values: z.infer<typeof policiesSchema>) => {
         setIsSaved(false)
         try {
-            const res = await ApiClient.post<any>('/admin/cache/policies', values)
+            const res = await ApiClient.post('/admin/cache/policies', values)
             if (res.status === 'success') {
                 setIsSaved(true)
                 toast.success("Policies updated successfully")
@@ -117,8 +146,8 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
             } else {
                 toast.error(res.message || "Failed to update policies")
             }
-        } catch (error: any) {
-            toast.error(error.message || "Failed to update policies")
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Failed to update policies")
         }
     }
 
@@ -126,15 +155,15 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
         setLookupResult(null)
         setConfirmDelete(false)
         try {
-            const res = await ApiClient.post<any>('/admin/cache/lookup', { email: values.email })
-            if (res.status === 'success' && res.data?.found) {
+            const res = await ApiClient.post<{ found?: boolean; data?: CacheLookupResult }>('/admin/cache/lookup', { email: values.email })
+            if (res.status === 'success' && res.data?.found && res.data.data) {
                 setLookupResult(res.data.data)
                 toast.success(`Found cache: ${res.data.data.status}`)
             } else {
                 toast.error("No cache found for this email")
             }
-        } catch (error: any) {
-            toast.error(error.message || "Failed to lookup email")
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Failed to lookup email")
         }
     }
 
@@ -160,7 +189,7 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
 
         const toastId = toast.loading("Deleting cache...")
         try {
-            const res = await ApiClient.delete<any>('/admin/cache/lookup', { data: { email: lookupResult.email } })
+            const res = await ApiClient.delete('/admin/cache/lookup', { data: { email: lookupResult.email } })
             if (res.status === 'success') {
                 toast.success(`Cache for ${lookupResult.email} has been deleted`, { id: toastId })
                 setLookupResult(null)
@@ -169,8 +198,8 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
             } else {
                 toast.error(res.message || "Failed to delete cache", { id: toastId })
             }
-        } catch (error: any) {
-            toast.error(error.message || "Failed to delete cache", { id: toastId })
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Failed to delete cache", { id: toastId })
         }
     }
 
@@ -178,15 +207,15 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
         setIsPurging(true)
         const toastId = toast.loading("Purging expired cache...")
         try {
-            const res = await ApiClient.post<any>('/admin/cache/purge', {})
+            const res = await ApiClient.post<{ deleted_count?: number }>('/admin/cache/purge', {})
             if (res.status === 'success') {
                 toast.success(`Purged ${res.data?.deleted_count || 0} expired records`, { id: toastId })
                 fetchStats()
             } else {
                 toast.error(res.message || "Failed to purge cache", { id: toastId })
             }
-        } catch (error: any) {
-            toast.error(error.message || "Failed to purge cache", { id: toastId })
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Failed to purge cache", { id: toastId })
         } finally {
             setIsPurging(false)
         }
@@ -214,8 +243,8 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
             } else {
                 toast.error(data.message || "Failed to import records", { id: toastId })
             }
-        } catch (error: any) {
-            toast.error(error.message || "Upload failed", { id: toastId })
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Upload failed", { id: toastId })
         } finally {
             setIsUploading(false)
             if (e.target) e.target.value = ''
@@ -500,7 +529,14 @@ export function CacheControlClient({ initialStats }: { initialStats: any }) {
     )
 }
 
-function StatCard({ title, value, subvalue, icon: Icon, color, bg }: any) {
+function StatCard({ title, value, subvalue, icon: Icon, color, bg }: {
+    title: string
+    value: string | number
+    subvalue: string
+    icon: LucideIcon
+    color: string
+    bg: string
+}) {
     return (
         <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 hover:shadow-sm transition-shadow duration-300">
             <CardContent className="p-5">

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Shield, Send, Info } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,15 +9,13 @@ import { ResellerTransferForm } from "@/features/reseller/components/reseller-tr
 
 export function ResellerTransferClient({ initialRole }: { initialRole: string }) {
     const router = useRouter()
-    const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null)
+    const isAuthorized = initialRole === 'reseller' || initialRole === 'admin'
 
     useEffect(() => {
-        if (initialRole !== 'reseller' && initialRole !== 'admin') {
+        if (!isAuthorized) {
             router.replace('/dashboard')
-        } else {
-            setIsAuthorized(true)
         }
-    }, [router, initialRole])
+    }, [router, isAuthorized])
 
     return (
         <div className="flex-1 space-y-4">
@@ -29,7 +27,7 @@ export function ResellerTransferClient({ initialRole }: { initialRole: string })
                 <CreditBadge />
             </div>
 
-            {isAuthorized === true ? (
+            {isAuthorized ? (
                 <div className="grid gap-6 lg:grid-cols-2 animate-in fade-in duration-500">
                     {/* Transfer Form Section */}
                     <Card className="shadow-none border-[#0b1f1c]/10 overflow-hidden h-fit">
@@ -64,7 +62,7 @@ export function ResellerTransferClient({ initialRole }: { initialRole: string })
                                     <div className="mt-0.5">
                                         <Info className="h-4 w-4 text-[#0f5c52]" />
                                     </div>
-                                    <p>Verify the recipient's email address carefully. Credit transfers are processed instantly and cannot be reversed.</p>
+                                    <p>Verify the recipient&apos;s email address carefully. Credit transfers are processed instantly and cannot be reversed.</p>
                                 </div>
                                 <div className="flex gap-3 text-sm text-[#5a736c]">
                                     <div className="mt-0.5">

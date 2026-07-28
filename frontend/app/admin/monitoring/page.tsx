@@ -4,13 +4,19 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Activity, Zap, Cpu, MemoryStick as Memory } from "lucide-react"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { logger } from "@/lib/logger"
 
 interface MetricPoint {
     time: string;
     cpu: number;
     ram: number;
     latency: number;
+}
+
+interface MetricsPayload {
+    cpu_load?: number;
+    ram_usage?: number;
+    latency_ms?: number;
+    requests_per_sec?: number;
 }
 
 export default function MonitoringPage() {
@@ -23,8 +29,8 @@ export default function MonitoringPage() {
     });
 
     useEffect(() => {
-        const handleMetricsUpdate = (event: any) => {
-            const { data } = event.detail;
+        const handleMetricsUpdate = (event: Event) => {
+            const { data } = (event as CustomEvent<{ data: MetricsPayload }>).detail;
             const newPoint: MetricPoint = {
                 time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
                 cpu: data.cpu_load || 0,
@@ -41,12 +47,12 @@ export default function MonitoringPage() {
             });
         };
 
-        window.addEventListener('ws:worker_update' as any, handleMetricsUpdate);
-        window.addEventListener('ws:system_metrics' as any, handleMetricsUpdate);
+        window.addEventListener('ws:worker_update', handleMetricsUpdate);
+        window.addEventListener('ws:system_metrics', handleMetricsUpdate);
 
         return () => {
-            window.removeEventListener('ws:worker_update' as any, handleMetricsUpdate);
-            window.removeEventListener('ws:system_metrics' as any, handleMetricsUpdate);
+            window.removeEventListener('ws:worker_update', handleMetricsUpdate);
+            window.removeEventListener('ws:system_metrics', handleMetricsUpdate);
         };
     }, []);
 

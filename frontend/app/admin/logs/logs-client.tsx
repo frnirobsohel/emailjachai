@@ -76,7 +76,7 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
             setIsLoading(false);
             setIsInitial(false);
         }
-    }, [isLoading])
+    }, [isLoading, store])
 
     useEffect(() => {
         if (initialLogs && initialLogs.length > 0) {
@@ -88,6 +88,7 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
             setIsInitial(true);
             loadPage(0);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- sync SSR props only; mount refresh handled separately
     }, [initialLogs, initialTotal, initialHasMore]);
 
     // Soft-nav can replay stale RSC logs — force a fresh first page on mount
@@ -147,8 +148,8 @@ export function LogsClient({ initialLogs, initialTotal, initialHasMore }: { init
             } else {
                 toast.error(result.message || "Failed to clear logs");
             }
-        } catch (error: any) {
-            toast.error(error.message || "An error occurred while clearing logs.");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "An error occurred while clearing logs.");
             console.error("Failed to clear logs:", error);
         }
     }

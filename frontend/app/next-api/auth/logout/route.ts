@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 
-export async function POST(request: Request) {
+export async function POST() {
     const cookieStore = await cookies();
     const adminImpersonatorToken = cookieStore.get('admin_impersonator_token')?.value;
     const adminImpersonatorApiKey = cookieStore.get('admin_impersonator_api_key')?.value;

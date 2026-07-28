@@ -14,7 +14,7 @@ export default async function JobsPage() {
     let initialJobs: Job[] = [];
     let initialTotal = 0;
     
-    const result = await fetchServer('/jobs/list?limit=20&offset=0&type=bulk');
+    const result = await fetchServer<{ jobs?: Job[]; total?: number }>('/jobs/list?limit=20&offset=0&type=bulk');
     if (result.status === 'success' && result.data) {
         initialJobs = result.data.jobs || [];
         initialTotal = result.data.total || 0;

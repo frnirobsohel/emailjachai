@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import {
-    Search,
     UserPlus,
     MoreHorizontal,
     Edit,
@@ -54,7 +53,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ApiClient } from "@/lib/api-client"
 import { SimpleSelect } from "@/components/ui/simple-select"
-import { cn } from "@/lib/utils"
 import { useUsersStore } from "@/stores/users-store"
 
 type Role = "admin" | "manager" | "reseller" | "user" | "demo"
@@ -132,7 +130,7 @@ const adjustCreditsSchema = z.object({
 })
 type AdjustCreditsValues = z.infer<typeof adjustCreditsSchema>
 export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
-    const { users: storeUsers, hasInitialized, setUsers, updateUser: storeUpdateUser, removeUser: storeRemoveUser } = useUsersStore()
+    const { users: storeUsers, setUsers } = useUsersStore()
 
     // Normalize store users to local User type for display
     const users = storeUsers.map(normalizeUser)
@@ -142,7 +140,6 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
     const [roleFilter, setRoleFilter] = useState<Role | null>(null)
     const [loginAsTarget, setLoginAsTarget] = useState<User | null>(null)
     const [adjustCreditsTarget, setAdjustCreditsTarget] = useState<User | null>(null)
-    const [creditAmount, setCreditAmount] = useState<number>(0)
     const [copiedId, setCopiedId] = useState<number | null>(null)
 
     const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -174,9 +171,9 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
             } else {
                 toast.error(data.message || "Failed to create user");
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("Add user failed:", error);
-            toast.error(error.message || "An error occurred");
+            toast.error(error instanceof Error ? error.message : "An error occurred");
         }
     }
 
@@ -190,9 +187,9 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
             } else {
                 toast.error(data.message || "Failed to update user");
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("Edit user failed:", error);
-            toast.error(error.message || "An error occurred");
+            toast.error(error instanceof Error ? error.message : "An error occurred");
         }
     }
 
@@ -282,11 +279,6 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
         const matchRole = !roleFilter || user.role === roleFilter
         return matchSearch && matchRole
     })
-
-    const roleCounts = roles.reduce((acc, r) => {
-        acc[r] = users.filter(u => u.role === r).length
-        return acc
-    }, {} as Record<Role, number>)
 
     return (
         <div className="flex-1 space-y-4">

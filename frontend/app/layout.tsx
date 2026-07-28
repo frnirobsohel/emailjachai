@@ -16,7 +16,7 @@ const geistMono = localFont({
 
 import Providers from "@/providers";
 import { AppShell } from "@/components/layout/app-shell";
-import { SettingsProvider, PublicSettings } from "@/lib/settings-context";
+import { SettingsProvider } from "@/lib/settings-context";
 import { getPublicSettings } from "@/lib/services/settings";
 
 export async function generateMetadata(): Promise<Metadata> {

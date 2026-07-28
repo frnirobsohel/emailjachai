@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { usePathname } from "next/navigation"
 import { useUIStore } from "@/stores/ui-state"
 import { useHydrated } from "@/hooks/use-hydrated"
@@ -21,17 +21,12 @@ export function LayoutWrapper({
     const pathname = usePathname() || ""
     const { isSidebarCollapsed, isSidebarOpen, setSidebarOpen } = useUIStore()
     const hydrated = useHydrated()
-    const [mobileReady, setMobileReady] = useState(false)
+    const mobileReady = hydrated
     const isCollapsed = hydrated ? isSidebarCollapsed : defaultCollapsed
     const settings = useSettings()
     const isMaintenance = settings?.maintenance_mode === "1"
 
     const showBottomNav = pathname.startsWith("/dashboard") || pathname.startsWith("/admin")
-
-    // Mount mobile-only chrome after hydration so SSR HTML matches the first client paint
-    useEffect(() => {
-        setMobileReady(true)
-    }, [])
 
     useEffect(() => {
         try {

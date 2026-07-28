@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useJobsStore } from '@/stores/jobs-store'
-import { useDashboardStore } from '@/stores/dashboard-store'
+import { useDashboardStore, type DashboardStats } from '@/stores/dashboard-store'
+import type { Job } from '@/features/jobs/components/jobs-client'
 import { WsMessage } from '@/hooks/use-socket'
 
 export function useJobsWebSocket() {
@@ -9,12 +10,12 @@ export function useJobsWebSocket() {
 
   useEffect(() => {
     const handleJobUpdate = (event: CustomEvent<WsMessage>) => {
-      updateJob(event.detail.data)
+      updateJob(event.detail.data as Partial<Job> & { job_id: string })
     }
 
     const handleStatsUpdate = (event: CustomEvent<WsMessage>) => {
       // Keeps global dashboard stats fresh even when viewing jobs
-      setStats(event.detail.data)
+      setStats(event.detail.data as DashboardStats)
     }
 
     window.addEventListener('ws:job_update', handleJobUpdate as EventListener)

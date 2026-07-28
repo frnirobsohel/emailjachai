@@ -17,10 +17,10 @@ export async function verifyEmailPublic(email: string) {
 
         const data = await res.json()
         return data
-    } catch (error: any) {
+    } catch (error: unknown) {
         return {
             status: 'error',
-            message: error.message || 'Verification failed. Please try again.'
+            message: error instanceof Error ? error.message : 'Verification failed. Please try again.'
         }
     }
 }

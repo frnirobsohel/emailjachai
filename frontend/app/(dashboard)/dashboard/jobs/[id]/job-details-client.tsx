@@ -1,16 +1,16 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ArrowLeft, Download, Trash2, Loader2, RefreshCcw } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
-import { useJobsStore } from "@/stores/jobs-store"
+import { useJobsStore, type JobDetails } from "@/stores/jobs-store"
 import { useJobsWebSocket } from "@/hooks/use-jobs-web-socket"
 import { toast } from "react-hot-toast"
 
-export function JobDetailsClient({ initialJob }: { initialJob: any }) {
+export function JobDetailsClient({ initialJob }: { initialJob: JobDetails | null }) {
     const params = useParams()
     const router = useRouter()
     const jobId = params.id as string
@@ -21,6 +21,24 @@ export function JobDetailsClient({ initialJob }: { initialJob: any }) {
     const [isLoading, setIsLoading] = useState(false)
     const [isDeleting, setIsDeleting] = useState(false)
     const [isRetrying, setIsRetrying] = useState(false)
+
+    const fetchJobDetails = useCallback(async () => {
+        try {
+            const data = await ApiClient.get(`/jobs/status?jobId=${jobId}`);
+            if (data.status === 'success') {
+                // API returns { data: { job: {...}, result: {...} } }
+                const responseData = data.data as { job?: JobDetails; result?: Record<string, unknown> } | JobDetails;
+                const jobData = 'job' in responseData && responseData.job
+                    ? responseData.job
+                    : (responseData as JobDetails);
+                store.setCurrentJobDetails(jobData);
+            }
+        } catch (error) {
+            console.error("Failed to fetch job details:", error);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [jobId, store]);
 
     const handleRetryJob = async () => {
         setIsRetrying(true);
@@ -33,9 +51,9 @@ export function JobDetailsClient({ initialJob }: { initialJob: any }) {
             } else {
                 toast.error(data.message || 'Failed to retry job', { id: toastId });
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("Failed to retry job:", error);
-            toast.error(error.message || 'An unexpected error occurred while retrying the job.', { id: toastId });
+            toast.error(error instanceof Error ? error.message : 'An unexpected error occurred while retrying the job.', { id: toastId });
         } finally {
             setIsRetrying(false);
         }
@@ -44,25 +62,10 @@ export function JobDetailsClient({ initialJob }: { initialJob: any }) {
     // Connect to WebSocket to receive real-time job_update events
     useJobsWebSocket()
 
-    const fetchJobDetails = async () => {
-        try {
-            const data = await ApiClient.get(`/jobs/status?jobId=${jobId}`);
-            if (data.status === 'success') {
-                // API returns { data: { job: {...}, result: {...} } }
-                const responseData = data.data as { job: any; result: any };
-                store.setCurrentJobDetails(responseData.job || responseData);
-            }
-        } catch (error) {
-            console.error("Failed to fetch job details:", error);
-        } finally {
-            setIsLoading(false);
-        }
-    }
-
     useEffect(() => {
         // Always fetch fresh details on client-side mount to bypass Next.js Router Cache stales
-        fetchJobDetails()
-    }, [jobId]);
+        void fetchJobDetails()
+    }, [fetchJobDetails]);
 
     const handleDeleteJob = async () => {
         if (!confirm('Are you sure you want to delete this job? This action cannot be undone.')) {
@@ -148,7 +151,7 @@ export function JobDetailsClient({ initialJob }: { initialJob: any }) {
                         <CardTitle className="text-sm font-medium text-[#3d564f]">Filename</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-xl font-bold truncate text-[#0b1f1c]" title={job.filename}>{job.filename}</div>
+                        <div className="text-xl font-bold truncate text-[#0b1f1c]" title={job.filename ?? undefined}>{job.filename}</div>
                     </CardContent>
                 </Card>
                 <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none">

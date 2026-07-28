@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils"
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type PackageRow = {
+export type PackageRow = {
     id: number
     name: string
     tagline: string
@@ -78,7 +78,7 @@ export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
             if (result.status === 'success' && result.data) {
                 setPlans(result.data)
             }
-        } catch (error) {
+        } catch {
             toast.error("Failed to refresh packages")
         }
     }
@@ -149,8 +149,8 @@ export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
             } else {
                 toast.error(result.message || "Error saving package")
             }
-        } catch (error: any) {
-            toast.error(error.message || "Error saving package")
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Error saving package")
         }
     }
 
@@ -169,8 +169,8 @@ export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
             } else {
                 toast.error(result.message || "Failed to toggle status", { id: toastId })
             }
-        } catch (error: any) {
-            toast.error(error.message || "Connection error occurred", { id: toastId })
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Connection error occurred", { id: toastId })
         }
     }
 
@@ -189,8 +189,8 @@ export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
             } else {
                 toast.error(result.message || "Failed to update", { id: toastId })
             }
-        } catch (error: any) {
-            toast.error(error.message || "Connection error", { id: toastId })
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Connection error", { id: toastId })
         }
     }
 
@@ -205,8 +205,8 @@ export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
             } else {
                 toast.error(result.message || "Failed to delete package")
             }
-        } catch (error: any) {
-            toast.error(error.message || "Delete failed")
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Delete failed")
         } finally {
             setIsDeleting(false)
         }
@@ -250,7 +250,7 @@ export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
             <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                 <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                     <CardTitle className="text-lg font-semibold text-[#0b1f1c]">All Packages</CardTitle>
-                    <CardDescription className="text-[#5a736c]">These packages appear on the user-facing "Buy Credits" page.</CardDescription>
+                    <CardDescription className="text-[#5a736c]">These packages appear on the user-facing &quot;Buy Credits&quot; page.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
                     <Table>

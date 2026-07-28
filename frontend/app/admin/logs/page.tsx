@@ -13,7 +13,11 @@ export default async function LogsPage() {
     let initialHasMore = false;
     
     try {
-        const result = await fetchServer('/admin/logs/list?limit=50&offset=0');
+        const result = await fetchServer<{
+            logs?: LogEntry[]
+            total?: number
+            has_more?: boolean
+        }>('/admin/logs/list?limit=50&offset=0');
         if (result.status === 'success' && result.data) {
             initialLogs = result.data.logs as LogEntry[] || [];
             initialTotal = result.data.total || 0;

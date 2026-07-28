@@ -12,8 +12,11 @@ export default function Providers({ children }: { children: ReactNode }) {
                 // ১০ মিনিট পর্যন্ত cache মেমরিতে থাকবে (inactive queries)
                 gcTime: 10 * 60 * 1000,
                 // শুধু network error-এ retry করবে, 4xx-এ না
-                retry: (failureCount, error: any) => {
-                    if (error?.status >= 400 && error?.status < 500) return false;
+                retry: (failureCount, error: unknown) => {
+                    const status = error && typeof error === 'object' && 'status' in error
+                        ? (error as { status: number }).status
+                        : undefined;
+                    if (status !== undefined && status >= 400 && status < 500) return false;
                     return failureCount < 1;
                 },
                 // Window focus-এ auto re-fetch বন্ধ (tab switch করলে বারবার fetch হবে না)

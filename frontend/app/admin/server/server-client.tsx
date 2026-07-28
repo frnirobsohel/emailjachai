@@ -3,8 +3,8 @@
 import { useState, useEffect, useMemo, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-    Server, RefreshCcw, Power, Activity, Plus, Copy, Check, Trash2, Settings2,
-    ShieldCheck, Zap, Clock, Database, Globe, Signal, MoreVertical, Search, Eye, EyeOff, Lock, AlertCircle, Loader2
+    Server, RefreshCcw, Activity, Plus, Copy, Check, Trash2, Settings2,
+    ShieldCheck, Zap, Clock, Database, Globe, Signal, Search, Eye, EyeOff, Lock, AlertCircle, Loader2
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -42,8 +42,6 @@ export interface ServerNode {
         enabled: boolean
     }
 }
-
-type ServerConfigUpdate = Pick<ServerNode["config"], "dailyLimit" | "rateLimit">
 
 const addServerSchema = z.object({
     name: z.string().min(1, "Display name is required"),
@@ -99,11 +97,12 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
         if (initialData && initialData.length > 0) {
             setServers(initialData)
         }
-    }, [initialData])
+    }, [initialData, setServers])
 
     // Always refetch on mount — previous isFirstMount gate never ran fetchServers at all
     useEffect(() => {
         void fetchServers()
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only refresh
     }, [])
 
     useEffect(() => {
@@ -112,6 +111,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
         }
         window.addEventListener("focus", onFocus)
         return () => window.removeEventListener("focus", onFocus)
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- focus listener should not re-bind on fetchServers change
     }, [])
 
     useEffect(() => {
@@ -181,8 +181,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             } else {
                 toast.error(result.message || "Failed to add server");
             }
-        } catch (error: any) {
-            toast.error(error.message || "Error adding server");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Error adding server");
         }
     }
 
@@ -199,8 +199,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             } else {
                 toast.error(result.message || "Failed to toggle server status");
             }
-        } catch (error: any) {
-            toast.error(error.message || "Error toggling server status");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Error toggling server status");
         }
     }
 
@@ -232,8 +232,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             } else {
                 toast.error(result.message || "Failed to delete server", { id: toastId });
             }
-        } catch (error: any) {
-            toast.error(error.message || "Error deleting server", { id: toastId });
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Error deleting server", { id: toastId });
         }
     }
 
@@ -249,8 +249,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                 }
                 return data.worker_key || "";
             }
-        } catch (error: any) {
-            toast.error(error.message || "Failed to fetch worker key");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Failed to fetch worker key");
         } finally {
             setIsKeyLoading(false);
         }
@@ -288,8 +288,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             } else {
                 toast.error(result.message || "Failed to rotate worker key.");
             }
-        } catch (error: any) {
-            toast.error(error.message || "Failed to rotate worker key.");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Failed to rotate worker key.");
         }
     }
 
@@ -332,8 +332,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             } else {
                 toast.error(result.message || "Failed to update settings.");
             }
-        } catch (error: any) {
-            toast.error(error.message || "Error updating server configuration.");
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Error updating server configuration.");
         }
     }
 
@@ -530,7 +530,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                                 {...addForm.register("name")}
                                             />
                                             {addForm.formState.errors.name && <p className="text-xs text-red-500">{addForm.formState.errors.name.message}</p>}
-                                            <p className="text-[11px] text-slate-500">Use the same value in the worker's `WORKER_SERVER_NAME` setting, or keep the machine hostname.</p>
+                                            <p className="text-[11px] text-slate-500">Use the same value in the worker&apos;s `WORKER_SERVER_NAME` setting, or keep the machine hostname.</p>
                                         </div>
                                         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                                             <div className="sm:col-span-3 space-y-2">

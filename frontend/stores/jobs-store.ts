@@ -1,13 +1,24 @@
 import { create } from 'zustand';
 import type { Job } from '@/features/jobs/components/jobs-client';
 
+export interface JobDetails extends Job {
+    valid?: number;
+    deliverable?: number;
+    invalid?: number;
+    undeliverable?: number;
+    unknown?: number;
+    risky?: number;
+    catch_all?: number;
+    disposable?: number;
+}
+
 export interface JobStore {
     jobs: Job[];
     total: number;
-    currentJobDetails: any | null;
+    currentJobDetails: JobDetails | null;
     
     setJobs: (jobs: Job[], total: number) => void;
-    setCurrentJobDetails: (job: any) => void;
+    setCurrentJobDetails: (job: JobDetails) => void;
     updateJob: (jobData: Partial<Job> & { job_id: string }) => void;
     removeJob: (jobId: string) => void;
 }
