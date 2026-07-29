@@ -11,6 +11,7 @@ import (
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
 
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm/clause"
 )
 
@@ -68,6 +69,11 @@ func NewFraudGuard() *FraudGuard {
 func (g *FraudGuard) CheckRequest(ip, cookie string) (FraudAction, string) {
 	ctx := context.Background()
 
+	// Fail-closed: without Redis, daily quotas cannot be enforced — reject public verifies.
+	if config.Redis == nil {
+		return ActionSoftBlock, "Temporarily unavailable"
+	}
+
 	// 1. Check DB for existing Blocks
 	var block model.BlockedClient
 	if err := config.DB.Where("value IN ?", []string{ip, cookie}).First(&block).Error; err == nil {
@@ -92,13 +98,17 @@ func (g *FraudGuard) CheckRequest(ip, cookie string) (FraudAction, string) {
 	// এবং দুইজনই INCR করত — quota bypass হত।
 	// এখন: আগে INCR করো, তারপর check করো। Atomically safe.
 	newIPCount, err := config.Redis.Incr(ctx, ipUsageKey).Result()
-	if err == nil {
-		config.Redis.Expire(ctx, ipUsageKey, 24*time.Hour)
+	if err != nil {
+		return ActionSoftBlock, "Temporarily unavailable"
 	}
+	config.Redis.Expire(ctx, ipUsageKey, 24*time.Hour)
+
 	newCookieCount, err2 := config.Redis.Incr(ctx, cookieUsageKey).Result()
-	if err2 == nil {
-		config.Redis.Expire(ctx, cookieUsageKey, 24*time.Hour)
+	if err2 != nil {
+		config.Redis.Decr(ctx, ipUsageKey)
+		return ActionSoftBlock, "Temporarily unavailable"
 	}
+	config.Redis.Expire(ctx, cookieUsageKey, 24*time.Hour)
 
 	// If both are within limits, allow and save origin associations
 	if newIPCount <= limit && newCookieCount <= limit {
@@ -217,17 +227,27 @@ func (g *FraudGuard) hardBlock(value, typ, reason string) {
 }
 
 // GetUsage returns the total daily limit and the remaining usages for the given IP and Cookie combo.
+// When Redis is unavailable, remaining is reported as 0 (fail-closed for the public UI).
 func (g *FraudGuard) GetUsage(ip, cookie string) (limit int64, remaining int64) {
-	ctx := context.Background()
-
 	limit = getCachedDailyFreeLimit()
 
+	if config.Redis == nil {
+		return limit, 0
+	}
+
+	ctx := context.Background()
 	today := time.Now().Format("2006-01-02")
 	ipUsageKey := fmt.Sprintf("pub_use:ip:%s:%s", ip, today)
 	cookieUsageKey := fmt.Sprintf("pub_use:cookie:%s:%s", cookie, today)
 
-	ipUsage, _ := config.Redis.Get(ctx, ipUsageKey).Int64()
-	cookieUsage, _ := config.Redis.Get(ctx, cookieUsageKey).Int64()
+	ipUsage, err := config.Redis.Get(ctx, ipUsageKey).Int64()
+	if err != nil && err != redis.Nil {
+		return limit, 0
+	}
+	cookieUsage, err2 := config.Redis.Get(ctx, cookieUsageKey).Int64()
+	if err2 != nil && err2 != redis.Nil {
+		return limit, 0
+	}
 
 	// Remaining is based on the maximum usage among IP or Cookie
 	maxUsage := ipUsage

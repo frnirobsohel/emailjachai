@@ -81,7 +81,9 @@ async function proxyRequest(request: NextRequest, { params }: { params: Promise<
             ? (isMultipart ? request.body : await request.text())
             : undefined;
 
-        const shouldCache = request.method === 'GET' && isPublicRoute && slug !== 'settings/public';
+        // Never cache personalized/public-auth-adjacent GETs (quota is per IP + device cookie).
+        const noStorePublicGets = new Set(['settings/public', 'jobs/verify-public/status']);
+        const shouldCache = request.method === 'GET' && isPublicRoute && !noStorePublicGets.has(slug);
 
         const response = await fetch(url, {
             method: request.method,

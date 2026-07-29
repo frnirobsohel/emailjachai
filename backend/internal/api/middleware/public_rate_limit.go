@@ -54,11 +54,14 @@ func getCachedPublicRateLimit() int64 {
 // PublicRateLimiter applies a strict IP-based rate limit for unauthenticated public endpoints.
 // Default: 5 requests per minute per IP. Configurable via settings table key "public_rate_limit_per_minute".
 // Uses a separate Redis key prefix (pub_rate:ip:) to avoid conflicts with the global rate limiter.
+// Fail-closed: if Redis is unavailable, public abuse endpoints are rejected (not opened).
 func PublicRateLimiter() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Fail-open if Redis is not available
 		if config.Redis == nil {
-			c.Next()
+			helper.SendError(c, http.StatusServiceUnavailable,
+				"Temporarily unavailable",
+				"ERR_RATE_LIMIT_UNAVAILABLE")
+			c.Abort()
 			return
 		}
 
@@ -88,8 +91,10 @@ func PublicRateLimiter() gin.HandlerFunc {
 		pipe.Expire(ctx, key, 70*time.Second)
 
 		if _, err := pipe.Exec(ctx); err != nil {
-			// Fail-open on Redis errors to avoid blocking legitimate users
-			c.Next()
+			helper.SendError(c, http.StatusServiceUnavailable,
+				"Temporarily unavailable",
+				"ERR_RATE_LIMIT_UNAVAILABLE")
+			c.Abort()
 			return
 		}
 

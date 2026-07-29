@@ -19,6 +19,8 @@ export type PublicSettings = {
     paypal_enabled?: string;
     maintenance_mode?: string;
     maintenance_message?: string;
+    turnstile_site_key?: string;
+    turnstile_required?: string;
 };
 
 const SettingsContext = createContext<PublicSettings>({});

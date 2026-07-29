@@ -39,7 +39,7 @@ describe('Proxy API Route', () => {
         expect(data.message).toBe('Unauthorized proxy access');
     });
 
-    it('allows public GET routes, forwards client IP and cookies, and uses cache', async () => {
+    it('allows public verify status GET, forwards IP/cookies, and never caches', async () => {
         vi.mocked(verifyUser).mockResolvedValue(null); // not logged in, but public route
 
         const mockResponse = new Response(JSON.stringify({ status: 'success', data: 'public-data' }), {
@@ -73,13 +73,35 @@ describe('Proxy API Route', () => {
         expect(fetchHeaders.get('X-Forwarded-For')).toBe('203.0.113.195');
         expect(fetchHeaders.get('cookie')).toBe('device_id=12345');
         expect(fetchHeaders.get('user-agent')).toBe('Mozilla/5.0');
-        expect(fetchOptions?.cache).toBe('force-cache'); // public GET routes are cached
+        // Personalized remaining quota must never be force-cached
+        expect(fetchOptions?.cache).toBe('no-store');
 
         // Assert response headers returned to client contain Set-Cookie
         expect(res.headers.get('Set-Cookie')).toBe('device_id=12345; Path=/');
         
         const data = await res.json();
         expect(data.data).toBe('public-data');
+    });
+
+    it('caches public packages list GET', async () => {
+        vi.mocked(verifyUser).mockResolvedValue(null);
+
+        const mockResponse = new Response(JSON.stringify({ status: 'success', data: [] }), {
+            status: 200,
+            headers: new Headers({ 'content-type': 'application/json' })
+        });
+        vi.mocked(global.fetch).mockResolvedValue(mockResponse);
+
+        const req = new NextRequest('http://localhost:3000/next-api/proxy/packages/list', {
+            method: 'GET',
+        });
+        const params = Promise.resolve({ slug: ['packages', 'list'] });
+
+        const res = await GET(req, { params });
+        expect(res.status).toBe(200);
+
+        const [, fetchOptions] = vi.mocked(global.fetch).mock.calls[0];
+        expect(fetchOptions?.cache).toBe('force-cache');
     });
 
     it('does NOT cache public POST requests', async () => {

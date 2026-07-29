@@ -2,8 +2,8 @@ import type { NextConfig } from "next";
 
 const isProd = process.env.NODE_ENV === 'production';
 const csp = isProd
-  ? "default-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' wss:; frame-ancestors 'self'; base-uri 'self'; form-action 'self';"
-  : "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* wss:;";
+  ? "default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' wss: https://challenges.cloudflare.com; frame-src 'self' https://challenges.cloudflare.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self';"
+  : "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://challenges.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* wss: https://challenges.cloudflare.com; frame-src 'self' https://challenges.cloudflare.com;";
 
 const securityHeaders = [
   { key: 'X-DNS-Prefetch-Control', value: 'on' },

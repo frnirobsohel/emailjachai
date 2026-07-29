@@ -125,7 +125,8 @@ func NewPublicVerifyHandler() *PublicVerifyHandler {
 }
 
 type publicVerifyRequest struct {
-	Email string `json:"email" binding:"required"`
+	Email          string `json:"email" binding:"required"`
+	TurnstileToken string `json:"turnstile_token"`
 }
 
 // VerifyPublic handles POST /api/v1/jobs/verify-public
@@ -147,6 +148,11 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 	// Fix I-04: Regex validation rejects malformed emails like a@b, test@, @domain.com
 	if email == "" || !emailRegex.MatchString(email) {
 		helper.SendError(c, http.StatusBadRequest, "Invalid email address", "ERR_INVALID_EMAIL")
+		return
+	}
+
+	if err := security.VerifyTurnstileToken(req.TurnstileToken, c.ClientIP()); err != nil {
+		helper.SendError(c, http.StatusBadRequest, err.Error(), "ERR_CAPTCHA")
 		return
 	}
 
@@ -302,7 +308,9 @@ func (h *PublicVerifyHandler) GetPublicStatus(c *gin.Context) {
 	limit, remaining := guard.GetUsage(ip, cookieId)
 
 	helper.SendSuccess(c, "Public verifier status", gin.H{
-		"limit":     limit,
-		"remaining": remaining,
+		"limit":              limit,
+		"remaining":          remaining,
+		"turnstile_required": security.TurnstileConfigured(),
+		"turnstile_site_key": security.TurnstileSiteKey(),
 	})
 }

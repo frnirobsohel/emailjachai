@@ -352,7 +352,7 @@ CREATE TABLE IF NOT EXISTS blocked_clients (
     deleted_at TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_blocked_clients_value      ON blocked_clients (value);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_blocked_clients_value ON blocked_clients (value);
 CREATE INDEX IF NOT EXISTS idx_blocked_clients_deleted_at ON blocked_clients (deleted_at);
 
 -- 21. email_caches

@@ -5,6 +5,14 @@ import { useRouter } from "next/navigation"
 import { Loader2 } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
 import { useSettings } from "@/lib/settings-context"
+import { TurnstileWidget } from "@/components/home/turnstile-widget"
+
+type PublicStatusData = {
+    limit: number
+    remaining: number
+    turnstile_required?: boolean
+    turnstile_site_key?: string
+}
 
 export function HomeEmailVerifier() {
     const router = useRouter()
@@ -28,10 +36,18 @@ export function HomeEmailVerifier() {
         return null
     })
     const [isInitializing, setIsInitializing] = useState(true)
+    const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+    const [turnstileResetKey, setTurnstileResetKey] = useState(0)
+    const [turnstileSiteKey, setTurnstileSiteKey] = useState(
+        () => settings?.turnstile_site_key || ""
+    )
+    const [turnstileRequired, setTurnstileRequired] = useState(
+        () => settings?.turnstile_required === "1"
+    )
 
     const fetchStatus = async () => {
         try {
-            const res = await ApiClient.get<{ limit: number; remaining: number }>("/jobs/verify-public/status", {
+            const res = await ApiClient.get<PublicStatusData>("/jobs/verify-public/status", {
                 withCredentials: true,
             })
             if (res.status === "success" && res.data) {
@@ -39,6 +55,12 @@ export function HomeEmailVerifier() {
                 setRemaining(res.data.remaining)
                 localStorage.setItem("free_verify_limit", String(res.data.limit))
                 localStorage.setItem("free_verify_remaining", String(res.data.remaining))
+                if (res.data.turnstile_site_key) {
+                    setTurnstileSiteKey(res.data.turnstile_site_key)
+                }
+                if (typeof res.data.turnstile_required === "boolean") {
+                    setTurnstileRequired(res.data.turnstile_required)
+                }
             }
         } catch {
             console.error("Failed to load verifier status")
@@ -51,6 +73,17 @@ export function HomeEmailVerifier() {
         fetchStatus()
     }, [])
 
+    useEffect(() => {
+        if (settings?.turnstile_site_key) {
+            setTurnstileSiteKey(settings.turnstile_site_key)
+        }
+        if (settings?.turnstile_required !== undefined) {
+            setTurnstileRequired(settings.turnstile_required === "1")
+        }
+    }, [settings?.turnstile_site_key, settings?.turnstile_required])
+
+    const needsCaptcha = turnstileRequired && Boolean(turnstileSiteKey)
+
     const handleVerify = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!email.trim() || isMaintenance) return
@@ -60,13 +93,21 @@ export function HomeEmailVerifier() {
             return
         }
 
+        if (needsCaptcha && !turnstileToken) {
+            setStatus("Complete captcha first")
+            return
+        }
+
         setIsLoading(true)
         setStatus(null)
 
         try {
             const res = await ApiClient.post<{ status?: string }>(
                 "/jobs/verify-public",
-                { email },
+                {
+                    email,
+                    turnstile_token: turnstileToken || "",
+                },
                 {
                     withCredentials: true,
                     timeout: 60000,
@@ -85,6 +126,8 @@ export function HomeEmailVerifier() {
             setStatus(error instanceof Error ? error.message : "Error connecting to server")
         } finally {
             setIsLoading(false)
+            setTurnstileToken(null)
+            setTurnstileResetKey((k) => k + 1)
         }
     }
 
@@ -105,9 +148,9 @@ export function HomeEmailVerifier() {
     } else if (status) {
         buttonText = status
         const s = status.toLowerCase()
-        if (s.includes("valid") && !s.includes("invalid")) {
+        if (s.includes("valid") && !s.includes("invalid") && !s.includes("captcha")) {
             buttonStyle = "border border-emerald-950/40 bg-emerald-700 text-white landing-result-pop"
-        } else if (s.includes("invalid") || s.includes("error")) {
+        } else if (s.includes("invalid") || s.includes("error") || s.includes("captcha")) {
             buttonStyle = "border border-rose-950/40 bg-rose-700 text-white landing-result-pop"
         } else {
             buttonStyle = "border border-amber-950/40 bg-amber-700 text-white landing-result-pop"
@@ -115,7 +158,7 @@ export function HomeEmailVerifier() {
     }
 
     return (
-        <form onSubmit={handleVerify} className="mx-auto w-full max-w-xl">
+        <form onSubmit={handleVerify} className="mx-auto w-full max-w-xl space-y-3">
             <div className="flex flex-col gap-3 rounded-md border border-[#0b1f1c]/10 bg-white/80 p-2 shadow-[0_12px_40px_-20px_rgba(11,31,28,0.35)] backdrop-blur-sm sm:flex-row sm:items-center sm:gap-2">
                 <div className="relative min-w-0 flex-1">
                     <svg
@@ -148,7 +191,7 @@ export function HomeEmailVerifier() {
                 </div>
                 <button
                     type="submit"
-                    disabled={isLoading || !email || isMaintenance}
+                    disabled={isLoading || !email || isMaintenance || (needsCaptcha && !turnstileToken)}
                     className={`inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-md px-7 py-3.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto ${buttonStyle}`}
                 >
                     {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -156,7 +199,15 @@ export function HomeEmailVerifier() {
                 </button>
             </div>
 
-            <div className="mt-4 flex flex-col gap-1 px-1 text-xs text-[var(--muted-soft,#6b857c)] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            {needsCaptcha && !isMaintenance && (
+                <TurnstileWidget
+                    siteKey={turnstileSiteKey}
+                    resetKey={turnstileResetKey}
+                    onToken={setTurnstileToken}
+                />
+            )}
+
+            <div className="flex flex-col gap-1 px-1 text-xs text-[var(--muted-soft,#6b857c)] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <p>Free to try — no credit card required.</p>
                 <p className="min-h-[16px] tabular-nums sm:shrink-0 sm:text-right" suppressHydrationWarning>
                     {remaining !== null && limit !== null

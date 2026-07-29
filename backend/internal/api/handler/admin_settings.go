@@ -8,8 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"ejp-backend/pkg/config"
 	"ejp-backend/internal/helper"
+	"ejp-backend/internal/security"
+	"ejp-backend/pkg/config"
 
 	"github.com/gin-gonic/gin"
 )
@@ -118,7 +119,15 @@ func (h *AdminHandler) UpdateSettings(c *gin.Context) {
 
 func (h *AdminHandler) GetPublicSettings(c *gin.Context) {
 	if cached, ok := config.GetCachedPublicSettings(); ok {
-		helper.SendSuccess(c, "Public settings retrieved (cached)", cached)
+		out := make(map[string]string, len(cached)+2)
+		for k, v := range cached {
+			out[k] = v
+		}
+		if siteKey := security.TurnstileSiteKey(); siteKey != "" {
+			out["turnstile_site_key"] = siteKey
+		}
+		out["turnstile_required"] = boolSetting(security.TurnstileConfigured())
+		helper.SendSuccess(c, "Public settings retrieved (cached)", out)
 		return
 	}
 
@@ -176,7 +185,23 @@ func (h *AdminHandler) GetPublicSettings(c *gin.Context) {
 	}
 
 	config.SetCachedPublicSettings(results, 5*time.Minute)
-	helper.SendSuccess(c, "Public settings retrieved", results)
+
+	out := make(map[string]string, len(results)+2)
+	for k, v := range results {
+		out[k] = v
+	}
+	if siteKey := security.TurnstileSiteKey(); siteKey != "" {
+		out["turnstile_site_key"] = siteKey
+	}
+	out["turnstile_required"] = boolSetting(security.TurnstileConfigured())
+	helper.SendSuccess(c, "Public settings retrieved", out)
+}
+
+func boolSetting(v bool) string {
+	if v {
+		return "1"
+	}
+	return "0"
 }
 
 
