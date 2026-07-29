@@ -55,16 +55,27 @@ func getCachedRateLimit() int64 {
 }
 
 // RateLimiter implements a Redis-backed sliding window rate limiter with Admin bypass.
+// Fail-open for most protected routes if Redis is down; fail-closed for SMTP-heavy
+// verify-single to avoid unbounded concurrent SMTP under Redis outage.
 func RateLimiter() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 1. Check if Redis is initialized (fail-open if Redis is down)
+		path := c.Request.URL.Path
+		failClosed := strings.Contains(path, "/jobs/verify-single")
+
+		// 1. Check if Redis is initialized
 		if config.Redis == nil {
+			if failClosed {
+				helper.SendError(c, http.StatusServiceUnavailable,
+					"Temporarily unavailable",
+					"ERR_RATE_LIMIT_UNAVAILABLE")
+				c.Abort()
+				return
+			}
 			c.Next()
 			return
 		}
 
 		// Fast Path: Bypass worker nodes and background queue callbacks
-		path := c.Request.URL.Path
 		if strings.Contains(path, "/worker/") || strings.Contains(path, "/internal/") || strings.Contains(path, "/jobs/push") {
 			c.Next()
 			return
@@ -111,7 +122,14 @@ func RateLimiter() gin.HandlerFunc {
 
 		_, err := pipe.Exec(ctx)
 		if err != nil {
-			// Fail-open to avoid service outage on cache struggles
+			if failClosed {
+				helper.SendError(c, http.StatusServiceUnavailable,
+					"Temporarily unavailable",
+					"ERR_RATE_LIMIT_UNAVAILABLE")
+				c.Abort()
+				return
+			}
+			// Fail-open for other routes to avoid service outage on cache struggles
 			c.Next()
 			return
 		}

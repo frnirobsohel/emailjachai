@@ -1,13 +1,12 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { SingleVerifyForm, VerificationResult } from "./form"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Shield, Zap, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp, Copy, Download, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CreditBadge } from "@/features/dashboard/components/credit-badge"
-import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 
 const NEGATIVE_CHECKS = new Set([
@@ -42,30 +41,6 @@ export function SingleVerifyClient() {
     const [isJsonOpen, setIsJsonOpen] = useState(false)
     const [copied, setCopied] = useState(false)
 
-    useEffect(() => {
-        if (!result || (result.status !== "pending" && result.status !== "processing")) return
-
-        const handleJobUpdate = (event: Event) => {
-            const { detail } = event as CustomEvent<{ job_id: string; data: VerificationResult }>
-            if (detail.job_id === result.job_id) {
-                logger.info("Real-time job update received via WS:", detail.data)
-                setResult(detail.data)
-            }
-        }
-
-        window.addEventListener("ws:job_update", handleJobUpdate as EventListener)
-
-        const fallbackTimer = setTimeout(() => {
-            logger.warn("WebSocket update timed out. Treating job as unknown.")
-            setResult((prev) => (prev ? { ...prev, status: "unknown" } : null))
-        }, 45000)
-
-        return () => {
-            window.removeEventListener("ws:job_update", handleJobUpdate as EventListener)
-            clearTimeout(fallbackTimer)
-        }
-    }, [result])
-
     const displayResult = result || {
         status: "NA",
         score: 0,
@@ -75,7 +50,8 @@ export function SingleVerifyClient() {
     }
 
     const status = (displayResult.status || "").toLowerCase()
-    const isFinished = !!result && !["pending", "processing", "na"].includes(status)
+    // Sync API always returns a completed result; treat any successful response as finished.
+    const isFinished = !!result
 
     const getStatusIcon = (value: string) => {
         const normalized = (value || "").toLowerCase()
@@ -92,9 +68,6 @@ export function SingleVerifyClient() {
             case "catch-all":
             case "disposable":
                 return <AlertCircle className="h-4 w-4 text-amber-600" />
-            case "pending":
-            case "processing":
-                return <AlertCircle className="h-4 w-4 animate-pulse text-[#0f5c52]" />
             default:
                 return <AlertCircle className="h-4 w-4 text-[#c5d4cf]" />
         }
@@ -143,11 +116,7 @@ export function SingleVerifyClient() {
                                     Verification Results
                                 </CardTitle>
                                 <CardDescription className="text-[#5a736c]">
-                                    {result
-                                        ? isFinished
-                                            ? "Verification completed"
-                                            : "Verification in progress..."
-                                        : "Ready to verify"}
+                                    {result ? "Verification completed" : "Ready to verify"}
                                 </CardDescription>
                             </div>
                             {result && (

@@ -25,7 +25,7 @@ func NewJobHandler(jobService service.JobService) *JobHandler {
 func (h *JobHandler) GetJobs(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	jobType := c.Query("type")
-	
+
 	limit := 100
 	if limitStr := c.Query("limit"); limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
@@ -72,12 +72,11 @@ func (h *JobHandler) GetJobStatus(c *gin.Context) {
 	helper.SendSuccess(c, "Job status retrieved", gin.H{"job": job, "result": result})
 }
 
-
 func (h *JobHandler) SubmitSingleVerify(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	var req request.SingleVerifyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		helper.SendError(c, http.StatusBadRequest, "Invalid request", err.Error())
+		helper.SendError(c, http.StatusBadRequest, "Invalid request", "ERR_INVALID_REQUEST")
 		return
 	}
 
@@ -88,14 +87,29 @@ func (h *JobHandler) SubmitSingleVerify(c *gin.Context) {
 		}
 	}
 
-	job, result, err := h.jobService.VerifySingle(userID.(uint), req.Email, apiKeyID)
+	job, result, err := h.jobService.VerifySingle(userID.(uint), req.Email, apiKeyID, req.IdempotencyKey)
 	if err != nil {
-		// Return 402 for insufficient credits (matches legacy PHP parity)
-		if err.Error() == "insufficient credits" {
+		switch err.Error() {
+		case "insufficient credits":
 			helper.SendError(c, http.StatusPaymentRequired, "Insufficient credits for verification.", "ERR_INSUFFICIENT_CREDITS")
-			return
+		case "verification timed out":
+			helper.SendError(c, http.StatusGatewayTimeout, "Verification timed out. Credits have been refunded.", "ERR_VERIFY_TIMEOUT")
+		case "verification busy":
+			helper.SendError(c, http.StatusServiceUnavailable, "Verification is temporarily busy. Credits have been refunded. Please retry.", "ERR_VERIFY_BUSY")
+		case "a request with this idempotency key is already in progress":
+			helper.SendError(c, http.StatusConflict, "A verification with this idempotency key is already in progress.", "ERR_IDEMPOTENCY_IN_PROGRESS")
+		case "duplicate request detected":
+			helper.SendError(c, http.StatusConflict, "Duplicate verification request.", "ERR_DUPLICATE_REQUEST")
+		case "failed to save verification results, credits have been refunded":
+			helper.SendError(c, http.StatusInternalServerError, "Verification failed. Credits have been refunded.", "ERR_VERIFY_SAVE_FAILED")
+		default:
+			helper.SendError(c, http.StatusInternalServerError, "Verification failed", "ERR_VERIFY_FAILED")
 		}
-		helper.SendError(c, http.StatusInternalServerError, "Verification failed", err.Error())
+		return
+	}
+
+	if result == nil {
+		helper.SendError(c, http.StatusInternalServerError, "Verification failed", "ERR_VERIFY_FAILED")
 		return
 	}
 
@@ -178,4 +192,3 @@ func (h *JobHandler) RetryJob(c *gin.Context) {
 		"status": job.Status,
 	})
 }
-

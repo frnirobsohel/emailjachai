@@ -51,7 +51,7 @@ type JobService interface {
 	GetJobs(userID uint, jobType string, limit, offset int) ([]model.Job, int64, error)
 	GetJobStatus(userID uint, jobID string) (*model.Job, *model.JobResult, error)
 	DeleteJob(userID uint, jobID string) error
-	VerifySingle(userID uint, email string, apiKeyID *uint) (*model.Job, *model.JobResult, error)
+	VerifySingle(userID uint, email string, apiKeyID *uint, idempotencyKey string) (*model.Job, *model.JobResult, error)
 	SubmitBulkJob(userID uint, filename string, emails []string, idempotencyKey string, apiKeyID *uint) (*model.Job, []model.JobTask, error)
 	RefundJob(userID uint, jobID string, credits int, reason string) error
 	CountActiveJobs(userID uint) (int64, error)
@@ -129,8 +129,46 @@ func (s *jobService) DeleteJob(userID uint, jobID string) error {
 	return nil
 }
 
+func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint, idempotencyKey string) (*model.Job, *model.JobResult, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
 
-func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*model.Job, *model.JobResult, error) {
+	// Idempotency: prevent double-charge on retries / double-submit
+	var lockReleased bool
+	var redisKey string
+	if idempotencyKey != "" && config.Redis != nil {
+		redisKey = fmt.Sprintf("idempotency:single:%d:%s", userID, idempotencyKey)
+		success, err := config.Redis.SetNX(config.Ctx, redisKey, "in_progress", 90*time.Second).Result()
+		if err != nil {
+			logger.Warn("Redis error during single-verify idempotency check", "error", err)
+		} else if !success {
+			val, _ := config.Redis.Get(config.Ctx, redisKey).Result()
+			if val == "in_progress" {
+				return nil, nil, errors.New("a request with this idempotency key is already in progress")
+			}
+			if val != "" {
+				existingJob, err := s.jobRepo.GetByID(val)
+				if err == nil && existingJob.UserID == userID {
+					var result *model.JobResult
+					results, rErr := s.jobResultRepo.GetByJobID(existingJob.ID)
+					if rErr == nil && len(results) > 0 {
+						result = &results[0]
+					}
+					return existingJob, result, nil
+				}
+			}
+			return nil, nil, errors.New("duplicate request detected")
+		}
+		defer func() {
+			if !lockReleased && redisKey != "" {
+				val, _ := config.Redis.Get(config.Ctx, redisKey).Result()
+				if val == "in_progress" {
+					config.Redis.Del(config.Ctx, redisKey)
+				}
+			}
+		}()
+	}
+
 	// 1. Get user
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
@@ -139,7 +177,6 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 
 	// 2. Atomic credit deduction BEFORE expensive verification (Prevents Resource Exhaustion / DoS)
 	err = s.jobRepo.DB().Transaction(func(tx *gorm.DB) error {
-		// Atomic credit deduction
 		creditResult := tx.Model(&model.User{}).
 			Where("id = ? AND credits >= ?", user.ID, 1).
 			Update("credits", gorm.Expr("credits - ?", 1))
@@ -150,7 +187,6 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 			return errors.New("insufficient credits")
 		}
 
-		// Transaction log
 		txnID := fmt.Sprintf("TXN_%x%s", time.Now().Unix(), helper.GenerateRandomHex(4))
 		transaction := &model.Transaction{
 			UserID:        userID,
@@ -159,14 +195,32 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 			CreditsAdded:  -1,
 			Type:          "usage",
 			Status:        "completed",
-			Description:   "Single Verify: " + email,
+			Description:   "Single Verify",
 			Provider:      "system",
 		}
 		return tx.Create(transaction).Error
 	})
 
 	if err != nil {
-		return nil, nil, err // Failed to deduct credits
+		return nil, nil, err
+	}
+
+	creditsDeducted := true
+	refundSingle := func(reason string) {
+		if !creditsDeducted {
+			return
+		}
+		if rErr := s.userRepo.AddCredits(userID, 1, "refund", reason, "system_refund"); rErr != nil {
+			logger.Error("Failed to refund single verify credits", "user_id", userID, "error", rErr)
+			return
+		}
+		creditsDeducted = false
+		if updatedUser, uErr := s.userRepo.GetByID(userID); uErr == nil {
+			ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", gin.H{
+				"credits": updatedUser.Credits,
+			})
+		}
+		InvalidateAndRefreshDashboardStats(userID)
 	}
 
 	// Reflect deduction immediately (before slow SMTP) so UI/stats never stick on stale cache
@@ -200,7 +254,7 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 				IsRole:         hit.IsRole,
 				IsSpamTrap:     hit.IsSpamTrap,
 				IsBlacklisted:  hit.IsBlacklisted,
-				ProcessingTime: 0.01, // 10ms for cache hit representation
+				ProcessingTime: 0.01,
 				Reason:         hit.Reason,
 			}
 		}
@@ -208,7 +262,13 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 
 	if !fromCache {
 		res = verifier.VerifyEmail(email)
-		// Async upsert to cache for future lookups
+		if res.Reason == "timeout" || res.Reason == "busy" {
+			refundSingle("Refund: Single Verify timeout/busy")
+			if res.Reason == "busy" {
+				return nil, nil, errors.New("verification busy")
+			}
+			return nil, nil, errors.New("verification timed out")
+		}
 		resCopy := res
 		emailCopy := email
 		safe.Go(func() {
@@ -240,12 +300,18 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 		})
 	}
 
+	isDisposable := res.Status == "disposable"
+	if fromCache {
+		if hit, ok := cachedResults[email]; ok && hit.IsDisposable {
+			isDisposable = true
+		}
+	}
+
 	// 4. Save Job and JobResult in a separate transaction
 	var job *model.Job
 	var resultRecord *model.JobResult
 
 	err = s.jobRepo.DB().Transaction(func(tx *gorm.DB) error {
-		// Create Job for tracking
 		jobID := "single_" + helper.GenerateRandomHex(5)
 		job = &model.Job{
 			UserID:         userID,
@@ -268,13 +334,17 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 			job.CatchAll = 1
 		case "disposable":
 			job.Disposable = 1
+		case "unknown":
+			job.Risky = 1
+		}
+		if res.IsRole {
+			job.RoleAccounts = 1
 		}
 
 		if err := tx.Create(job).Error; err != nil {
 			return err
 		}
 
-		// Create JobResult
 		resultRecord = &model.JobResult{
 			JobInternalID:  job.ID,
 			Email:          email,
@@ -288,6 +358,7 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 			HasMx:          res.HasMX,
 			IsFree:         res.IsFree,
 			IsRole:         res.IsRole,
+			IsDisposable:   isDisposable,
 			IsSpamTrap:     res.IsSpamTrap,
 			IsBlacklisted:  res.IsBlacklisted,
 			ProcessingTime: res.ProcessingTime,
@@ -297,11 +368,17 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 		return tx.Create(resultRecord).Error
 	})
 
-	// 5. Refund user if saving the result failed (Server Crash/DB Error)
 	if err != nil {
-		// Attempt to refund the user since the result couldn't be saved
-		_ = s.userRepo.AddCredits(userID, 1, "refund", "Refund: DB Error on Single Verify", "system_refund")
+		refundSingle("Refund: DB Error on Single Verify")
 		return nil, nil, errors.New("failed to save verification results, credits have been refunded")
+	}
+
+	if redisKey != "" && config.Redis != nil {
+		if setErr := config.Redis.Set(config.Ctx, redisKey, job.JobID, 24*time.Hour).Err(); setErr != nil {
+			logger.Warn("Failed to persist single-verify idempotency key", "error", setErr)
+		} else {
+			lockReleased = true
+		}
 	}
 
 	// 5b. Save single verification result to local NDJSON file for exact legacy parity
@@ -356,7 +433,6 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint) (*m
 		}
 	})
 
-	// Final credit/stats sync (covers refunds if save failed earlier paths already returned)
 	if updatedUser, err := s.userRepo.GetByID(userID); err == nil {
 		ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", gin.H{
 			"credits": updatedUser.Credits,
@@ -558,7 +634,7 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 			defer wg.Done()
 			for taskIdx := range chunksChan {
 				currentTask := savedTasks[taskIdx]
-				
+
 				// Extract the slice of emails for this chunk
 				if currentTask.StartIndex >= len(queueEmails) {
 					continue
@@ -930,7 +1006,7 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 		sourcePath = "./storage/jobs/bulk"
 	}
 	sourceFilePath := filepath.Join(sourcePath, job.JobID+"_source.txt")
-	
+
 	// Check if source file exists
 	if _, err := os.Stat(sourceFilePath); os.IsNotExist(err) {
 		return nil, errors.New("original source file not found, cannot retry job. Please re-upload your list.")
@@ -988,7 +1064,7 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 	var refundTxns []model.Transaction
 	refundSearch := "%" + job.JobID + "%"
 	s.jobRepo.DB().Where("user_id = ? AND type = 'refund' AND description LIKE ?", userID, refundSearch).Find(&refundTxns)
-	
+
 	refundedCredits := 0
 	for _, tx := range refundTxns {
 		// CreditsAdded is positive for refund transactions
@@ -1105,7 +1181,7 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 			defer wg.Done()
 			for taskIdx := range chunksChan {
 				currentTask := savedTasks[taskIdx]
-				
+
 				if currentTask.StartIndex >= len(remainingEmails) {
 					continue
 				}
@@ -1168,4 +1244,3 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 
 	return job, nil
 }
-

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -46,15 +46,23 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
     const [email, setEmail] = useState("")
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const isSubmittingRef = useRef(false)
     const settings = useSettings()
     const isMaintenance = settings?.maintenance_mode === "1"
 
     const handleVerify = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!email || isMaintenance) return
+        if (!email || isMaintenance || isSubmittingRef.current) return
 
+        isSubmittingRef.current = true
         setIsLoading(true)
         setError(null)
+
+        const normalizedEmail = email.trim().toLowerCase()
+        const idempotencyKey =
+            typeof crypto !== "undefined" && "randomUUID" in crypto
+                ? crypto.randomUUID()
+                : `${normalizedEmail}:${Date.now()}`
 
         // Optimistic debit as soon as the request starts (backend deducts before SMTP)
         const dash = useDashboardStore.getState()
@@ -75,7 +83,7 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
         try {
             const result = await ApiClient.post(
                 "/jobs/verify-single",
-                { email },
+                { email: normalizedEmail, idempotencyKey },
                 { timeout: 60000 }
             )
 
@@ -101,6 +109,7 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
             logger.error("Verification operation failed:", err)
             setError(err instanceof Error ? err.message : "An unexpected error occurred during verification")
         } finally {
+            isSubmittingRef.current = false
             setIsLoading(false)
         }
     }

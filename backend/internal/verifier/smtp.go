@@ -8,10 +8,39 @@ import (
 	"net/smtp"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+const (
+	defaultSMTPMaxConcurrent = 25
+	defaultSMTPVerifyTimeout = 45 * time.Second
+	smtpDialTimeout          = 8 * time.Second
+	smtpIODeadline           = 10 * time.Second
+)
+
+var smtpSem chan struct{}
+
+func init() {
+	n := defaultSMTPMaxConcurrent
+	if v := strings.TrimSpace(os.Getenv("SMTP_MAX_CONCURRENT")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			n = parsed
+		}
+	}
+	smtpSem = make(chan struct{}, n)
+}
+
+func smtpVerifyTimeout() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("SMTP_VERIFY_TIMEOUT_SEC")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			return time.Duration(parsed) * time.Second
+		}
+	}
+	return defaultSMTPVerifyTimeout
+}
 
 type VerifyResult struct {
 	Status         string // "valid", "invalid", "catch_all", "unknown", "disposable"
@@ -103,9 +132,37 @@ func checkDomainPolicy(domain string) (isFree, isDisposable, isSpamTrap, isBlack
 	return
 }
 
+// VerifyEmail runs a bounded SMTP verification (concurrency cap + overall deadline).
 func VerifyEmail(email string) VerifyResult {
+	return VerifyEmailBounded(email, smtpVerifyTimeout())
+}
+
+// VerifyEmailBounded verifies an email with a hard wall-clock deadline and a global SMTP semaphore.
+func VerifyEmailBounded(email string, maxDuration time.Duration) VerifyResult {
 	start := time.Now()
-	email = strings.TrimSpace(email)
+	if maxDuration <= 0 {
+		maxDuration = defaultSMTPVerifyTimeout
+	}
+	deadline := start.Add(maxDuration)
+
+	select {
+	case smtpSem <- struct{}{}:
+		defer func() { <-smtpSem }()
+	case <-time.After(time.Until(deadline)):
+		return VerifyResult{
+			Status:         "unknown",
+			Score:          35,
+			Reason:         "busy",
+			DetailedError:  "SMTP concurrency limit",
+			ProcessingTime: time.Since(start).Seconds(),
+		}
+	}
+
+	return verifyEmailInternal(email, start, deadline)
+}
+
+func verifyEmailInternal(email string, start time.Time, deadline time.Time) VerifyResult {
+	email = strings.TrimSpace(strings.ToLower(email))
 
 	result := VerifyResult{
 		Status:      "unknown",
@@ -119,11 +176,12 @@ func VerifyEmail(email string) VerifyResult {
 	if len(parts) != 2 {
 		result.Status = "invalid"
 		result.Score = 0
+		result.ProcessingTime = time.Since(start).Seconds()
 		return result
 	}
 
-	user := strings.ToLower(parts[0])
-	domain := strings.ToLower(parts[1])
+	user := parts[0]
+	domain := parts[1]
 	result.SyntaxValid = true
 
 	// Check domain policy (Spam Trap, Blacklist, Free, Disposable)
@@ -170,6 +228,13 @@ func VerifyEmail(email string) VerifyResult {
 		}
 	}
 
+	if time.Now().After(deadline) {
+		result.Reason = "timeout"
+		result.DetailedError = "verification deadline exceeded"
+		result.ProcessingTime = time.Since(start).Seconds()
+		return result
+	}
+
 	// Lookup MX Records using advanced miekg/dns resolver
 	mxRecords, err := lookupMX(domain)
 	if err != nil || len(mxRecords) == 0 {
@@ -202,9 +267,16 @@ func VerifyEmail(email string) VerifyResult {
 		if i >= 5 {
 			break
 		}
+		if time.Now().After(deadline) {
+			result.Status = "unknown"
+			result.Reason = "timeout"
+			result.DetailedError = "verification deadline exceeded"
+			result.ProcessingTime = time.Since(start).Seconds()
+			return result
+		}
 		host := strings.TrimSuffix(mx.Host, ".")
 
-		res := probeSMTP(host, domain, email)
+		res := probeSMTP(host, domain, email, deadline)
 		if res.Connected {
 			result.SMTPConnect = true
 			if res.Accepted {
@@ -266,18 +338,30 @@ func getHostname() string {
 	return hostname
 }
 
-func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
+func probeSMTP(mxHost, domain, fullEmail string, deadline time.Time) smtpProbe {
 	res := smtpProbe{}
 	hostname := getHostname()
 
-	// Setup timeout
-	conn, err := net.DialTimeout("tcp", mxHost+":25", 8*time.Second)
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return res
+	}
+	dialTimeout := smtpDialTimeout
+	if remaining < dialTimeout {
+		dialTimeout = remaining
+	}
+
+	conn, err := net.DialTimeout("tcp", mxHost+":25", dialTimeout)
 	if err != nil {
 		return res
 	}
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	ioDeadline := time.Now().Add(smtpIODeadline)
+	if ioDeadline.After(deadline) {
+		ioDeadline = deadline
+	}
+	_ = conn.SetDeadline(ioDeadline)
 	res.Connected = true
 
 	client, err := smtp.NewClient(conn, mxHost)
@@ -329,6 +413,3 @@ func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
 
 	return res
 }
-
-
-
