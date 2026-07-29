@@ -19,6 +19,7 @@ export interface Transaction {
 }
 
 import { ApiClient } from "@/lib/api-client"
+import { withTimeZoneQuery } from "@/lib/timezone"
 
 interface CreditsHistoryProps {
     initialStats: {
@@ -42,7 +43,7 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
         if (!silent) setIsLoading(true);
         try {
             // Fetch Stats
-            const statsData = await ApiClient.get('/dashboard/stats');
+            const statsData = await ApiClient.get(withTimeZoneQuery('/dashboard/stats'));
             if (statsData.status === 'success') {
                 const statsResponse = statsData.data as { credits_remaining: string, total_purchased: string, total_refunds: string };
                 setStats(statsResponse);

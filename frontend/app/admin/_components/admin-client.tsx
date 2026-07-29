@@ -8,8 +8,9 @@ import { useAdminStore, type AdminDashboardStats } from "@/stores/admin-store"
 import { useAdminWebSocket } from "@/hooks/use-admin-web-socket"
 
 export function AdminDashboardClient({ initialData }: { initialData: AdminDashboardStats | null }) {
-    const store = useAdminStore()
-    const data = store.data || initialData
+    const data = useAdminStore((s) => s.data) || initialData
+    const hasInitialized = useAdminStore((s) => s.hasInitialized)
+    const setData = useAdminStore((s) => s.setData)
     const [isLoading, setIsLoading] = useState(false)
 
     // Connect to WebSocket to receive real-time admin_stats_update events
@@ -19,7 +20,7 @@ export function AdminDashboardClient({ initialData }: { initialData: AdminDashbo
         try {
             const result = await ApiClient.get('/admin/dashboard/stats');
             if (result.status === 'success') {
-                store.setData(result.data as AdminDashboardStats);
+                setData(result.data as AdminDashboardStats);
             }
         } catch (error) {
             console.error("Failed to fetch admin stats:", error);
@@ -30,8 +31,8 @@ export function AdminDashboardClient({ initialData }: { initialData: AdminDashbo
 
     useEffect(() => {
         // Seed from SSR, then always refresh so soft-nav / store cannot keep stale totals
-        if (initialData && !store.hasInitialized) {
-            store.setData(initialData);
+        if (initialData && !hasInitialized) {
+            setData(initialData);
         }
         void fetchStats();
         // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: seed SSR then refresh

@@ -100,14 +100,18 @@ func (r *transactionRepo) GetUserSummary(userID uint) (int64, int64, error) {
 
 func (r *transactionRepo) SumCreditsSold(from, to *time.Time) (int64, error) {
 	var total int64
-	query := r.db.Model(&model.Transaction{}).Where("type = ? AND status = ?", "purchase", "completed")
+	// Count gateway purchases + admin paid credit sales (adjustment with amount > 0).
+	query := r.db.Model(&model.Transaction{}).
+		Where("status = ?", "completed").
+		Where("credits_added > 0").
+		Where("(type = ? OR (type = ? AND amount > 0))", "purchase", "adjustment")
 	if from != nil {
 		query = query.Where("created_at >= ?", *from)
 	}
 	if to != nil {
 		query = query.Where("created_at < ?", *to)
 	}
-	err := query.Select("COALESCE(SUM(credits_added), 0)").Row().Scan(&total)
+	err := query.Select("COALESCE(SUM(credits_added), 0)").Scan(&total).Error
 	return total, err
 }
 

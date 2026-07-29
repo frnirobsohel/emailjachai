@@ -31,7 +31,6 @@ func TestStartOfDayInAppTZ_UTC(t *testing.T) {
 
 func TestStartOfDayInAppTZ_AsiaDhaka(t *testing.T) {
 	t.Setenv("APP_TIMEZONE", "Asia/Dhaka")
-	// 2026-07-28 22:00 UTC == 2026-07-29 04:00 in Dhaka → "today" is July 29 local
 	input := time.Date(2026, 7, 28, 22, 0, 0, 0, time.UTC)
 	got := StartOfDayInAppTZ(input)
 	dhaka, err := time.LoadLocation("Asia/Dhaka")
@@ -41,5 +40,38 @@ func TestStartOfDayInAppTZ_AsiaDhaka(t *testing.T) {
 	want := time.Date(2026, 7, 29, 0, 0, 0, 0, dhaka).UTC()
 	if !got.Equal(want) {
 		t.Fatalf("StartOfDayInAppTZ() = %v, want %v", got, want)
+	}
+}
+
+func TestResolveLocation_UsesQuery(t *testing.T) {
+	loc, name := ResolveLocation("America/New_York")
+	if name != "America/New_York" {
+		t.Fatalf("name = %q", name)
+	}
+	if loc.String() != "America/New_York" {
+		t.Fatalf("loc = %v", loc)
+	}
+}
+
+func TestResolveLocation_EmptyFallsBackToApp(t *testing.T) {
+	t.Setenv("APP_TIMEZONE", "UTC")
+	_, name := ResolveLocation("")
+	if name != "UTC" {
+		t.Fatalf("expected UTC fallback, got %q", name)
+	}
+}
+
+func TestSafeIANATimezone(t *testing.T) {
+	if SafeIANATimezone("Asia/Dhaka") != "Asia/Dhaka" {
+		t.Fatalf("expected Asia/Dhaka")
+	}
+	if SafeIANATimezone("UTC") != "UTC" {
+		t.Fatalf("expected UTC")
+	}
+	if SafeIANATimezone("bad;drop") != "UTC" {
+		t.Fatalf("expected fallback UTC for unsafe name")
+	}
+	if SafeIANATimezone("Not/ARealZone") != "UTC" {
+		t.Fatalf("expected fallback UTC for unknown zone")
 	}
 }

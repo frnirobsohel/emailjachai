@@ -14,14 +14,16 @@ func DashboardStats(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	uID := userID.(uint)
 
-	// Try fetching from cache
-	if data, ok := config.GetCachedStats(uID); ok {
+	_, tz := helper.ResolveLocation(c.Query("tz"))
+
+	// Try fetching from cache (scoped by timezone)
+	if data, ok := config.GetCachedStats(uID, tz); ok {
 		helper.SendSuccess(c, "Dashboard stats retrieved (cached)", data)
 		return
 	}
 
-	// If missing, compute synchronously
-	finalData := service.ComputeAndCacheDashboardStats(uID)
+	// If missing, compute synchronously for this timezone
+	finalData := service.ComputeAndCacheDashboardStats(uID, tz)
 	helper.SendSuccess(c, "Dashboard stats retrieved", finalData)
 }
 
@@ -30,6 +32,3 @@ func ClearDashboardCache(userID uint) {
 	// a pre-mutation balance, then recompute in the background.
 	service.InvalidateAndRefreshDashboardStats(userID)
 }
-
-
-

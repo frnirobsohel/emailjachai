@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -15,13 +16,15 @@ import (
 )
 
 // InvalidateAndRefreshDashboardStats drops the Redis stats cache immediately so
-// /dashboard/stats cannot serve a pre-mutation credit balance, then recomputes async.
+// /dashboard/stats cannot serve a pre-mutation credit balance, then recomputes async
+// using the user's last browser timezone (fallback APP_TIMEZONE / UTC).
 func InvalidateAndRefreshDashboardStats(uID uint) {
+	tz := config.GetDashboardTimezone(uID)
 	config.ClearDashboardCache(uID)
-	go ComputeAndCacheDashboardStats(uID)
+	go ComputeAndCacheDashboardStats(uID, tz)
 }
 
-func ComputeAndCacheDashboardStats(uID uint) gin.H {
+func ComputeAndCacheDashboardStats(uID uint, tzQuery string) gin.H {
 	var wg sync.WaitGroup
 	var user model.User
 	var transSummary struct {
@@ -52,15 +55,14 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 	deletedDaily := make([]dailyAgg, 0, 7)
 	var apiVerifications int64
 
-	// "Today" / weekly buckets use APP_TIMEZONE (default UTC), not the DB server's CURRENT_DATE.
-	loc := helper.AppLocation()
+	// "Today" / weekly window follow the browser IANA timezone when provided.
+	loc, tz := helper.ResolveLocation(tzQuery)
 	nowLocal := time.Now().In(loc)
 	todayLocal := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, loc)
-	startOfDayUTC := todayLocal.UTC()
-	weekStartUTC := todayLocal.AddDate(0, 0, -6).UTC()
+	startOfDayNaive := todayLocal.UTC().Format("2006-01-02 15:04:05")
+	weekStartNaive := todayLocal.AddDate(0, 0, -6).UTC().Format("2006-01-02 15:04:05")
 	todayDate := todayLocal.Format("2006-01-02")
 	weekStartDate := todayLocal.AddDate(0, 0, -6).Format("2006-01-02")
-	tzName := loc.String()
 
 	wg.Add(5)
 
@@ -74,7 +76,7 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 		db.Select("credits").First(&user, uID)
 		db.Model(&model.Transaction{}).
 			Select(`
-				SUM(CASE WHEN type = 'purchase' AND status = 'completed' THEN credits_added ELSE 0 END) as total_purchased,
+				SUM(CASE WHEN status = 'completed' AND credits_added > 0 AND (type = 'purchase' OR (type = 'adjustment' AND amount > 0)) THEN credits_added ELSE 0 END) as total_purchased,
 				ABS(SUM(CASE WHEN type = 'refund' AND status = 'completed' THEN credits_added ELSE 0 END)) as total_refunds
 			`).
 			Where("user_id = ?", uID).
@@ -93,7 +95,7 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 				SUM(processed_count) as total_verifications,
 				COUNT(CASE WHEN type = 'bulk' THEN 1 END) as total_jobs,
 				COUNT(CASE WHEN type = 'bulk' AND status IN ('pending', 'processing') THEN 1 END) as active_jobs,
-				SUM(CASE WHEN created_at >= ? THEN processed_count ELSE 0 END) as today_verifications,
+				SUM(CASE WHEN created_at >= ?::timestamp THEN processed_count ELSE 0 END) as today_verifications,
 				SUM(deliverable) as deliverable_total,
 				SUM(risky) as risky_total,
 				SUM(undeliverable) as undeliverable_total,
@@ -101,7 +103,7 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 				SUM(disposable) as disposable_total,
 				SUM(invalid_syntax) as invalid_syntax_total,
 				SUM(role_accounts) as role_accounts_total
-			`, startOfDayUTC).
+			`, startOfDayNaive).
 			Where("user_id = ?", uID).
 			Scan(&jobSummary)
 	})
@@ -117,22 +119,32 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 		db.Raw(`SELECT COALESCE(SUM(emails), 0) FROM deleted_job_daily_stats WHERE user_id = ? AND activity_date = ?`, uID, todayDate).Scan(&todayDeleted)
 	})
 
-	// Goroutine 4: Weekly Activity (calendar days in APP_TIMEZONE)
+	// Goroutine 4: Weekly Activity (last 7 calendar days in request timezone)
 	safe.Go(func() {
 		defer wg.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		db := config.DB.WithContext(ctx)
 
-		db.Raw(`
+		// Embed validated IANA name — parameterized AT TIME ZONE breaks with some drivers
+		// and timestamptz binds against TIMESTAMP columns can drop all rows.
+		dayExpr := "TO_CHAR(created_at, 'YYYY-MM-DD')"
+		if tz != "UTC" {
+			dayExpr = fmt.Sprintf(
+				"TO_CHAR((created_at AT TIME ZONE 'UTC') AT TIME ZONE '%s', 'YYYY-MM-DD')",
+				tz,
+			)
+		}
+
+		db.Raw(fmt.Sprintf(`
 			SELECT
-				TO_CHAR((created_at AT TIME ZONE 'UTC') AT TIME ZONE ?, 'YYYY-MM-DD') as day,
+				%s as day,
 				COALESCE(SUM(processed_count), 0) as emails,
 				COALESCE(COUNT(*), 0) as jobs
 			FROM jobs
-			WHERE user_id = ? AND created_at >= ?
-			GROUP BY TO_CHAR((created_at AT TIME ZONE 'UTC') AT TIME ZONE ?, 'YYYY-MM-DD')
-		`, tzName, uID, weekStartUTC, tzName).Scan(&jobsDaily)
+			WHERE user_id = ? AND created_at >= ?::timestamp
+			GROUP BY 1
+		`, dayExpr), uID, weekStartNaive).Scan(&jobsDaily)
 
 		db.Raw(`
 			SELECT
@@ -224,7 +236,7 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 	}
 
 	// Update Cache with extended TTL (5 minutes) since we proactively refresh it
-	config.SetCachedStats(uID, finalData, 5*time.Minute)
+	config.SetCachedStats(uID, tz, finalData, 5*time.Minute)
 	
 	// Broadcast real-time stats update to the user
 	ws.GlobalHub.BroadcastToUser(uID, "user_stats_update", finalData)

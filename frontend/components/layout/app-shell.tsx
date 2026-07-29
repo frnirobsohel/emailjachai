@@ -7,6 +7,7 @@ import { useDashboardStore } from "@/stores/dashboard-store";
 import { useDashboardWebSocket } from "@/hooks/use-dashboard-web-socket";
 import { useRealtimeStore } from "@/stores/realtime-store";
 import { formatNumber } from "@/lib/helper";
+import { syncTimeZoneCookie } from "@/lib/timezone";
 import { logger } from "@/lib/logger";
 import { usePathname } from "next/navigation";
 
@@ -21,6 +22,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     // Call the dashboard WebSocket hook globally to ensure stats are updated in real-time
     useDashboardWebSocket();
+
+    useEffect(() => {
+        if (isAppRoute) syncTimeZoneCookie();
+    }, [isAppRoute]);
 
     useEffect(() => {
         setConnected(isConnected);

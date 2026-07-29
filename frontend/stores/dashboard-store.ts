@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { ApiClient } from '@/lib/api-client';
+import { withTimeZoneQuery } from '@/lib/timezone';
 
 export interface DashboardStats {
     credits_remaining: string;
@@ -49,7 +50,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
         set({ isLoadingStats: true });
         try {
-            const result = await ApiClient.get<DashboardStats>('/dashboard/stats');
+            const result = await ApiClient.get<DashboardStats>(withTimeZoneQuery('/dashboard/stats'));
             if (result.status === 'success' && result.data) {
                 set({ 
                     stats: result.data, 

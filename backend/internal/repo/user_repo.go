@@ -133,6 +133,9 @@ func (r *userRepo) AdjustCredits(userID uint, amount int, amountPaid float64, de
 		}
 
 		txnType := "adjustment"
+		if amount > 0 && amountPaid > 0 {
+			txnType = "purchase"
+		}
 		txnID := fmt.Sprintf("TXN_%x%s", time.Now().Unix(), helper.GenerateRandomHex(4))
 		transaction := &model.Transaction{
 			UserID:        userID,

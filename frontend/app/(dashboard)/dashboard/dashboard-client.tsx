@@ -11,6 +11,7 @@ import { ApiClient } from "@/lib/api-client"
 import { CreditBadge } from "@/features/dashboard/components/credit-badge"
 import { useUserStore } from "@/stores/user-state"
 import { useRealtimeStore } from "@/stores/realtime-store"
+import { syncTimeZoneCookie, withTimeZoneQuery } from "@/lib/timezone"
 import { cn } from "@/lib/utils"
 
 interface DashboardClientProps {
@@ -29,7 +30,7 @@ export function DashboardClient({ initialStats, initialRecentJobs }: DashboardCl
     const fetchDashboardData = async () => {
         try {
             const [statsRes, jobsRes] = await Promise.all([
-                ApiClient.get<DashboardStats>("/dashboard/stats"),
+                ApiClient.get<DashboardStats>(withTimeZoneQuery("/dashboard/stats")),
                 ApiClient.get<{ jobs: RecentDashboardJob[]; total: number }>("/jobs/list?limit=4&type=all"),
             ])
             if (statsRes.status === "success" && statsRes.data) {
@@ -44,6 +45,7 @@ export function DashboardClient({ initialStats, initialRecentJobs }: DashboardCl
     }
 
     useEffect(() => {
+        syncTimeZoneCookie()
         const current = useDashboardStore.getState()
         if (!current.stats) {
             setStats(initialStats)
