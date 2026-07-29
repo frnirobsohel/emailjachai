@@ -11,6 +11,7 @@ import { logger } from "@/lib/logger"
 import { useSettings } from "@/lib/settings-context"
 import { useDashboardStore } from "@/stores/dashboard-store"
 import { useCreditStore } from "@/stores/credit-state"
+import { formatNumber } from "@/lib/helper"
 
 export interface VerificationResult {
     job_id: string
@@ -65,7 +66,7 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
             if (Number.isFinite(current)) {
                 dash.setStats({
                     ...dash.stats,
-                    credits_remaining: Math.max(0, current - 1).toLocaleString(),
+                    credits_remaining: formatNumber(Math.max(0, current - 1)),
                 })
             }
         }

@@ -21,6 +21,7 @@ import Link from "next/link"
 import { useSettings } from "@/lib/settings-context"
 import { useDashboardStore } from "@/stores/dashboard-store"
 import { useCreditStore } from "@/stores/credit-state"
+import { formatNumber } from "@/lib/helper"
 
 interface UploadStats {
     emailCount: number;
@@ -138,7 +139,7 @@ export function BulkUploadForm() {
                     if (Number.isFinite(current)) {
                         dash.setStats({
                             ...dash.stats,
-                            credits_remaining: Math.max(0, current - charged).toLocaleString(),
+                            credits_remaining: formatNumber(Math.max(0, current - charged)),
                         })
                     }
                     useCreditStore.getState().deductCredits(charged)

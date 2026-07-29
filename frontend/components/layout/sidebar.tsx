@@ -13,6 +13,7 @@ import { useUserStore } from "@/stores/user-state"
 import { useCreditStore } from "@/stores/credit-state"
 import { useDashboardStore } from "@/stores/dashboard-store"
 import { resetAllStores } from "@/stores/store-reset"
+import { formatNumber } from "@/lib/helper"
 import { SidebarNavigation } from "./sidebar/sidebar-navigation"
 import { SidebarProfile } from "./sidebar/sidebar-profile"
 
@@ -95,7 +96,7 @@ export function Sidebar({ className, defaultCollapsed = false }: SidebarProps) {
                             if (dash.stats) {
                                 dash.setStats({
                                     ...dash.stats,
-                                    credits_remaining: sessionUser.credits.toLocaleString(),
+                                    credits_remaining: formatNumber(sessionUser.credits),
                                 })
                             }
                         }

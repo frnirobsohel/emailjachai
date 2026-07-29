@@ -64,7 +64,8 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
     })
     const [justCopied, setJustCopied] = useState<string | number | null>(null)
     const [latestCreatedKey, setLatestCreatedKey] = useState<{ id: number; name: string; api_key: string } | null>(null)
-    const { stats: dashboardStats, fetchStats: fetchDashboardStats } = useDashboardStore()
+    const dashboardStats = useDashboardStore((s) => s.stats)
+    const fetchDashboardStats = useDashboardStore((s) => s.fetchStats)
 
     const activeKeysCount = keys.filter(k => k.status?.toLowerCase() === 'active').length;
     const isLimitReached = activeKeysCount >= 5;

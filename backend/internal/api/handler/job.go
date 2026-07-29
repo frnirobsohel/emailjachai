@@ -46,7 +46,7 @@ func (h *JobHandler) GetJobs(c *gin.Context) {
 
 	jobs, total, err := h.jobService.GetJobs(userID.(uint), jobType, limit, offset)
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch jobs", err.Error())
+		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch jobs", "ERR_FETCH_JOBS")
 		return
 	}
 	if jobs == nil {

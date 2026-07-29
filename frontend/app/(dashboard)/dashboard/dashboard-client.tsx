@@ -10,6 +10,8 @@ import { useDashboardStore, type DashboardStats, type RecentDashboardJob } from 
 import { ApiClient } from "@/lib/api-client"
 import { CreditBadge } from "@/features/dashboard/components/credit-badge"
 import { useUserStore } from "@/stores/user-state"
+import { useRealtimeStore } from "@/stores/realtime-store"
+import { cn } from "@/lib/utils"
 
 interface DashboardClientProps {
     initialStats: DashboardStats
@@ -17,8 +19,11 @@ interface DashboardClientProps {
 }
 
 export function DashboardClient({ initialStats, initialRecentJobs }: DashboardClientProps) {
-    const store = useDashboardStore()
+    const stats = useDashboardStore((s) => s.stats)
+    const setStats = useDashboardStore((s) => s.setStats)
+    const setRecentJobs = useDashboardStore((s) => s.setRecentJobs)
     const user = useUserStore((s) => s.user)
+    const isConnected = useRealtimeStore((s) => s.isConnected)
     const firstName = user?.name?.split(" ")[0] || "there"
 
     const fetchDashboardData = async () => {
@@ -28,10 +33,10 @@ export function DashboardClient({ initialStats, initialRecentJobs }: DashboardCl
                 ApiClient.get<{ jobs: RecentDashboardJob[]; total: number }>("/jobs/list?limit=4&type=all"),
             ])
             if (statsRes.status === "success" && statsRes.data) {
-                store.setStats(statsRes.data)
+                setStats(statsRes.data)
             }
             if (jobsRes.status === "success" && jobsRes.data) {
-                store.setRecentJobs(jobsRes.data.jobs || [])
+                setRecentJobs(jobsRes.data.jobs || [])
             }
         } catch (error) {
             console.error("Failed to fetch dashboard data client-side:", error)
@@ -39,16 +44,17 @@ export function DashboardClient({ initialStats, initialRecentJobs }: DashboardCl
     }
 
     useEffect(() => {
-        if (!store.stats) {
-            store.setStats(initialStats)
-            store.setRecentJobs(initialRecentJobs)
+        const current = useDashboardStore.getState()
+        if (!current.stats) {
+            setStats(initialStats)
+            setRecentJobs(initialRecentJobs)
         }
         // Mount-only refresh — avoid refetch loops when SSR props get new references
         void fetchDashboardData()
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    const currentStats = store.stats || initialStats
+    const currentStats = stats || initialStats
     const isLoadingStats = !currentStats
 
     return (
@@ -64,13 +70,34 @@ export function DashboardClient({ initialStats, initialRecentJobs }: DashboardCl
                 </div>
                 <div className="flex items-center gap-3">
                     <CreditBadge />
-                    <div className="flex items-center gap-2 rounded-md border border-[#0b1f1c]/10 bg-white/70 px-2.5 py-1.5">
+                    <div
+                        className={cn(
+                            "flex items-center gap-2 rounded-md border px-2.5 py-1.5",
+                            isConnected
+                                ? "border-[#0b1f1c]/10 bg-white/70"
+                                : "border-[#0b1f1c]/10 bg-[#f0f4f2]/80"
+                        )}
+                        title={isConnected ? "Realtime connected" : "Realtime disconnected"}
+                        aria-label={isConnected ? "Live updates connected" : "Live updates disconnected"}
+                    >
                         <span className="relative flex h-2 w-2">
-                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                            {isConnected && (
+                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                            )}
+                            <span
+                                className={cn(
+                                    "relative inline-flex h-2 w-2 rounded-full",
+                                    isConnected ? "bg-emerald-500" : "bg-[#8aa099]"
+                                )}
+                            />
                         </span>
-                        <span className="font-mono text-[10px] font-medium tracking-wider text-[#5a736c]">
-                            LIVE
+                        <span
+                            className={cn(
+                                "font-mono text-[10px] font-medium tracking-wider",
+                                isConnected ? "text-[#5a736c]" : "text-[#8aa099]"
+                            )}
+                        >
+                            {isConnected ? "LIVE" : "OFFLINE"}
                         </span>
                     </div>
                 </div>

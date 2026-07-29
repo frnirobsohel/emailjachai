@@ -1,4 +1,11 @@
 /**
+ * Format integers with en-US commas (matches backend helper.FormatNumber).
+ */
+export const formatNumber = (amount: number): string => {
+    return new Intl.NumberFormat('en-US').format(Math.trunc(amount));
+};
+
+/**
  * Format number to currency
  */
 export const formatCurrency = (amount: number): string => {

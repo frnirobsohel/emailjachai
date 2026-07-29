@@ -850,8 +850,11 @@ func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID u
 			Data: gin.H{
 				"job_id":          updatedJob.JobID,
 				"status":          updatedJob.Status,
+				"type":            updatedJob.JobType,
+				"filename":        updatedJob.Filename,
 				"total_emails":    updatedJob.TotalEmails,
 				"processed_count": updatedJob.ProcessedCount,
+				"created_at":      updatedJob.CreatedAt,
 				"deliverable":     updatedJob.Deliverable,
 				"undeliverable":   updatedJob.Undeliverable,
 				"risky":           updatedJob.Risky,

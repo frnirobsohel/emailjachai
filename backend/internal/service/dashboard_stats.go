@@ -50,8 +50,17 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 	}
 	jobsDaily := make([]dailyAgg, 0, 7)
 	deletedDaily := make([]dailyAgg, 0, 7)
-	var dbToday time.Time
 	var apiVerifications int64
+
+	// "Today" / weekly buckets use APP_TIMEZONE (default UTC), not the DB server's CURRENT_DATE.
+	loc := helper.AppLocation()
+	nowLocal := time.Now().In(loc)
+	todayLocal := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, loc)
+	startOfDayUTC := todayLocal.UTC()
+	weekStartUTC := todayLocal.AddDate(0, 0, -6).UTC()
+	todayDate := todayLocal.Format("2006-01-02")
+	weekStartDate := todayLocal.AddDate(0, 0, -6).Format("2006-01-02")
+	tzName := loc.String()
 
 	wg.Add(5)
 
@@ -84,7 +93,7 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 				SUM(processed_count) as total_verifications,
 				COUNT(CASE WHEN type = 'bulk' THEN 1 END) as total_jobs,
 				COUNT(CASE WHEN type = 'bulk' AND status IN ('pending', 'processing') THEN 1 END) as active_jobs,
-				SUM(CASE WHEN created_at >= CURRENT_DATE THEN processed_count ELSE 0 END) as today_verifications,
+				SUM(CASE WHEN created_at >= ? THEN processed_count ELSE 0 END) as today_verifications,
 				SUM(deliverable) as deliverable_total,
 				SUM(risky) as risky_total,
 				SUM(undeliverable) as undeliverable_total,
@@ -92,7 +101,7 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 				SUM(disposable) as disposable_total,
 				SUM(invalid_syntax) as invalid_syntax_total,
 				SUM(role_accounts) as role_accounts_total
-			`).
+			`, startOfDayUTC).
 			Where("user_id = ?", uID).
 			Scan(&jobSummary)
 	})
@@ -105,30 +114,25 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 		db := config.DB.WithContext(ctx)
 
 		db.Where("user_id = ?", uID).First(&deletedSummary)
-		db.Raw(`SELECT COALESCE(SUM(emails), 0) FROM deleted_job_daily_stats WHERE user_id = ? AND activity_date = CURRENT_DATE`, uID).Scan(&todayDeleted)
+		db.Raw(`SELECT COALESCE(SUM(emails), 0) FROM deleted_job_daily_stats WHERE user_id = ? AND activity_date = ?`, uID, todayDate).Scan(&todayDeleted)
 	})
 
-	// Goroutine 4: Weekly Activity & DB Time
+	// Goroutine 4: Weekly Activity (calendar days in APP_TIMEZONE)
 	safe.Go(func() {
 		defer wg.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		db := config.DB.WithContext(ctx)
 
-		db.Raw("SELECT CURRENT_DATE").Scan(&dbToday)
-		if dbToday.IsZero() {
-			dbToday = time.Now()
-		}
-
 		db.Raw(`
 			SELECT
-				TO_CHAR(created_at, 'YYYY-MM-DD') as day,
+				TO_CHAR((created_at AT TIME ZONE 'UTC') AT TIME ZONE ?, 'YYYY-MM-DD') as day,
 				COALESCE(SUM(processed_count), 0) as emails,
 				COALESCE(COUNT(*), 0) as jobs
 			FROM jobs
-			WHERE user_id = ? AND created_at >= CURRENT_DATE - INTERVAL '6 days'
-			GROUP BY TO_CHAR(created_at, 'YYYY-MM-DD')
-		`, uID).Scan(&jobsDaily)
+			WHERE user_id = ? AND created_at >= ?
+			GROUP BY TO_CHAR((created_at AT TIME ZONE 'UTC') AT TIME ZONE ?, 'YYYY-MM-DD')
+		`, tzName, uID, weekStartUTC, tzName).Scan(&jobsDaily)
 
 		db.Raw(`
 			SELECT
@@ -136,9 +140,9 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 				COALESCE(SUM(emails), 0) as emails,
 				COALESCE(SUM(jobs), 0) as jobs
 			FROM deleted_job_daily_stats
-			WHERE user_id = ? AND activity_date >= CURRENT_DATE - INTERVAL '6 days'
+			WHERE user_id = ? AND activity_date >= ?
 			GROUP BY activity_date
-		`, uID).Scan(&deletedDaily)
+		`, uID, weekStartDate).Scan(&deletedDaily)
 	})
 
 	// Goroutine 5: API Verifications count (Optimized single subquery instead of N+1 pluck + IN)
@@ -194,7 +198,7 @@ func ComputeAndCacheDashboardStats(uID uint) gin.H {
 
 	var weeklyActivity []gin.H
 	for i := 6; i >= 0; i-- {
-		d := dbToday.AddDate(0, 0, -i)
+		d := todayLocal.AddDate(0, 0, -i)
 		date := d.Format("2006-01-02")
 		dayName := d.Format("Mon")
 		stats := dailyMap[date]

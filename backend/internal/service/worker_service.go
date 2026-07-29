@@ -733,8 +733,11 @@ func (s *workerService) BroadcastJobUpdate(jobID string) {
 			Data: gin.H{
 				"job_id":          job.JobID,
 				"status":          job.Status,
+				"type":            job.JobType,
+				"filename":        job.Filename,
 				"total_emails":    job.TotalEmails,
 				"processed_count": job.ProcessedCount,
+				"created_at":      job.CreatedAt,
 				"deliverable":     job.Deliverable,
 				"undeliverable":   job.Undeliverable,
 				"risky":           job.Risky,

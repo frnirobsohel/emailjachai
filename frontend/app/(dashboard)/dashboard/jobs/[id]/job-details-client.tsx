@@ -15,8 +15,9 @@ export function JobDetailsClient({ initialJob }: { initialJob: JobDetails | null
     const router = useRouter()
     const jobId = params.id as string
 
-    const store = useJobsStore()
-    const job = store.currentJobDetails || initialJob
+    const currentJobDetails = useJobsStore((s) => s.currentJobDetails)
+    const setCurrentJobDetails = useJobsStore((s) => s.setCurrentJobDetails)
+    const job = currentJobDetails || initialJob
 
     const [isLoading, setIsLoading] = useState(false)
     const [isDeleting, setIsDeleting] = useState(false)
@@ -31,14 +32,14 @@ export function JobDetailsClient({ initialJob }: { initialJob: JobDetails | null
                 const jobData = 'job' in responseData && responseData.job
                     ? responseData.job
                     : (responseData as JobDetails);
-                store.setCurrentJobDetails(jobData);
+                setCurrentJobDetails(jobData);
             }
         } catch (error) {
             console.error("Failed to fetch job details:", error);
         } finally {
             setIsLoading(false);
         }
-    }, [jobId, store]);
+    }, [jobId, setCurrentJobDetails]);
 
     const handleRetryJob = async () => {
         setIsRetrying(true);

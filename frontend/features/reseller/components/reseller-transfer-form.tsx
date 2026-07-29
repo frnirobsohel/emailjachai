@@ -11,6 +11,7 @@ import { transferSchema, TransferFormValues } from "@/features/reseller/schemas/
 import { useSettings } from "@/lib/settings-context"
 import { useDashboardStore } from "@/stores/dashboard-store"
 import { useCreditStore } from "@/stores/credit-state"
+import { formatNumber } from "@/lib/helper"
 
 export function ResellerTransferForm() {
     const settings = useSettings()
@@ -44,7 +45,7 @@ export function ResellerTransferForm() {
                     if (Number.isFinite(current)) {
                         dash.setStats({
                             ...dash.stats,
-                            credits_remaining: Math.max(0, current - amount).toLocaleString(),
+                            credits_remaining: formatNumber(Math.max(0, current - amount)),
                         })
                     }
                     useCreditStore.getState().deductCredits(amount)

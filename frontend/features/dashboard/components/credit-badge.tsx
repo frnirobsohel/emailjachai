@@ -1,26 +1,21 @@
 "use client"
 
-import { useEffect } from "react"
 import { Coins } from "lucide-react"
 import Link from "next/link"
 import { useDashboardStore } from "@/stores/dashboard-store"
 import { useCreditStore } from "@/stores/credit-state"
+import { formatNumber } from "@/lib/helper"
 
 export function CreditBadge() {
     const creditsRemaining = useDashboardStore((s) => s.stats?.credits_remaining ?? null)
-    const fetchStats = useDashboardStore((s) => s.fetchStats)
     const isLoadingStats = useDashboardStore((s) => s.isLoadingStats)
     const balance = useCreditStore((s) => s.balance)
     const creditsReady = useCreditStore((s) => s.lastFetched != null)
 
-    // After hard reload the Zustand store is empty — pull stats ASAP
-    useEffect(() => {
-        void fetchStats()
-    }, [fetchStats])
-
+    // Display-only: stats are seeded by SSR/DashboardClient/sidebar/WS — avoid duplicate /dashboard/stats fetches
     const display =
         creditsRemaining ??
-        (creditsReady ? balance.toLocaleString() : null)
+        (creditsReady ? formatNumber(balance) : null)
 
     if (display == null) {
         return (

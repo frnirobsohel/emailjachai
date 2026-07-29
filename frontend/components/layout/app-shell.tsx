@@ -5,6 +5,8 @@ import { useEffect } from "react";
 import { useCreditStore } from "@/stores/credit-state";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { useDashboardWebSocket } from "@/hooks/use-dashboard-web-socket";
+import { useRealtimeStore } from "@/stores/realtime-store";
+import { formatNumber } from "@/lib/helper";
 import { logger } from "@/lib/logger";
 import { usePathname } from "next/navigation";
 
@@ -14,18 +16,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const isAppRoute = pathname?.startsWith('/dashboard') || pathname?.startsWith('/admin') || false;
     
     const { isConnected } = useSocket(isAppRoute);
+    const setConnected = useRealtimeStore((s) => s.setConnected);
     const { setBalance } = useCreditStore();
 
     // Call the dashboard WebSocket hook globally to ensure stats are updated in real-time
     useDashboardWebSocket();
 
-
-
-    // Keep dashboard credits fresh on every app-route mount (covers hard reload)
     useEffect(() => {
-        if (!isAppRoute || !pathname?.startsWith("/dashboard")) return
-        void useDashboardStore.getState().fetchStats()
-    }, [isAppRoute, pathname])
+        setConnected(isConnected);
+    }, [isConnected, setConnected]);
 
     useEffect(() => {
         // Handle credit updates globally via WebSocket (legacy/fallback)
@@ -51,7 +50,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 if (dashboardStore.stats) {
                     dashboardStore.setStats({
                         ...dashboardStore.stats,
-                        credits_remaining: data.credits.toLocaleString(),
+                        credits_remaining: formatNumber(data.credits),
                     });
                 } else {
                     void dashboardStore.fetchStats(true);
@@ -78,4 +77,3 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </>
     );
 }
-

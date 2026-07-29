@@ -39,10 +39,13 @@ import { useJobsWebSocket } from "@/hooks/use-jobs-web-socket"
  * Features include pagination, real-time progress bars, and secure job deletion.
  */
 export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], initialTotal: number }) {
-    const store = useJobsStore()
+    // Selectors only — never subscribe to the whole store (new object every set → #185 loop)
+    const storeJobs = useJobsStore((s) => s.jobs)
+    const storeTotal = useJobsStore((s) => s.total)
+    const setJobs = useJobsStore((s) => s.setJobs)
     // Fall back to server-side initialJobs during hydration render to prevent flickering
-    const jobs = store.jobs.length > 0 ? store.jobs : initialJobs;
-    const total = store.jobs.length > 0 ? store.total : initialTotal;
+    const jobs = storeJobs.length > 0 ? storeJobs : initialJobs
+    const total = storeJobs.length > 0 ? storeTotal : initialTotal
 
     const [isLoading, setIsLoading] = useState(false)
     const [isDeleting, setIsDeleting] = useState<string | null>(null)
@@ -57,7 +60,8 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
     const fetchJobs = async (silent = true) => {
         // Only show row skeletons when there is nothing on screen yet.
         // Silent refetch (mount/focus/pagination) keeps current rows — same as credit history.
-        const hasVisibleRows = (store.jobs.length > 0 ? store.jobs : initialJobs).length > 0
+        const currentJobs = useJobsStore.getState().jobs
+        const hasVisibleRows = (currentJobs.length > 0 ? currentJobs : initialJobs).length > 0
         if (!silent || !hasVisibleRows) {
             setIsLoading(true)
         }
@@ -65,7 +69,7 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
             const data = await ApiClient.get(`/jobs/list?limit=${limit}&offset=${offset}&type=bulk`);
             if (data.status === 'success') {
                 const responseData = data.data as { jobs: Job[], total: number }
-                store.setJobs(responseData.jobs || [], responseData.total || 0);
+                setJobs(responseData.jobs || [], responseData.total || 0);
             }
         } catch (error) {
             logger.error("Failed to fetch jobs:", error);
@@ -115,10 +119,10 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
 
     // Sync initial server-fetched jobs to the store on mount
     useEffect(() => {
-        if (initialJobs) {
-            store.setJobs(initialJobs, initialTotal);
-        }
-    }, [initialJobs, initialTotal, store]);
+        setJobs(initialJobs, initialTotal)
+        // Mount-only: SSR props are intentionally applied once
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     // Silent refetch on mount / page change — avoid skeleton flash when rows already exist
     useEffect(() => {
