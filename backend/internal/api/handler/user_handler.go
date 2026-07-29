@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/service"
@@ -36,7 +37,7 @@ func (h *UserHandler) DashboardHistory(c *gin.Context) {
 	if limitStr := c.Query("limit"); limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
 			if parsedLimit > 100 {
-				limit = 100 // Hard cap to prevent DoS via massive payload request
+				limit = 100
 			} else {
 				limit = parsedLimit
 			}
@@ -50,9 +51,16 @@ func (h *UserHandler) DashboardHistory(c *gin.Context) {
 		}
 	}
 
+	loc := time.UTC
+	if tz := strings.TrimSpace(c.Query("tz")); tz != "" {
+		if loaded, err := time.LoadLocation(tz); err == nil {
+			loc = loaded
+		}
+	}
+
 	txs, total, err := h.paymentService.GetTransactionHistory(userID, limit, offset)
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch history", err.Error())
+		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch history", "ERR_FETCH_HISTORY")
 		return
 	}
 
@@ -68,13 +76,18 @@ func (h *UserHandler) DashboardHistory(c *gin.Context) {
 			txnID = fmt.Sprintf("%d", tx.ID)
 		}
 
+		cost := "—"
+		if tx.Type == "purchase" || tx.Amount > 0 {
+			cost = fmt.Sprintf("$%.2f", tx.Amount)
+		}
+
 		formattedTransactions = append(formattedTransactions, map[string]interface{}{
 			"id":          txnID,
-			"date":        tx.CreatedAt.Format("2006-01-02 15:04:05"),
+			"date":        tx.CreatedAt.In(loc).Format("2006-01-02 15:04:05"),
 			"amount":      fmt.Sprintf("%s%d Credits", amountPrefix, tx.CreditsAdded),
 			"type":        toTitleCase(strings.ReplaceAll(tx.Type, "_", " ")),
 			"status":      toTitleCase(tx.Status),
-			"cost":        fmt.Sprintf("$%.2f", tx.Amount),
+			"cost":        cost,
 			"package":     tx.Package,
 			"description": tx.Description,
 		})

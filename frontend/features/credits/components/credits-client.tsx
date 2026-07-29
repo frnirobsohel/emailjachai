@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Check, Loader2, CreditCard, Bitcoin, X, ExternalLink } from "lucide-react"
 import { CreditBadge } from "@/features/dashboard/components/credit-badge"
 import { ApiClient } from "@/lib/api-client"
 import { toast } from "react-hot-toast"
+import { useConfigStore } from "@/stores/config-store"
 
 export interface Package {
     id: number;
@@ -28,15 +29,23 @@ interface BuyCreditsProps {
     };
 }
 
-import { useConfigStore } from "@/stores/config-store"
+function extractCheckoutURL(data: unknown): string | null {
+    if (!data || typeof data !== "object") return null
+    const d = data as Record<string, unknown>
+    for (const key of ["checkout_url", "approval_url", "payment_url"] as const) {
+        const v = d[key]
+        if (typeof v === "string" && v.length > 0) return v
+    }
+    return null
+}
 
 export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCreditsProps) {
     const packagesFromStore = useConfigStore((s) => s.packages)
     const settingsFromStore = useConfigStore((s) => s.settings)
     const isLoadingPackages = useConfigStore((s) => s.isLoadingPackages)
     const isLoadingSettings = useConfigStore((s) => s.isLoadingSettings)
+    const returnHandled = useRef(false)
 
-    // Seed from SSR once, then refresh only if store cache is empty
     useEffect(() => {
         const store = useConfigStore.getState()
         if (!store.packages) {
@@ -51,7 +60,6 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
         }
 
         const next = useConfigStore.getState()
-        // Only network-fetch when cache is still empty (avoids rate-limit loops)
         if (!next.packages || next.packages.length === 0) {
             void next.fetchPackages()
         }
@@ -59,6 +67,50 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
             void next.fetchSettings()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only seed + cache-aware fetch
+    }, [])
+
+    // Post-checkout return UX (Stripe / PayPal / Cryptomus)
+    useEffect(() => {
+        if (returnHandled.current || typeof window === "undefined") return
+        const params = new URLSearchParams(window.location.search)
+        const status = params.get("status")
+        if (!status) return
+        returnHandled.current = true
+
+        const clearParams = () => {
+            window.history.replaceState({}, "", "/dashboard/credits")
+        }
+
+        if (status === "cancelled") {
+            toast.error("Payment was cancelled.")
+            clearParams()
+            return
+        }
+
+        if (status === "success") {
+            const provider = params.get("provider")
+            const paypalToken = params.get("token")
+
+            if (provider === "paypal" && paypalToken) {
+                const toastId = toast.loading("Confirming PayPal payment…")
+                void ApiClient.post("/payment/paypal/capture", { order_id: paypalToken })
+                    .then((data) => {
+                        if (data.status === "success") {
+                            toast.success("Payment confirmed! Credits have been added.", { id: toastId })
+                        } else {
+                            toast.success("Payment received. Credits will appear shortly after confirmation.", { id: toastId })
+                        }
+                    })
+                    .catch(() => {
+                        toast.success("Payment submitted. Credits will appear shortly after confirmation.", { id: toastId })
+                    })
+                    .finally(clearParams)
+                return
+            }
+
+            toast.success("Payment successful! Credits will appear on your balance shortly.")
+            clearParams()
+        }
     }, [])
 
     const packages = packagesFromStore || initialPackages
@@ -74,82 +126,80 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
 
     const isLoading = isLoadingPackages || isLoadingSettings
 
-    // Payment modal state
     const [selectedPkg, setSelectedPkg] = useState<Package | null>(null)
-    const [paying, setPaying] = useState<'standard' | 'crypto' | 'stripe' | 'paypal' | null>(null)
-
+    const [paying, setPaying] = useState<"crypto" | "stripe" | "paypal" | null>(null)
 
     const handleCryptoPurchase = async () => {
-        if (!selectedPkg || paying) return;
-        setPaying('crypto');
+        if (!selectedPkg || paying) return
+        setPaying("crypto")
         try {
-            const data = await ApiClient.post('/payment/cryptomus/create', { package_id: selectedPkg.id });
-            const invoiceData = data.data as { payment_url?: string } | null;
-            if (data.status === 'success' && invoiceData?.payment_url) {
-                window.open(invoiceData.payment_url, '_blank');
-                setSelectedPkg(null);
-                toast.success("Crypto checkout opened in a new tab. Your credits will be added automatically after payment is confirmed.", { duration: 5000 });
+            const data = await ApiClient.post("/payment/cryptomus/create", { package_id: selectedPkg.id })
+            const url = extractCheckoutURL(data.data)
+            if (data.status === "success" && url) {
+                window.open(url, "_blank")
+                setSelectedPkg(null)
+                toast.success("Crypto checkout opened in a new tab. Credits are added after payment is confirmed.", { duration: 5000 })
             } else {
-                toast.error(data.message || "Failed to create crypto invoice.");
+                toast.error(data.message || "Failed to create crypto invoice.")
             }
         } catch (error) {
-            console.error("Crypto payment error:", error);
-            toast.error("An error occurred while creating the crypto invoice.");
+            console.error("Crypto payment error:", error)
+            toast.error("An error occurred while creating the crypto invoice.")
         } finally {
-            setPaying(null);
+            setPaying(null)
         }
     }
 
     const handleStripePurchase = async () => {
-        if (!selectedPkg || paying) return;
-        setPaying('stripe');
+        if (!selectedPkg || paying) return
+        setPaying("stripe")
         try {
-            const data = await ApiClient.post('/payment/stripe/create', { package_id: selectedPkg.id });
-            const sessionData = data.data as { checkout_url?: string } | null;
-            if (data.status === 'success' && sessionData?.checkout_url) {
-                window.location.href = sessionData.checkout_url;
+            const data = await ApiClient.post("/payment/stripe/create", { package_id: selectedPkg.id })
+            const url = extractCheckoutURL(data.data)
+            if (data.status === "success" && url) {
+                window.location.href = url
             } else {
-                toast.error(data.message || "Failed to create Stripe session.");
+                toast.error(data.message || "Failed to create Stripe session.")
+                setPaying(null)
             }
         } catch (error) {
-            console.error("Stripe payment error:", error);
-            toast.error("An error occurred while initiating Stripe payment.");
-        } finally {
-            setPaying(null);
+            console.error("Stripe payment error:", error)
+            toast.error("An error occurred while initiating Stripe payment.")
+            setPaying(null)
         }
     }
 
     const handlePaypalPurchase = async () => {
-        if (!selectedPkg || paying) return;
-        setPaying('paypal');
+        if (!selectedPkg || paying) return
+        setPaying("paypal")
         try {
-            const data = await ApiClient.post('/payment/paypal/create', { package_id: selectedPkg.id });
-            const orderData = data.data as { approval_url?: string } | null;
-            if (data.status === 'success' && orderData?.approval_url) {
-                window.location.href = orderData.approval_url;
+            const data = await ApiClient.post("/payment/paypal/create", { package_id: selectedPkg.id })
+            const url = extractCheckoutURL(data.data)
+            if (data.status === "success" && url) {
+                window.location.href = url
             } else {
-                toast.error(data.message || "Failed to create PayPal order.");
+                toast.error(data.message || "Failed to create PayPal order.")
+                setPaying(null)
             }
         } catch (error) {
-            console.error("PayPal payment error:", error);
-            toast.error("An error occurred while initiating PayPal payment.");
-        } finally {
-            setPaying(null);
+            console.error("PayPal payment error:", error)
+            toast.error("An error occurred while initiating PayPal payment.")
+            setPaying(null)
         }
     }
 
     const getFeatureList = (features: Package["features"]): string[] => {
-        if (Array.isArray(features)) return features;
+        if (Array.isArray(features)) return features
         if (typeof features === "string") {
             try {
-                const parsed = JSON.parse(features) as unknown;
-                return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+                const parsed = JSON.parse(features) as unknown
+                return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []
             } catch {
-                return [];
+                return []
             }
         }
-        return [];
-    };
+        return []
+    }
 
     return (
         <div className="flex-1 space-y-6">
@@ -165,7 +215,7 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
 
             <div className="grid gap-6 md:grid-cols-3 mt-8">
                 {packages.map((plan) => (
-                    <Card key={plan.id} className={`flex flex-col border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden ${plan.popular ? 'ring-2 ring-[#0f5c52] relative' : ''}`}>
+                    <Card key={plan.id} className={`flex flex-col border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden ${plan.popular ? "ring-2 ring-[#0f5c52] relative" : ""}`}>
                         {plan.popular && (
                             <div className="absolute top-0 right-0 bg-[#0f5c52] text-white text-[10px] font-bold px-2 py-1 uppercase tracking-wider rounded-bl-lg">
                                 Most Popular
@@ -225,11 +275,9 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
                 )}
             </div>
 
-            {/* Payment method modal */}
             {selectedPkg && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-2xl shadow-2xl border border-[#0b1f1c]/10 w-full max-w-md p-6 space-y-5 relative">
-                        {/* Close */}
                         <button
                             onClick={() => { if (!paying) setSelectedPkg(null) }}
                             className="absolute top-4 right-4 text-[#5a736c] hover:text-[#0f5c52] transition-colors"
@@ -240,15 +288,13 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
                         <div>
                             <h3 className="text-lg font-bold text-[#0b1f1c]">Choose Payment Method</h3>
                             <p className="text-sm text-[#5a736c] mt-1">
-                                Purchasing <span className="font-semibold text-[#0f5c52]">{selectedPkg.name}</span> —{' '}
-                                <span className="font-semibold">${parseFloat(selectedPkg.price).toFixed(2)}</span> for{' '}
+                                Purchasing <span className="font-semibold text-[#0f5c52]">{selectedPkg.name}</span> —{" "}
+                                <span className="font-semibold">${parseFloat(selectedPkg.price).toFixed(2)}</span> for{" "}
                                 <span className="font-semibold">{parseInt(selectedPkg.credits_amount.toString()).toLocaleString()} credits</span>
                             </p>
                         </div>
 
                         <div className="space-y-3">
-
-                            {/* Stripe — only shown if enabled */}
                             {stripeEnabled && (
                                 <button
                                     onClick={handleStripePurchase}
@@ -256,22 +302,19 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
                                     className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-indigo-100 hover:border-indigo-300 hover:bg-indigo-50/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed text-left"
                                 >
                                     <div className="p-2.5 bg-indigo-100 rounded-lg">
-                                        {paying === 'stripe' ? (
+                                        {paying === "stripe" ? (
                                             <Loader2 className="h-5 w-5 text-indigo-600 animate-spin" />
                                         ) : (
                                             <CreditCard className="h-5 w-5 text-indigo-600" />
                                         )}
                                     </div>
                                     <div className="flex-1">
-                                        <p className="font-semibold text-[#0b1f1c] flex items-center gap-1.5">
-                                            Pay with Card (Stripe)
-                                        </p>
+                                        <p className="font-semibold text-[#0b1f1c]">Pay with Card (Stripe)</p>
                                         <p className="text-xs text-[#5a736c]">Secure checkout via Stripe</p>
                                     </div>
                                 </button>
                             )}
 
-                            {/* PayPal — only shown if enabled */}
                             {paypalEnabled && (
                                 <button
                                     onClick={handlePaypalPurchase}
@@ -279,22 +322,19 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
                                     className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-blue-100 hover:border-blue-300 hover:bg-blue-50/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed text-left"
                                 >
                                     <div className="p-2.5 bg-blue-100 rounded-lg">
-                                        {paying === 'paypal' ? (
+                                        {paying === "paypal" ? (
                                             <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />
                                         ) : (
                                             <CreditCard className="h-5 w-5 text-blue-600" />
                                         )}
                                     </div>
                                     <div className="flex-1">
-                                        <p className="font-semibold text-[#0b1f1c] flex items-center gap-1.5">
-                                            Pay with PayPal
-                                        </p>
+                                        <p className="font-semibold text-[#0b1f1c]">Pay with PayPal</p>
                                         <p className="text-xs text-[#5a736c]">Fast and secure payment via PayPal</p>
                                     </div>
                                 </button>
                             )}
 
-                            {/* Cryptomus — only shown if enabled */}
                             {cryptomusEnabled && (
                                 <button
                                     onClick={handleCryptoPurchase}
@@ -302,7 +342,7 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
                                     className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-orange-100 hover:border-orange-300 hover:bg-orange-50/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed text-left"
                                 >
                                     <div className="p-2.5 bg-orange-100 rounded-lg">
-                                        {paying === 'crypto' ? (
+                                        {paying === "crypto" ? (
                                             <Loader2 className="h-5 w-5 text-orange-500 animate-spin" />
                                         ) : (
                                             <Bitcoin className="h-5 w-5 text-orange-500" />
@@ -317,6 +357,12 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
                                     </div>
                                     <span className="text-[10px] font-bold bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full uppercase tracking-wide">Crypto</span>
                                 </button>
+                            )}
+
+                            {!stripeEnabled && !paypalEnabled && !cryptomusEnabled && (
+                                <p className="text-sm text-center text-[#5a736c] py-4">
+                                    No payment methods are enabled right now. Please contact support.
+                                </p>
                             )}
                         </div>
 

@@ -50,7 +50,7 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
             }
 
             // Fetch Transactions
-            const txnsData = await ApiClient.get(`/dashboard/history?limit=${limit}&offset=${offset}`);
+            const txnsData = await ApiClient.get(withTimeZoneQuery(`/dashboard/history?limit=${limit}&offset=${offset}`));
             if (txnsData.status === 'success') {
                 const txnsResponse = txnsData.data as { transactions: Transaction[], total: number };
                 setTransactions(txnsResponse.transactions);

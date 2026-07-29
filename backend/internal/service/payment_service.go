@@ -8,7 +8,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,6 +22,7 @@ import (
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/ws"
+	"ejp-backend/pkg/logger"
 	"ejp-backend/pkg/safe"
 
 	"gorm.io/gorm"
@@ -29,7 +32,8 @@ import (
 type PaymentService interface {
 	ProcessWebhook(provider string, rawBody []byte, headers map[string]string) error
 	CreatePaymentSession(userID uint, packageID uint, provider string) (string, error)
-	VerifyPayment(transactionID string) (string, error)
+	VerifyPayment(userID uint, transactionID string) (string, error)
+	CapturePayPalOrder(userID uint, orderID string) error
 	GetTransactionHistory(userID uint, limit, offset int) ([]model.Transaction, int64, error)
 	GetTransactionSummary(userID uint) (int64, int64, error)
 }
@@ -179,6 +183,18 @@ func (s *paymentService) ProcessWebhook(provider string, rawBody []byte, headers
 			return err
 		}
 
+		if event.EventType == "CHECKOUT.ORDER.APPROVED" {
+			orderID, _ := event.Resource["id"].(string)
+			if orderID == "" {
+				return nil
+			}
+			if err := s.capturePayPalOrder(creds, orderID); err != nil {
+				logger.Error("PayPal capture after APPROVED failed", "order_id", orderID, "error", err)
+				return errors.New("PayPal capture failed")
+			}
+			return s.fulfillPaymentMapping("paypal_order_"+orderID, "PayPal")
+		}
+
 		if event.EventType == "PAYMENT.CAPTURE.COMPLETED" {
 			status, _ := event.Resource["status"].(string)
 			if status == "COMPLETED" {
@@ -261,10 +277,21 @@ func (s *paymentService) ProcessWebhook(provider string, rawBody []byte, headers
 func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provider string) (string, error) {
 	pkg, err := s.packageRepo.GetByID(packageID)
 	if err != nil || pkg == nil {
-		return "", fmt.Errorf("package not found")
+		return "", errors.New("package not found")
+	}
+	if pkg.Status != "active" || !pkg.IsPublic {
+		return "", errors.New("package not available")
+	}
+	if pkg.Price <= 0 || pkg.CreditsAmount <= 0 {
+		return "", errors.New("package not available for paid checkout")
 	}
 
-	txnID := fmt.Sprintf("st_%d_%d_%d", userID, packageID, time.Now().Unix())
+	// Expire abandoned pending purchase rows (24h+)
+	_ = s.txRepo.DB().Model(&model.Transaction{}).
+		Where("user_id = ? AND type = 'purchase' AND status = 'pending' AND created_at < ?", userID, time.Now().Add(-24*time.Hour)).
+		Update("status", "expired").Error
+
+	txnID := fmt.Sprintf("st_%d_%d_%d", userID, packageID, time.Now().UnixNano())
 	transaction := &model.Transaction{
 		UserID:        userID,
 		TransactionID: txnID,
@@ -278,19 +305,20 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 	}
 
 	if err := s.txRepo.Create(transaction); err != nil {
-		return "", fmt.Errorf("failed to initialize transaction: %v", err)
+		logger.Error("Failed to initialize payment transaction", "user_id", userID, "error", err)
+		return "", errors.New("failed to initialize transaction")
 	}
 
 	switch provider {
 	case "stripe":
 		creds := s.getStripeCredentials()
 		if creds == nil {
-			return "", fmt.Errorf("Stripe is not enabled")
+			return "", errors.New("Stripe is not enabled")
 		}
 
 		amountCents := int(pkg.Price * 100)
-		if amountCents < 0 {
-			amountCents = 0
+		if amountCents < 1 {
+			return "", errors.New("package not available for paid checkout")
 		}
 
 		form := url.Values{}
@@ -309,7 +337,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 
 		req, err := http.NewRequest("POST", "https://api.stripe.com/v1/checkout/sessions", strings.NewReader(form.Encode()))
 		if err != nil {
-			return "", err
+			return "", errors.New("failed to create payment session")
 		}
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.SetBasicAuth(creds.SecretKey, "")
@@ -317,32 +345,35 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		client := &http.Client{Timeout: 30 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
-			return "", err
+			logger.Error("Stripe session request failed", "error", err)
+			return "", errors.New("failed to create payment session")
 		}
 		defer resp.Body.Close()
 
 		var result map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			return "", err
+			return "", errors.New("failed to create payment session")
 		}
 
 		if errMsg, ok := result["error"].(map[string]interface{}); ok {
-			return "", fmt.Errorf("Stripe error: %v", errMsg["message"])
+			logger.Error("Stripe API error", "message", errMsg["message"])
+			return "", errors.New("failed to create payment session")
 		}
 
 		sessionID, ok := result["id"].(string)
 		if !ok {
-			return "", fmt.Errorf("Stripe returned invalid session ID")
+			return "", errors.New("failed to create payment session")
 		}
 
 		checkoutURL, ok := result["url"].(string)
 		if !ok {
-			return "", fmt.Errorf("Stripe returned invalid checkout URL")
+			return "", errors.New("failed to create payment session")
 		}
 
 		transaction.ExternalID = "stripe_session_" + sessionID
 		if err := s.txRepo.Update(transaction); err != nil {
-			return "", fmt.Errorf("failed to update transaction: %v", err)
+			logger.Error("Failed to update stripe transaction", "error", err)
+			return "", errors.New("failed to create payment session")
 		}
 
 		return checkoutURL, nil
@@ -350,12 +381,13 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 	case "paypal":
 		creds := s.getPayPalCredentials()
 		if creds == nil {
-			return "", fmt.Errorf("PayPal is not enabled")
+			return "", errors.New("PayPal is not enabled")
 		}
 
 		token, err := s.getPayPalToken(creds)
 		if err != nil {
-			return "", fmt.Errorf("PayPal auth failed: %v", err)
+			logger.Error("PayPal auth failed", "error", err)
+			return "", errors.New("PayPal is temporarily unavailable")
 		}
 
 		paypalURL := "https://api-m.paypal.com/v2/checkout/orders"
@@ -370,10 +402,17 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		type PurchaseUnit struct {
 			Amount      AmountStruct `json:"amount"`
 			Description string       `json:"description"`
+			CustomID    string       `json:"custom_id"`
+		}
+		type ApplicationContext struct {
+			ReturnURL  string `json:"return_url"`
+			CancelURL  string `json:"cancel_url"`
+			UserAction string `json:"user_action"`
 		}
 		type PayPalPayload struct {
-			Intent        string         `json:"intent"`
-			PurchaseUnits []PurchaseUnit `json:"purchase_units"`
+			Intent             string             `json:"intent"`
+			PurchaseUnits      []PurchaseUnit     `json:"purchase_units"`
+			ApplicationContext ApplicationContext `json:"application_context"`
 		}
 
 		payload := PayPalPayload{
@@ -385,18 +424,24 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 						Value:        fmt.Sprintf("%.2f", pkg.Price),
 					},
 					Description: pkg.Name + " Plan",
+					CustomID:    txnID,
 				},
+			},
+			ApplicationContext: ApplicationContext{
+				ReturnURL:  s.getBaseURL() + "/dashboard/credits?status=success&provider=paypal",
+				CancelURL:  s.getBaseURL() + "/dashboard/credits?status=cancelled",
+				UserAction: "PAY_NOW",
 			},
 		}
 
 		bodyBytes, err := json.Marshal(payload)
 		if err != nil {
-			return "", err
+			return "", errors.New("failed to create payment session")
 		}
 
 		req, err := http.NewRequest("POST", paypalURL, bytes.NewBuffer(bodyBytes))
 		if err != nil {
-			return "", err
+			return "", errors.New("failed to create payment session")
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -404,23 +449,26 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		client := &http.Client{Timeout: 30 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
-			return "", err
+			logger.Error("PayPal order request failed", "error", err)
+			return "", errors.New("failed to create payment session")
 		}
 		defer resp.Body.Close()
 
 		var result map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			return "", err
+			return "", errors.New("failed to create payment session")
 		}
 
 		paypalOrderID, ok := result["id"].(string)
 		if !ok {
-			return "", fmt.Errorf("PayPal order creation failed: %v", result)
+			logger.Error("PayPal order creation failed", "result", result)
+			return "", errors.New("failed to create payment session")
 		}
 
 		transaction.ExternalID = "paypal_order_" + paypalOrderID
 		if err := s.txRepo.Update(transaction); err != nil {
-			return "", fmt.Errorf("failed to update transaction: %v", err)
+			logger.Error("Failed to update paypal transaction", "error", err)
+			return "", errors.New("failed to create payment session")
 		}
 
 		var approvalURL string
@@ -428,7 +476,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 			for _, l := range links {
 				if linkMap, ok := l.(map[string]interface{}); ok {
 					if linkMap["rel"] == "approve" {
-						approvalURL = linkMap["href"].(string)
+						approvalURL, _ = linkMap["href"].(string)
 						break
 					}
 				}
@@ -436,7 +484,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		}
 
 		if approvalURL == "" {
-			return "", fmt.Errorf("PayPal returned no approval URL")
+			return "", errors.New("failed to create payment session")
 		}
 
 		return approvalURL, nil
@@ -444,10 +492,10 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 	case "cryptomus":
 		creds := s.getCryptomusCredentials()
 		if creds == nil {
-			return "", fmt.Errorf("Cryptomus is not enabled")
+			return "", errors.New("Cryptomus is not enabled")
 		}
 
-		orderID := fmt.Sprintf("order_%d_%d_%d", userID, packageID, time.Now().Unix())
+		orderID := fmt.Sprintf("order_%d_%d_%d", userID, packageID, time.Now().UnixNano())
 		amountStr := fmt.Sprintf("%.2f", pkg.Price)
 
 		type CryptomusPayload struct {
@@ -467,8 +515,8 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 			Currency:          "USD",
 			OrderID:           orderID,
 			URLCallback:       s.getBaseURL() + "/api/v1/payment/cryptomus/webhook",
-			URLSuccess:        s.getBaseURL() + "/dashboard/credits",
-			URLReturn:         s.getBaseURL() + "/dashboard/credits",
+			URLSuccess:        s.getBaseURL() + "/dashboard/credits?status=success&provider=cryptomus",
+			URLReturn:         s.getBaseURL() + "/dashboard/credits?status=cancelled",
 			IsPaymentMultiple: false,
 			Lifetime:          3600,
 			ToCurrency:        "USDT",
@@ -476,7 +524,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 
 		bodyBytes, err := json.Marshal(payload)
 		if err != nil {
-			return "", err
+			return "", errors.New("failed to create payment session")
 		}
 
 		b64Body := base64.StdEncoding.EncodeToString(bodyBytes)
@@ -484,7 +532,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 
 		req, err := http.NewRequest("POST", "https://api.cryptomus.com/v1/payment", bytes.NewBuffer(bodyBytes))
 		if err != nil {
-			return "", err
+			return "", errors.New("failed to create payment session")
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("merchant", creds.MerchantID)
@@ -493,53 +541,140 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		client := &http.Client{Timeout: 30 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
-			return "", err
+			logger.Error("Cryptomus payment request failed", "error", err)
+			return "", errors.New("failed to create payment session")
 		}
 		defer resp.Body.Close()
 
 		var result map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			return "", err
+			return "", errors.New("failed to create payment session")
 		}
 
 		stateVal, _ := result["state"].(float64)
 		if stateVal != 0 {
 			msg, _ := result["message"].(string)
-			return "", fmt.Errorf("Cryptomus error: %s", msg)
+			logger.Error("Cryptomus API error", "message", msg)
+			return "", errors.New("failed to create payment session")
 		}
 
 		resData, _ := result["result"].(map[string]interface{})
 		paymentURL, _ := resData["url"].(string)
 		if paymentURL == "" {
-			return "", fmt.Errorf("Cryptomus returned no payment URL")
+			return "", errors.New("failed to create payment session")
 		}
 
 		transaction.TransactionID = orderID
 		transaction.ExternalID = "cryptomus_order_" + orderID
 		if err := s.txRepo.Update(transaction); err != nil {
-			return "", fmt.Errorf("failed to update transaction: %v", err)
+			logger.Error("Failed to update cryptomus transaction", "error", err)
+			return "", errors.New("failed to create payment session")
 		}
 
 		return paymentURL, nil
 
 	case "manual":
 		if os.Getenv("GO_ENV") == "production" {
-			return "", fmt.Errorf("manual payment is disabled in production")
+			return "", errors.New("manual payment is disabled in production")
 		}
 		return fmt.Sprintf("/dashboard/billing/manual-success?package_id=%d&provider=manual&txid=%s", packageID, txnID), nil
 
 	default:
-		return "", fmt.Errorf("payment provider '%s' is not yet configured", provider)
+		return "", errors.New("payment provider is not configured")
 	}
 }
 
-func (s *paymentService) VerifyPayment(transactionID string) (string, error) {
+func (s *paymentService) VerifyPayment(userID uint, transactionID string) (string, error) {
 	tx, err := s.txRepo.GetByTransactionOrExternalID(transactionID)
 	if err != nil {
 		return "not_found", nil
 	}
+	if tx.UserID != userID {
+		return "not_found", nil
+	}
 
 	return tx.Status, nil
+}
+
+func (s *paymentService) CapturePayPalOrder(userID uint, orderID string) error {
+	orderID = strings.TrimSpace(orderID)
+	if orderID == "" {
+		return errors.New("order id required")
+	}
+
+	mapKey := "paypal_order_" + orderID
+	txn, err := s.txRepo.GetByExternalID(mapKey)
+	if err != nil || txn == nil || txn.UserID != userID {
+		return errors.New("payment not found")
+	}
+	if txn.Status == "completed" {
+		return nil
+	}
+	if txn.Status != "pending" && txn.Status != "expired" {
+		return errors.New("payment not found")
+	}
+
+	creds := s.getPayPalCredentials()
+	if creds == nil {
+		return errors.New("PayPal is not enabled")
+	}
+
+	if err := s.capturePayPalOrder(creds, orderID); err != nil {
+		logger.Error("PayPal capture failed", "order_id", orderID, "user_id", userID, "error", err)
+		return errors.New("PayPal capture failed")
+	}
+
+	return s.fulfillPaymentMapping(mapKey, "PayPal")
+}
+
+// capturePayPalOrder calls PayPal Orders Capture API.
+func (s *paymentService) capturePayPalOrder(creds *PayPalCredentials, orderID string) error {
+	token, err := s.getPayPalToken(creds)
+	if err != nil {
+		return err
+	}
+
+	captureURL := "https://api-m.paypal.com/v2/checkout/orders/" + orderID + "/capture"
+	if creds.TestMode {
+		captureURL = "https://api-m.sandbox.paypal.com/v2/checkout/orders/" + orderID + "/capture"
+	}
+
+	req, err := http.NewRequest("POST", captureURL, bytes.NewBuffer([]byte("{}")))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		// Idempotent: already captured is OK
+		var parsed map[string]interface{}
+		_ = json.Unmarshal(body, &parsed)
+		if name, ok := parsed["name"].(string); ok && (name == "ORDER_ALREADY_CAPTURED" || name == "UNPROCESSABLE_ENTITY") {
+			details, _ := parsed["details"].([]interface{})
+			for _, d := range details {
+				if dm, ok := d.(map[string]interface{}); ok {
+					if issue, _ := dm["issue"].(string); issue == "ORDER_ALREADY_CAPTURED" {
+						return nil
+					}
+				}
+			}
+			if name == "ORDER_ALREADY_CAPTURED" {
+				return nil
+			}
+		}
+		return fmt.Errorf("paypal capture status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
 }
 
 func (s *paymentService) completeManualPayment(payload interface{}) error {
@@ -740,14 +875,7 @@ func (s *paymentService) getPayPalToken(creds *PayPalCredentials) (string, error
 }
 
 func (s *paymentService) getCryptomusCredentials() *CryptomusCredentials {
-	var settings []model.Setting
-	s.settingsRepo.DB().Where("setting_key IN ?", []string{"cryptomus_enabled", "cryptomus_merchant_id", "cryptomus_payment_key"}).Find(&settings)
-
-	creds := make(map[string]string)
-	for _, s := range settings {
-		creds[s.SettingKey] = s.SettingValue
-	}
-
+	creds := s.getGatewaySettings("cryptomus")
 	if creds["cryptomus_enabled"] != "1" {
 		return nil
 	}
@@ -804,9 +932,22 @@ func verifyStripeSignature(payload []byte, sigHeader, secret string) bool {
 }
 
 func (s *paymentService) fulfillPaymentMapping(mapKey, gateway string) error {
+	var newlyFulfilled bool
+	var fulfilledTxn model.Transaction
+
 	err := s.txRepo.DB().Transaction(func(tx *gorm.DB) error {
 		var txn model.Transaction
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("external_id = ? AND status = 'pending'", mapKey).First(&txn).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("external_id = ? AND status IN ?", mapKey, []string{"pending", "expired"}).
+			First(&txn).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				var done model.Transaction
+				if e2 := tx.Where("external_id = ? AND status = 'completed'", mapKey).First(&done).Error; e2 == nil {
+					return nil // already fulfilled — ack without side effects
+				}
+				logger.Warn("Payment fulfill: no pending/completed txn for external_id", "external_id", mapKey, "gateway", gateway)
+				return nil
+			}
 			return err
 		}
 
@@ -831,26 +972,40 @@ func (s *paymentService) fulfillPaymentMapping(mapKey, gateway string) error {
 			return err
 		}
 
+		newlyFulfilled = true
+		fulfilledTxn = txn
 		return nil
 	})
 
-	if err == nil {
-		// Broadcast updated credit balance and refresh stats in background
-		var txn model.Transaction
-		if getErr := s.txRepo.DB().Where("external_id = ?", mapKey).First(&txn).Error; getErr == nil {
-			userIDCopy := txn.UserID
-			safe.Go(func() {
-				if user, getErr := s.userRepo.GetByID(userIDCopy); getErr == nil && user != nil {
-					ws.GlobalHub.BroadcastToUser(user.ID, "user_update", map[string]interface{}{
-						"credits": user.Credits,
-					})
-				}
-				InvalidateAndRefreshDashboardStats(userIDCopy)
-			})
-		}
+	if err != nil || !newlyFulfilled {
+		return err
 	}
 
-	return err
+	userIDCopy := fulfilledTxn.UserID
+	creditsCopy := fulfilledTxn.CreditsAdded
+	amountCopy := fulfilledTxn.Amount
+	txnRef := fulfilledTxn.TransactionID
+
+	safe.Go(func() {
+		if user, getErr := s.userRepo.GetByID(userIDCopy); getErr == nil && user != nil {
+			ws.GlobalHub.BroadcastToUser(user.ID, "user_update", map[string]interface{}{
+				"credits": user.Credits,
+			})
+			_ = s.emailService.SendTemplateEmail(user.Email, "buy_credits", map[string]string{
+				"name":     user.Name,
+				"credits":  fmt.Sprintf("%d", creditsCopy),
+				"order_id": txnRef,
+			})
+			_ = s.emailService.SendTemplateEmail(user.Email, "transaction", map[string]string{
+				"name":   user.Name,
+				"txn_id": txnRef,
+				"amount": fmt.Sprintf("%.2f", amountCopy),
+			})
+		}
+		InvalidateAndRefreshDashboardStats(userIDCopy)
+	})
+
+	return nil
 }
 
 // capitalize returns the string with the first letter uppercased.

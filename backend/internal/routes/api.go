@@ -180,6 +180,7 @@ func SetupRoutes(router *gin.Engine) {
 			// Compatibility endpoints for direct frontend gateway calls
 			protected.POST("/payment/stripe/create", paymentHandler.CreateSession)
 			protected.POST("/payment/paypal/create", paymentHandler.CreateSession)
+			protected.POST("/payment/paypal/capture", paymentHandler.CapturePayPal)
 			protected.POST("/payment/cryptomus/create", paymentHandler.CreateSession)
 
 			// Reseller
