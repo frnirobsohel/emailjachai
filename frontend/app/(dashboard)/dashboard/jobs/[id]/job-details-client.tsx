@@ -199,10 +199,12 @@ export function JobDetailsClient({ initialJob }: { initialJob: JobDetails | null
                         </Button>
                     )}
 
-                    <Button variant="destructive" onClick={handleDeleteJob} disabled={isDeleting} className="shadow-none">
-                        {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                        Delete Job
-                    </Button>
+                    {(job.status === "completed" || job.status === "failed") && (
+                        <Button variant="destructive" onClick={handleDeleteJob} disabled={isDeleting} className="shadow-none">
+                            {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                            Delete Job
+                        </Button>
+                    )}
                 </CardContent>
             </Card>
 

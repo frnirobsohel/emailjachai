@@ -212,18 +212,20 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
                                 <RefreshCcw className="mr-2 h-4 w-4 text-amber-600" /> Retry Job
                             </DropdownMenuItem>
                         )}
-                        {confirmDelete === job.job_id ? (
-                            <DropdownMenuItem onClick={() => handleDeleteJob(job.job_id)} className="text-rose-600 bg-rose-50 focus:bg-rose-100 font-bold">
-                                <Trash2 className="mr-2 h-4 w-4 animate-bounce" /> Confirm Delete
-                            </DropdownMenuItem>
-                        ) : (
-                            <DropdownMenuItem onClick={(e) => {
-                                e.preventDefault();
-                                setConfirmDelete(job.job_id);
-                                setTimeout(() => setConfirmDelete(null), 3000);
-                            }} className="text-rose-600">
-                                <Trash2 className="mr-2 h-4 w-4" /> Delete Job
-                            </DropdownMenuItem>
+                        {(job.status === "completed" || job.status === "failed") && (
+                            confirmDelete === job.job_id ? (
+                                <DropdownMenuItem onClick={() => handleDeleteJob(job.job_id)} className="text-rose-600 bg-rose-50 focus:bg-rose-100 font-bold">
+                                    <Trash2 className="mr-2 h-4 w-4 animate-bounce" /> Confirm Delete
+                                </DropdownMenuItem>
+                            ) : (
+                                <DropdownMenuItem onClick={(e) => {
+                                    e.preventDefault();
+                                    setConfirmDelete(job.job_id);
+                                    setTimeout(() => setConfirmDelete(null), 3000);
+                                }} className="text-rose-600">
+                                    <Trash2 className="mr-2 h-4 w-4" /> Delete Job
+                                </DropdownMenuItem>
+                            )
                         )}
                     </DropdownMenuContent>
                 </DropdownMenu>

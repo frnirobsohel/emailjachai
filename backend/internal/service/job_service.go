@@ -109,11 +109,16 @@ func (s *jobService) GetJobStatus(userID uint, jobID string) (*model.Job, *model
 func (s *jobService) DeleteJob(userID uint, jobID string) error {
 	job, err := s.jobRepo.GetByID(jobID)
 	if err != nil {
-		return err
+		return errors.New("job not found")
 	}
 
 	if job.UserID != userID {
-		return errors.New("unauthorized")
+		return errors.New("job not found")
+	}
+
+	// T&C: once a job has started it cannot be deleted until finished.
+	if job.Status != "completed" && job.Status != "failed" {
+		return errors.New("job can only be deleted after it has completed")
 	}
 
 	err = s.jobResultRepo.DeleteByJobID(job.ID)
@@ -1144,7 +1149,7 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 	creditsToDeduct := refundedCredits
 	if creditsToDeduct > 0 {
 		if user.Credits < creditsToDeduct {
-			return nil, fmt.Errorf("insufficient credits to retry. Need %d credits, have %d", creditsToDeduct, user.Credits)
+			return nil, errors.New("insufficient credits")
 		}
 	}
 
@@ -1234,6 +1239,8 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 	// 6. Enqueue tasks in parallel
 	var enqueuedCount int32
 	var enqueueErrors int32
+	var enqueuedAsynqIDs []string
+	var asynqIDsMu sync.Mutex
 	numWorkers := 10
 	chunksChan := make(chan int, len(savedTasks))
 	var wg sync.WaitGroup
@@ -1286,13 +1293,20 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 				if len(misses) > 0 {
 					task, err := tasks.NewEmailChunkTask(job.JobID, currentTask.ID, misses)
 					if err != nil {
+						logger.Error("Failed to build chunk task on retry", "job_id", job.JobID, "task_id", currentTask.ID, "error", err)
 						atomic.AddInt32(&enqueueErrors, 1)
 						continue
 					}
-					if _, err := config.AsynqClient.Enqueue(task, asynq.MaxRetry(3), asynq.Timeout(chunkTimeout)); err != nil {
+					info, err := config.AsynqClient.Enqueue(task, asynq.MaxRetry(3), asynq.Timeout(chunkTimeout))
+					if err != nil {
 						logger.Error("Failed to enqueue chunk task on retry", "job_id", job.JobID, "task_id", currentTask.ID, "error", err)
 						atomic.AddInt32(&enqueueErrors, 1)
 					} else {
+						if info != nil && info.ID != "" {
+							asynqIDsMu.Lock()
+							enqueuedAsynqIDs = append(enqueuedAsynqIDs, info.ID)
+							asynqIDsMu.Unlock()
+						}
 						atomic.AddInt32(&enqueuedCount, int32(len(misses)))
 					}
 				} else if len(hits) > 0 {
@@ -1307,6 +1321,22 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 	}
 	close(chunksChan)
 	wg.Wait()
+
+	finalEnqueuedCount := int(enqueuedCount)
+	finalEnqueueErrors := int(enqueueErrors)
+
+	if finalEnqueueErrors > 0 || finalEnqueuedCount == 0 {
+		s.cancelAsynqTasks(enqueuedAsynqIDs)
+		if creditsToDeduct > 0 {
+			_ = s.RefundJob(userID, job.JobID, creditsToDeduct, fmt.Sprintf("retry %d/%d failed to queue", finalEnqueueErrors, len(savedTasks)))
+		}
+		if updErr := s.jobRepo.DB().Model(job).Update("status", "failed").Error; updErr != nil {
+			logger.Error("Failed to mark job failed after retry enqueue failure", "job_id", job.JobID, "error", updErr)
+		}
+		return nil, errors.New("failed to queue some emails for processing. The entire job has been cancelled and credits refunded.")
+	}
+
+	job.Status = "pending"
 
 	// Update user credit update broadcast
 	if updatedUser, err := s.userRepo.GetByID(userID); err == nil {

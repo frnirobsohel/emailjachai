@@ -3,7 +3,9 @@ package handler
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"ejp-backend/internal/api/request"
 	"ejp-backend/internal/helper"
@@ -60,13 +62,13 @@ func (h *JobHandler) GetJobStatus(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	jobID := c.Query("jobId")
 	if jobID == "" {
-		helper.SendError(c, http.StatusBadRequest, "Job ID is required", "")
+		helper.SendError(c, http.StatusBadRequest, "Job ID is required", "ERR_JOB_ID_REQUIRED")
 		return
 	}
 
 	job, result, err := h.jobService.GetJobStatus(userID.(uint), jobID)
 	if err != nil {
-		helper.SendError(c, http.StatusNotFound, "Job not found", err.Error())
+		helper.SendError(c, http.StatusNotFound, "Job not found", "ERR_JOB_NOT_FOUND")
 		return
 	}
 	helper.SendSuccess(c, "Job status retrieved", gin.H{"job": job, "result": result})
@@ -148,16 +150,23 @@ func (h *JobHandler) DeleteJob(c *gin.Context) {
 		JobID string `json:"job_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		helper.SendError(c, http.StatusBadRequest, "Invalid request", err.Error())
+		helper.SendError(c, http.StatusBadRequest, "Invalid request", "ERR_INVALID_REQUEST")
 		return
 	}
 
 	if err := h.jobService.DeleteJob(userID.(uint), req.JobID); err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to delete job", err.Error())
+		switch err.Error() {
+		case "job not found":
+			helper.SendError(c, http.StatusNotFound, "Job not found", "ERR_JOB_NOT_FOUND")
+		case "job can only be deleted after it has completed":
+			helper.SendError(c, http.StatusConflict, "Started jobs cannot be deleted until they complete.", "ERR_JOB_DELETE_NOT_ALLOWED")
+		default:
+			helper.SendError(c, http.StatusInternalServerError, "Failed to delete job", "ERR_JOB_DELETE_FAILED")
+		}
 		return
 	}
 
-	// Cleanup ndjson file from filesystem after successful DB deletion
+	// Cleanup result + source files after successful DB deletion
 	jobIDCopy := req.JobID
 	safe.Go(func() {
 		jobID := jobIDCopy
@@ -166,6 +175,12 @@ func (h *JobHandler) DeleteJob(c *gin.Context) {
 			basePath = "./storage/results/bulk"
 		}
 		_ = storage.DeleteJobFile(basePath, jobID)
+
+		sourcePath := os.Getenv("BULK_SOURCE_PATH")
+		if sourcePath == "" {
+			sourcePath = "./storage/jobs/bulk"
+		}
+		_ = os.Remove(filepath.Join(sourcePath, jobID+"_source.txt"))
 	})
 
 	helper.SendSuccess(c, "Job deleted successfully", nil)
@@ -177,13 +192,27 @@ func (h *JobHandler) RetryJob(c *gin.Context) {
 		JobID string `json:"job_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		helper.SendError(c, http.StatusBadRequest, "Invalid request", err.Error())
+		helper.SendError(c, http.StatusBadRequest, "Invalid request", "ERR_INVALID_REQUEST")
 		return
 	}
 
 	job, err := h.jobService.RetryJob(userID.(uint), req.JobID)
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, err.Error(), "")
+		errStr := err.Error()
+		switch {
+		case errStr == "job not found":
+			helper.SendError(c, http.StatusNotFound, "Job not found", "ERR_JOB_NOT_FOUND")
+		case errStr == "only failed jobs can be retried":
+			helper.SendError(c, http.StatusBadRequest, "Only failed jobs can be retried.", "ERR_JOB_RETRY_NOT_ALLOWED")
+		case strings.Contains(errStr, "original source file not found"):
+			helper.SendError(c, http.StatusBadRequest, "Original source file not found. Please re-upload your list.", "ERR_SOURCE_MISSING")
+		case strings.Contains(errStr, "insufficient credits"):
+			helper.SendError(c, http.StatusPaymentRequired, "Insufficient credits to retry this job.", "ERR_INSUFFICIENT_CREDITS")
+		case strings.Contains(errStr, "failed to queue") || strings.Contains(errStr, "credits refunded"):
+			helper.SendError(c, http.StatusInternalServerError, "Failed to queue retry. Credits have been refunded.", "ERR_QUEUE_FAILED")
+		default:
+			helper.SendError(c, http.StatusInternalServerError, "Failed to retry job", "ERR_JOB_RETRY_FAILED")
+		}
 		return
 	}
 
