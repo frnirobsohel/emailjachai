@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"ejp-backend/internal/helper"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/storage"
 	"ejp-backend/pkg/logger"
@@ -48,6 +49,15 @@ func (h *JobHandler) DownloadJobResults(c *gin.Context) {
 	job, err := h.jobService.GetJobForUser(userID.(uint), jobIDStr)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
+		return
+	}
+
+	// X3: Downloads are controlled from Jobs — only after processing finished
+	status := strings.ToLower(strings.TrimSpace(job.Status))
+	if status != "completed" && status != "failed" {
+		helper.SendError(c, http.StatusConflict,
+			"Results are available after the job completes. Check Jobs for status.",
+			"ERR_JOB_NOT_READY")
 		return
 	}
 

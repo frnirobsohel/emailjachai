@@ -485,24 +485,18 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 		return nil, nil, fmt.Errorf("bulk jobs are limited to %d emails", maxLimit)
 	}
 
-	// 2. Check active jobs limit
+	// 2. Active jobs limit is enforced atomically inside CreateBulkJob
 	maxActiveJobs := 0
 	if activeSetting, err := s.settingsRepo.GetByKey("max_active_jobs_per_user"); err == nil {
 		if v, convErr := strconv.Atoi(activeSetting.SettingValue); convErr == nil && v > 0 {
 			maxActiveJobs = v
 		}
 	}
-	if maxActiveJobs > 0 {
-		activeJobsCount, err := s.jobRepo.CountActiveJobs(userID)
-		if err == nil && activeJobsCount >= int64(maxActiveJobs) {
-			return nil, nil, fmt.Errorf("you already have %d active jobs. limit is %d", activeJobsCount, maxActiveJobs)
-		}
-	}
 
-	// 3. Idempotency Check & Atomic Lock
+	// 3. Idempotency Check & Atomic Lock (scoped per user)
 	var lockReleased = false
-	if idempotencyKey != "" {
-		redisKey := fmt.Sprintf("idempotency:job:%s", idempotencyKey)
+	if idempotencyKey != "" && config.Redis != nil {
+		redisKey := fmt.Sprintf("idempotency:job:%d:%s", userID, idempotencyKey)
 		// We set it to "in_progress" with a 60 second TTL to prevent deadlocks in case of unexpected crashes
 		success, err := config.Redis.SetNX(config.Ctx, redisKey, "in_progress", 60*time.Second).Result()
 		if err != nil {
@@ -590,7 +584,7 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 		taskRecords = append(taskRecords, taskRecord)
 	}
 
-	job, savedTasks, err := s.jobRepo.CreateBulkJob(userID, legacyJobID, filename, totalEmails, invalidSyntax, queuedCount, taskRecords, apiKeyID)
+	job, savedTasks, err := s.jobRepo.CreateBulkJob(userID, legacyJobID, filename, totalEmails, invalidSyntax, queuedCount, taskRecords, apiKeyID, maxActiveJobs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -621,9 +615,12 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 	// Enqueue in parallel
 	var enqueuedCount int32
 	var enqueueErrors int32
+	var enqueuedAsynqIDs []string
+	var asynqIDsMu sync.Mutex
 	numWorkers := 10
 	chunksChan := make(chan int, len(savedTasks))
 	var wg sync.WaitGroup
+	chunkTimeout := s.getChunkTaskTimeout()
 
 	// Fetch cache retention policies ONCE — shared across all chunk goroutines
 	b2bRet, freeValidRet, freeInvalidRet := s.getCacheRetentionPolicies()
@@ -662,23 +659,36 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 					}
 				}
 
-				// 2. Process Hits
+				// 2. Process Hits — failures count as enqueue errors (H4)
 				if len(hits) > 0 {
-					s.processCacheHits(legacyJobID, job.ID, currentTask.ID, hits)
+					if err := s.processCacheHits(legacyJobID, job.ID, currentTask.ID, hits); err != nil {
+						logger.Error("Failed to persist cache hits", "job_id", legacyJobID, "task_id", currentTask.ID, "error", err)
+						atomic.AddInt32(&enqueueErrors, 1)
+						continue
+					}
 				}
 
 				// 3. Enqueue Misses
 				if len(misses) > 0 {
-					task, _ := tasks.NewEmailChunkTask(legacyJobID, currentTask.ID, misses)
-					if _, err := config.AsynqClient.Enqueue(task, asynq.MaxRetry(3)); err != nil {
+					task, err := tasks.NewEmailChunkTask(legacyJobID, currentTask.ID, misses)
+					if err != nil {
+						logger.Error("Failed to build chunk task", "job_id", legacyJobID, "task_id", currentTask.ID, "error", err)
+						atomic.AddInt32(&enqueueErrors, 1)
+						continue
+					}
+					info, err := config.AsynqClient.Enqueue(task, asynq.MaxRetry(3), asynq.Timeout(chunkTimeout))
+					if err != nil {
 						logger.Error("Failed to enqueue chunk task", "job_id", legacyJobID, "task_id", currentTask.ID, "error", err)
 						atomic.AddInt32(&enqueueErrors, 1)
 					} else {
+						if info != nil && info.ID != "" {
+							asynqIDsMu.Lock()
+							enqueuedAsynqIDs = append(enqueuedAsynqIDs, info.ID)
+							asynqIDsMu.Unlock()
+						}
 						atomic.AddInt32(&enqueuedCount, int32(len(misses)))
 					}
-				} else {
-					// All emails were cache hits, technically enqueued 0 misses, but we don't count it as an error.
-					// We can just increment enqueuedCount by the hits to avoid triggering the error refund below.
+				} else if len(hits) > 0 {
 					atomic.AddInt32(&enqueuedCount, int32(len(hits)))
 				}
 			}
@@ -695,6 +705,8 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 	finalEnqueueErrors := int(enqueueErrors)
 
 	if finalEnqueueErrors > 0 || finalEnqueuedCount == 0 {
+		// C1: delete already-queued Asynq tasks so workers do not process after refund
+		s.cancelAsynqTasks(enqueuedAsynqIDs)
 		_ = s.RefundJob(userID, legacyJobID, queuedCount, fmt.Sprintf("%d/%d failed to queue", finalEnqueueErrors, queuedCount))
 		return nil, nil, errors.New("failed to queue some emails for processing. The entire job has been cancelled and credits refunded.")
 	}
@@ -724,13 +736,65 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 	}
 
 	InvalidateAndRefreshDashboardStats(user.ID)
-	if idempotencyKey != "" {
-		redisKey := fmt.Sprintf("idempotency:job:%s", idempotencyKey)
+	if idempotencyKey != "" && config.Redis != nil {
+		redisKey := fmt.Sprintf("idempotency:job:%d:%s", userID, idempotencyKey)
 		config.Redis.Set(config.Ctx, redisKey, legacyJobID, 24*time.Hour)
 		lockReleased = true
 	}
 
 	return job, savedTasks, nil
+}
+
+func (s *jobService) cancelAsynqTasks(taskIDs []string) {
+	if len(taskIDs) == 0 || config.Redis == nil {
+		return
+	}
+	opt := config.Redis.Options()
+	inspector := asynq.NewInspector(asynq.RedisClientOpt{
+		Addr:     opt.Addr,
+		Password: opt.Password,
+		DB:       opt.DB,
+	})
+	defer inspector.Close()
+
+	queues := []string{"default", "critical", "low"}
+	for _, id := range taskIDs {
+		deleted := false
+		for _, q := range queues {
+			if err := inspector.DeleteTask(q, id); err == nil {
+				deleted = true
+				break
+			}
+		}
+		if !deleted {
+			logger.Warn("Failed to delete orphaned asynq task after enqueue failure", "task_id", id)
+		}
+	}
+}
+
+// getChunkTaskTimeout returns the Asynq per-chunk processing deadline from job-control
+// settings (task_timeout / task_timeout_minutes). Default 60m — same as admin seed.
+func (s *jobService) getChunkTaskTimeout() time.Duration {
+	const defaultMinutes = 60
+	minutes := defaultMinutes
+
+	if setting, err := s.settingsRepo.GetByKey("task_timeout"); err == nil {
+		if v, convErr := strconv.Atoi(setting.SettingValue); convErr == nil && v > 0 {
+			minutes = v
+		}
+	} else if setting, err := s.settingsRepo.GetByKey("task_timeout_minutes"); err == nil {
+		if v, convErr := strconv.Atoi(setting.SettingValue); convErr == nil && v > 0 {
+			minutes = v
+		}
+	}
+
+	if minutes < 1 {
+		minutes = 1
+	}
+	if minutes > 1440 {
+		minutes = 1440
+	}
+	return time.Duration(minutes) * time.Minute
 }
 
 func (s *jobService) RefundJob(userID uint, jobID string, credits int, reason string) error {
@@ -770,9 +834,9 @@ func (s *jobService) GetJobResultsRows(jobInternalID uint) (*sql.Rows, error) {
 	return s.jobRepo.GetJobResultsRows(jobInternalID)
 }
 
-func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID uint, hits []model.EmailCache) {
+func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID uint, hits []model.EmailCache) error {
 	if len(hits) == 0 {
-		return
+		return nil
 	}
 
 	deliverableInc := 0
@@ -875,7 +939,7 @@ func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID u
 
 	if err != nil {
 		logger.Error("processCacheHits failed DB transaction", "job", jobID, "error", err)
-		return
+		return err
 	}
 
 	// Async NDJSON append
@@ -940,6 +1004,7 @@ func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID u
 			},
 		}
 	}
+	return nil
 }
 
 var (
@@ -1172,6 +1237,7 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 	numWorkers := 10
 	chunksChan := make(chan int, len(savedTasks))
 	var wg sync.WaitGroup
+	chunkTimeout := s.getChunkTaskTimeout()
 
 	b2bRet, freeValidRet, freeInvalidRet := s.getCacheRetentionPolicies()
 
@@ -1209,19 +1275,27 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 
 				// Process Hits
 				if len(hits) > 0 {
-					s.processCacheHits(job.JobID, job.ID, currentTask.ID, hits)
+					if err := s.processCacheHits(job.JobID, job.ID, currentTask.ID, hits); err != nil {
+						logger.Error("Failed to persist cache hits on retry", "job_id", job.JobID, "task_id", currentTask.ID, "error", err)
+						atomic.AddInt32(&enqueueErrors, 1)
+						continue
+					}
 				}
 
 				// Enqueue Misses
 				if len(misses) > 0 {
-					task, _ := tasks.NewEmailChunkTask(job.JobID, currentTask.ID, misses)
-					if _, err := config.AsynqClient.Enqueue(task, asynq.MaxRetry(3)); err != nil {
+					task, err := tasks.NewEmailChunkTask(job.JobID, currentTask.ID, misses)
+					if err != nil {
+						atomic.AddInt32(&enqueueErrors, 1)
+						continue
+					}
+					if _, err := config.AsynqClient.Enqueue(task, asynq.MaxRetry(3), asynq.Timeout(chunkTimeout)); err != nil {
 						logger.Error("Failed to enqueue chunk task on retry", "job_id", job.JobID, "task_id", currentTask.ID, "error", err)
 						atomic.AddInt32(&enqueueErrors, 1)
 					} else {
 						atomic.AddInt32(&enqueuedCount, int32(len(misses)))
 					}
-				} else {
+				} else if len(hits) > 0 {
 					atomic.AddInt32(&enqueuedCount, int32(len(hits)))
 				}
 			}

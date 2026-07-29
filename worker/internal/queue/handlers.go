@@ -52,19 +52,9 @@ type WebhookDeliverPayload struct {
 	Payload map[string]interface{} `json:"payload"`
 }
 
-// HandleEmailVerifyTask processes a single email verification task
-func HandleEmailVerifyTask(ctx context.Context, t *asynq.Task) error {
-	var p EmailTaskPayload
-	if err := json.Unmarshal(t.Payload(), &p); err != nil {
-		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
-	}
-
-	logger.Info("Processing Single Job", zap.String("job_id", p.JobID), zap.String("email", p.Email))
-
-	res := engine.VerifyEmail(p.Email)
-
-	resultPayload := map[string]interface{}{
-		"email":           p.Email,
+func resultMap(email string, res engine.VerifyResult) map[string]interface{} {
+	return map[string]interface{}{
+		"email":           email,
 		"status":          res.Status,
 		"score":           res.Score,
 		"is_deliverable":  res.Deliverable,
@@ -83,8 +73,25 @@ func HandleEmailVerifyTask(ctx context.Context, t *asynq.Task) error {
 		"is_spam_trap":    res.IsSpamTrap,
 		"mailbox_full":    res.MailboxFull,
 	}
+}
 
-	return reporter.ReportBatchToAPI(p.JobID, p.TaskID, []map[string]interface{}{resultPayload})
+// HandleEmailVerifyTask processes a single email verification task
+func HandleEmailVerifyTask(ctx context.Context, t *asynq.Task) error {
+	var p EmailTaskPayload
+	if err := json.Unmarshal(t.Payload(), &p); err != nil {
+		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	logger.Info("Processing Single Job", zap.String("job_id", p.JobID), zap.Uint("task_id", p.TaskID))
+
+	res := engine.VerifyEmail(p.Email)
+	return reporter.ReportBatchToAPI(p.JobID, p.TaskID, []map[string]interface{}{resultMap(p.Email, res)})
 }
 
 // HandleEmailChunkTask processes an email chunk for bulk verification
@@ -103,50 +110,66 @@ func HandleEmailChunkTask(ctx context.Context, t *asynq.Task) error {
 	results := make([]map[string]interface{}, len(p.Emails))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	var firstErr error
 
 	// Bounded Semaphore to limit concurrent outgoing TCP connections per chunk.
-	// Max 100 concurrent verifications per chunk task.
 	sem := make(chan struct{}, 100)
 
 	for i, email := range p.Emails {
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			if firstErr == nil {
+				firstErr = ctx.Err()
+			}
+			return firstErr
+		default:
+		}
+
 		wg.Add(1)
-		sem <- struct{}{} // Acquire token (blocks if 100 are already running)
-		
+		sem <- struct{}{}
+
 		idx := i
 		emailAddr := email
 		safe.Go(func() {
 			defer wg.Done()
-			defer func() { <-sem }() // Release token
+			defer func() { <-sem }()
+
+			select {
+			case <-ctx.Done():
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = ctx.Err()
+				}
+				mu.Unlock()
+				return
+			default:
+			}
 
 			res := engine.VerifyEmail(emailAddr)
-			
+
 			mu.Lock()
-			results[idx] = map[string]interface{}{
-				"email":           emailAddr,
-				"status":          res.Status,
-				"score":           res.Score,
-				"is_deliverable":  res.Deliverable,
-				"is_catch_all":    res.CatchAll,
-				"is_disposable":   res.Status == "disposable",
-				"is_free":         res.IsFree,
-				"is_role":         res.IsRole,
-				"is_blacklisted":  res.IsBlacklisted,
-				"has_mx":          res.HasMX,
-				"mx_records":      res.MxRecords,
-				"reason":          res.Reason,
-				"time_taken":      res.ProcessingTime,
-				"smtp_connect":    res.SMTPConnect,
-				"user_exists":     res.Deliverable,
-				"is_syntax_valid": res.SyntaxValid,
-				"is_spam_trap":    res.IsSpamTrap,
-				"mailbox_full":    res.MailboxFull,
-			}
+			results[idx] = resultMap(emailAddr, res)
 			mu.Unlock()
 		})
 	}
-	
+
 	wg.Wait()
-	
+	if firstErr != nil {
+		return firstErr
+	}
+
+	// Fill any gaps left by cancellation races with unknown placeholders
+	for i, row := range results {
+		if row == nil {
+			results[i] = resultMap(p.Emails[i], engine.VerifyResult{
+				Status: "unknown",
+				Score:  35,
+				Reason: "cancelled",
+			})
+		}
+	}
+
 	return reporter.ReportBatchToAPI(p.JobID, p.TaskID, results)
 }
 
@@ -155,6 +178,12 @@ func HandleWebhookTask(ctx context.Context, t *asynq.Task) error {
 	var p WebhookDeliverPayload
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 	}
 
 	logger.Info("Delivering Webhook", zap.String("event", p.Event), zap.String("url", p.URL))
@@ -215,11 +244,11 @@ func HandleDeadLetterTask(ctx context.Context, t *asynq.Task, err error) {
 		var p EmailTaskPayload
 		if err := json.Unmarshal(t.Payload(), &p); err == nil {
 			failPayload := map[string]interface{}{
-				"email":          p.Email,
-				"status":         "unknown",
-				"score":          0,
-				"reason":         fmt.Sprintf("worker_failed: %v", err),
-				"time_taken":     0.0,
+				"email":      p.Email,
+				"status":     "unknown",
+				"score":      0,
+				"reason":     fmt.Sprintf("worker_failed: %v", err),
+				"time_taken": 0.0,
 			}
 			_ = reporter.ReportBatchToAPI(p.JobID, p.TaskID, []map[string]interface{}{failPayload})
 		}

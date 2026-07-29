@@ -60,12 +60,13 @@ func (h *JobHandler) SubmitBulkJob(c *gin.Context) {
 			return
 		}
 
-		// Perform MIME checks
+		// Perform MIME checks (octet-stream rejected — extension alone is not enough)
 		fileMime := strings.ToLower(fileHeader.Header.Get("Content-Type"))
-		if !strings.Contains(fileMime, "text/csv") &&
+		if fileMime != "" &&
+			!strings.Contains(fileMime, "text/csv") &&
 			!strings.Contains(fileMime, "text/plain") &&
-			!strings.Contains(fileMime, "application/vnd.ms-excel") &&
-			!strings.Contains(fileMime, "application/octet-stream") {
+			!strings.Contains(fileMime, "application/csv") &&
+			!strings.Contains(fileMime, "application/vnd.ms-excel") {
 			helper.SendError(c, http.StatusBadRequest, "Invalid file MIME type.", "ERR_INVALID_MIME")
 			return
 		}
@@ -109,24 +110,26 @@ func (h *JobHandler) SubmitBulkJob(c *gin.Context) {
 		}
 
 		errStr := err.Error()
-		if strings.Contains(errStr, "insufficient credits") {
+		switch {
+		case strings.Contains(errStr, "insufficient credits"):
 			helper.SendError(c, http.StatusPaymentRequired, "Insufficient credits for this job.", "ERR_INSUFFICIENT_CREDITS")
-			return
+		case strings.Contains(errStr, "active jobs"):
+			helper.SendError(c, http.StatusTooManyRequests, "Too many active jobs. Please wait for existing jobs to finish.", "ERR_ACTIVE_JOBS_LIMIT")
+		case strings.Contains(errStr, "limited to"):
+			helper.SendError(c, http.StatusBadRequest, "Email count exceeds the maximum allowed per job.", "ERR_LIMIT_EXCEEDED")
+		case strings.Contains(errStr, "job queue is temporarily unavailable"):
+			helper.SendError(c, http.StatusServiceUnavailable, "Job queue is temporarily unavailable. Please try again.", "ERR_QUEUE_DOWN")
+		case strings.Contains(errStr, "no valid emails"):
+			helper.SendError(c, http.StatusBadRequest, "No valid emails found in the upload.", "ERR_NO_VALID_EMAILS")
+		case strings.Contains(errStr, "idempotency key is already in progress"):
+			helper.SendError(c, http.StatusConflict, "A job with this idempotency key is already in progress.", "ERR_IDEMPOTENCY_IN_PROGRESS")
+		case strings.Contains(errStr, "duplicate request"):
+			helper.SendError(c, http.StatusConflict, "Duplicate job request.", "ERR_DUPLICATE_REQUEST")
+		case strings.Contains(errStr, "failed to queue") || strings.Contains(errStr, "credits refunded"):
+			helper.SendError(c, http.StatusInternalServerError, "Failed to queue job. Credits have been refunded.", "ERR_QUEUE_FAILED")
+		default:
+			helper.SendError(c, http.StatusInternalServerError, "Failed to submit job.", "ERR_SUBMIT_JOB")
 		}
-		if strings.Contains(errStr, "active jobs") {
-			helper.SendError(c, http.StatusTooManyRequests, errStr, "ERR_ACTIVE_JOBS_LIMIT")
-			return
-		}
-		if strings.Contains(errStr, "limited to") {
-			helper.SendError(c, http.StatusBadRequest, errStr, "ERR_LIMIT_EXCEEDED")
-			return
-		}
-		if strings.Contains(errStr, "job queue is temporarily unavailable") {
-			helper.SendError(c, http.StatusServiceUnavailable, errStr, "ERR_QUEUE_DOWN")
-			return
-		}
-
-		helper.SendError(c, http.StatusInternalServerError, errStr, "")
 		return
 	}
 
@@ -147,24 +150,24 @@ func extractEmailsWithSourceCount(file multipart.File, maxLimit int) ([]string, 
 	count := 0
 	seen := make(map[string]bool)
 	scanner := bufio.NewScanner(file)
-	
+
 	// Expand scanner buffer to support lines up to 1MB (default is 64KB)
 	scannerBuf := make([]byte, 0, 64*1024)
 	scanner.Buffer(scannerBuf, 1*1024*1024)
-	
+
 	// Create a replacer for common delimiters
 	r := strings.NewReplacer(",", " ", ";", " ", "\t", " ", "|", " ")
-	
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		
+
 		// Split by any of the delimiters
 		cleanedLine := r.Replace(line)
 		parts := strings.Fields(cleanedLine)
-		
+
 		for _, part := range parts {
 			email := strings.ToLower(strings.TrimSpace(part))
 			if email != "" {
@@ -188,6 +191,3 @@ func extractEmailsWithSourceCount(file multipart.File, maxLimit int) ([]string, 
 	}
 	return emails, count
 }
-
-
-

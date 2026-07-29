@@ -13,7 +13,6 @@ import {
     Clock,
     FileCheck,
     Eye,
-    Download,
     Loader2,
     CheckCircle2
 } from "lucide-react"
@@ -24,11 +23,17 @@ import { useCreditStore } from "@/stores/credit-state"
 import { formatNumber } from "@/lib/helper"
 
 interface UploadStats {
-    emailCount: number;
-    duplicateCount: number;
-    jobId: string;
-    fileName: string;
-    fileSize: number;
+    emailCount: number
+    duplicateCount: number
+    jobId: string
+    fileName: string
+    fileSize: number
+}
+
+function parseCreditsRemaining(value: string | number | undefined | null): number | null {
+    if (value == null) return null
+    const n = Number(String(value).replace(/,/g, ""))
+    return Number.isFinite(n) ? n : null
 }
 
 export function BulkUploadForm() {
@@ -36,11 +41,12 @@ export function BulkUploadForm() {
     const isMaintenance = settings?.maintenance_mode === "1"
     const [isDragOver, setIsDragOver] = useState(false)
     const [isUploading, setIsUploading] = useState(false)
-    const [uploadProgress, setUploadProgress] = useState(0)
     const [uploadStats, setUploadStats] = useState<UploadStats | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const isSubmittingRef = useRef(false)
+    const idempotencyKeyRef = useRef<string | null>(null)
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault()
@@ -55,65 +61,91 @@ export function BulkUploadForm() {
     const handleFileSelect = useCallback((file?: File | null) => {
         setError(null)
         setUploadStats(null)
+        idempotencyKeyRef.current = null
 
         if (!file) {
             return
         }
 
-        const normalizedName = (file.name || '').toLowerCase()
-        const mimeType = file.type || ''
-        const allowedTypes = ['text/csv', 'text/plain', 'application/csv']
-        if (!allowedTypes.includes(mimeType) && !normalizedName.endsWith('.csv') && !normalizedName.endsWith('.txt')) {
-            setError('Please upload a CSV or TXT file only.')
+        const normalizedName = (file.name || "").toLowerCase()
+        const mimeType = file.type || ""
+        const allowedTypes = ["text/csv", "text/plain", "application/csv"]
+        if (
+            !allowedTypes.includes(mimeType) &&
+            !normalizedName.endsWith(".csv") &&
+            !normalizedName.endsWith(".txt")
+        ) {
+            setError("Please upload a CSV or TXT file only.")
             return
         }
 
         if (file.size > 200 * 1024 * 1024) {
-            setError('File size must be less than 200MB.')
+            setError("File size must be less than 200MB.")
             return
         }
 
         setSelectedFile(file)
+        // Stable key for this file selection (retries reuse the same key)
+        idempotencyKeyRef.current =
+            typeof crypto !== "undefined" && "randomUUID" in crypto
+                ? crypto.randomUUID()
+                : `${file.name}:${file.size}:${file.lastModified}`
     }, [])
 
-    const handleDrop = useCallback((e: React.DragEvent) => {
-        e.preventDefault()
-        setIsDragOver(false)
+    const handleDrop = useCallback(
+        (e: React.DragEvent) => {
+            e.preventDefault()
+            setIsDragOver(false)
 
-        const files = Array.from(e.dataTransfer.files)
-        if (files.length > 0) {
-            handleFileSelect(files[0])
-        }
-    }, [handleFileSelect])
+            const files = Array.from(e.dataTransfer.files)
+            if (files.length > 0) {
+                handleFileSelect(files[0])
+            }
+        },
+        [handleFileSelect]
+    )
 
     const handleUpload = async () => {
-        if (!selectedFile) return
+        if (!selectedFile || isMaintenance || isSubmittingRef.current) return
 
+        const dash = useDashboardStore.getState()
+        const creditStore = useCreditStore.getState()
+        const available =
+            parseCreditsRemaining(dash.stats?.credits_remaining) ??
+            (Number.isFinite(creditStore.balance) ? creditStore.balance : null)
+
+        // Soft preflight: large uploads need at least 1 credit; exact count known after parse
+        if (available != null && available < 1) {
+            setError("Insufficient credits. Please buy credits before uploading.")
+            return
+        }
+
+        isSubmittingRef.current = true
         setIsUploading(true)
-        setUploadProgress(0)
         setError(null)
 
+        const idempotencyKey =
+            idempotencyKeyRef.current ||
+            (typeof crypto !== "undefined" && "randomUUID" in crypto
+                ? crypto.randomUUID()
+                : `${selectedFile.name}:${selectedFile.size}:${Date.now()}`)
+        idempotencyKeyRef.current = idempotencyKey
+
         try {
-            const formData = new FormData();
-            formData.append('file', selectedFile);
-            const clickTimestamp = Date.now();
-            formData.append('idempotencyKey', `${selectedFile.name}:${selectedFile.size}:${selectedFile.lastModified}:${clickTimestamp}`);
+            const formData = new FormData()
+            formData.append("file", selectedFile)
+            formData.append("idempotencyKey", idempotencyKey)
 
-            setUploadProgress(20);
-
-            const response = await fetch('/next-api/proxy/jobs/submit-file', {
-                method: 'POST',
+            const response = await fetch("/next-api/proxy/jobs/submit-file", {
+                method: "POST",
                 body: formData,
-            });
+            })
 
-            setUploadProgress(80);
-
-            const result = await response.json();
-            if (!response.ok || result.status !== 'success') {
-                throw new Error(result.message || "Failed to submit job to API");
+            const result = await response.json()
+            if (!response.ok || result.status !== "success") {
+                throw new Error(result.message || "Failed to submit job to API")
             }
 
-            setUploadProgress(100);
             const data = result.data as {
                 total?: number
                 queued?: number
@@ -121,19 +153,24 @@ export function BulkUploadForm() {
                 jobId: string
                 is_duplicate?: boolean
             }
+
+            const queued = Math.max(0, data.queued ?? data.total ?? 0)
+            if (!data.is_duplicate && available != null && queued > available) {
+                // Backend would have rejected; keep message clear if somehow returned
+                setError(`This job needs ${queued.toLocaleString()} credits but you have ${available.toLocaleString()}.`)
+                return
+            }
+
             setUploadStats({
                 emailCount: data.total ?? 0,
                 duplicateCount: data.duplicates_removed ?? 0,
                 jobId: data.jobId,
                 fileName: selectedFile.name,
-                fileSize: selectedFile.size
-            });
+                fileSize: selectedFile.size,
+            })
 
-            // Credits are deducted for queued emails on submit — refresh UI immediately
-            // (same stale Redis stats cache issue as single verify). Skip debit on idempotent replay.
             if (!data.is_duplicate) {
-                const charged = Math.max(0, data.queued ?? data.total ?? 0)
-                const dash = useDashboardStore.getState()
+                const charged = queued
                 if (charged > 0 && dash.stats?.credits_remaining != null) {
                     const current = Number(String(dash.stats.credits_remaining).replace(/,/g, ""))
                     if (Number.isFinite(current)) {
@@ -156,25 +193,27 @@ export function BulkUploadForm() {
                 void dash.fetchStats(true)
             }
 
-        } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : "An unexpected error occurred during upload.");
-        } finally {
-            setIsUploading(false)
+            idempotencyKeyRef.current = null
             setSelectedFile(null)
+            if (fileInputRef.current) fileInputRef.current.value = ""
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An unexpected error occurred during upload.")
+        } finally {
+            isSubmittingRef.current = false
+            setIsUploading(false)
         }
     }
 
     const formatFileSize = (bytes: number) => {
-        if (bytes === 0) return '0 Bytes'
+        if (bytes === 0) return "0 Bytes"
         const k = 1024
-        const sizes = ['Bytes', 'KB', 'MB', 'GB']
+        const sizes = ["Bytes", "KB", "MB", "GB"]
         const i = Math.floor(Math.log(bytes) / Math.log(k))
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
     }
 
     return (
         <div className="grid gap-6 lg:grid-cols-2">
-            {/* Upload Section */}
             <Card className="overflow-hidden border-[#0b1f1c]/10 bg-white/90 shadow-none">
                 <CardHeader className="border-b border-[#0b1f1c]/8 bg-[#f0f4f2]/60">
                     <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
@@ -189,20 +228,22 @@ export function BulkUploadForm() {
                     <div
                         className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
                             isMaintenance
-                                ? 'border-amber-200 bg-amber-50/10 cursor-not-allowed opacity-80'
+                                ? "border-amber-200 bg-amber-50/10 cursor-not-allowed opacity-80"
                                 : isDragOver
-                                    ? 'border-[#0f5c52] bg-[#0f5c52]/5 cursor-pointer'
-                                    : 'border-[#0b1f1c]/15 hover:border-[#0f5c52]/50 hover:bg-[#f0f4f2]/40 cursor-pointer'
-                            }`}
+                                  ? "border-[#0f5c52] bg-[#0f5c52]/5 cursor-pointer"
+                                  : "border-[#0b1f1c]/15 hover:border-[#0f5c52]/50 hover:bg-[#f0f4f2]/40 cursor-pointer"
+                        }`}
                         onDragOver={isMaintenance ? undefined : handleDragOver}
                         onDragLeave={isMaintenance ? undefined : handleDragLeave}
                         onDrop={isMaintenance ? undefined : handleDrop}
-                        onClick={() => !isMaintenance && !selectedFile && !isUploading && fileInputRef.current?.click()}
+                        onClick={() =>
+                            !isMaintenance && !selectedFile && !isUploading && fileInputRef.current?.click()
+                        }
                     >
                         <input
                             ref={fileInputRef}
                             type="file"
-                            accept=".csv,.txt"
+                            accept=".csv,.txt,text/csv,text/plain"
                             onChange={(e) => {
                                 const file = e.target.files?.[0]
                                 if (file) {
@@ -222,9 +263,7 @@ export function BulkUploadForm() {
                                 </div>
                                 <div>
                                     <p className="font-medium text-[#0b1f1c]">{selectedFile.name}</p>
-                                    <p className="text-sm text-[#5a736c]">
-                                        {formatFileSize(selectedFile.size)}
-                                    </p>
+                                    <p className="text-sm text-[#5a736c]">{formatFileSize(selectedFile.size)}</p>
                                 </div>
                                 <Button
                                     variant="outline"
@@ -233,6 +272,7 @@ export function BulkUploadForm() {
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         setSelectedFile(null)
+                                        idempotencyKeyRef.current = null
                                         if (fileInputRef.current) fileInputRef.current.value = ""
                                     }}
                                 >
@@ -243,8 +283,12 @@ export function BulkUploadForm() {
                         ) : (
                             <div className="space-y-4">
                                 <div className="flex items-center justify-center">
-                                    <div className={`p-3 rounded-full ${isMaintenance ? 'bg-amber-100' : 'bg-[#0f5c52]/10 hover:bg-[#0f5c52]/15'} transition-colors`}>
-                                        <Upload className={`h-8 w-8 ${isMaintenance ? 'text-amber-500' : 'text-[#0f5c52]'} transition-colors`} />
+                                    <div
+                                        className={`p-3 rounded-full ${isMaintenance ? "bg-amber-100" : "bg-[#0f5c52]/10 hover:bg-[#0f5c52]/15"} transition-colors`}
+                                    >
+                                        <Upload
+                                            className={`h-8 w-8 ${isMaintenance ? "text-amber-500" : "text-[#0f5c52]"} transition-colors`}
+                                        />
                                     </div>
                                 </div>
                                 <div>
@@ -252,7 +296,9 @@ export function BulkUploadForm() {
                                         {isMaintenance ? "File Upload Disabled" : "Drag and drop or click to browse"}
                                     </p>
                                     <p className="text-sm text-[#5a736c]">
-                                        {isMaintenance ? settings?.maintenance_message || "System is undergoing maintenance" : "CSV or TXT files up to 200MB"}
+                                        {isMaintenance
+                                            ? settings?.maintenance_message || "System is undergoing maintenance"
+                                            : "CSV or TXT files up to 200MB"}
                                     </p>
                                 </div>
                             </div>
@@ -269,7 +315,7 @@ export function BulkUploadForm() {
                                 {isUploading ? (
                                     <>
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        Uploading...
+                                        Uploading & queuing...
                                     </>
                                 ) : (
                                     <>
@@ -290,7 +336,6 @@ export function BulkUploadForm() {
                 </CardContent>
             </Card>
 
-            {/* Upload Information Panel */}
             <Card className="h-fit overflow-hidden border-[#0b1f1c]/10 bg-white/90 shadow-none">
                 <CardHeader className="border-b border-[#0b1f1c]/8 bg-[#f0f4f2]/60">
                     <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
@@ -298,56 +343,58 @@ export function BulkUploadForm() {
                         Processing Status
                     </CardTitle>
                     <CardDescription className="text-[#5a736c]">
-                        {uploadStats ? 'Upload completed successfully' : 'Real-time processing updates'}
+                        {uploadStats ? "Upload completed successfully" : "Queue status after upload"}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6">
                     {isUploading ? (
-                        <div className="space-y-4 py-4">
-                            <div className="space-y-2">
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-[#0b1f1c] font-medium">Upload Progress</span>
-                                    <span className="text-[#0f5c52] font-bold">{Math.round(uploadProgress)}%</span>
-                                </div>
-                                <div className="relative h-2 w-full overflow-hidden rounded-full bg-[#e4ece9]">
-                                    <div
-                                        className="h-full bg-[#0f5c52] transition-all rounded-full"
-                                        style={{ width: `${uploadProgress}%` }}
-                                    />
-                                </div>
-                            </div>
-                            <div className="text-sm text-[#5a736c] animate-pulse flex items-center gap-2">
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                                Analyzing records and preparing for queue...
+                        <div className="space-y-4 py-8 text-center">
+                            <Loader2 className="mx-auto h-8 w-8 animate-spin text-[#0f5c52]" />
+                            <div>
+                                <p className="text-sm font-medium text-[#0b1f1c]">Uploading and preparing queue…</p>
+                                <p className="mt-1 text-xs text-[#5a736c]">
+                                    Large files may take a minute to parse. Please keep this tab open.
+                                </p>
                             </div>
                         </div>
                     ) : uploadStats ? (
                         <div className="space-y-4">
-                            {/* Success Banner */}
                             <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-100 rounded-lg">
                                 <CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0" />
                                 <div>
                                     <p className="text-sm font-semibold text-emerald-800">Upload Successful!</p>
-                                    <p className="text-xs text-emerald-600">{uploadStats.fileName} is now queued for processing.</p>
+                                    <p className="text-xs text-emerald-600">
+                                        {uploadStats.fileName} is queued. Download is available from Jobs when
+                                        processing finishes.
+                                    </p>
                                 </div>
                             </div>
 
                             <div className="grid gap-2">
                                 <div className="flex items-center justify-between p-2 bg-[#f0f4f2]/60 rounded-md border border-[#0b1f1c]/8">
                                     <span className="text-sm font-medium text-[#3d564f]">Email Count:</span>
-                                    <Badge variant="outline" className="bg-white border-[#0f5c52]/25 text-[#0f5c52] font-bold">
+                                    <Badge
+                                        variant="outline"
+                                        className="bg-white border-[#0f5c52]/25 text-[#0f5c52] font-bold"
+                                    >
                                         {uploadStats.emailCount.toLocaleString()}
                                     </Badge>
                                 </div>
                                 <div className="flex items-center justify-between p-2 bg-[#f0f4f2]/60 rounded-md border border-[#0b1f1c]/8">
                                     <span className="text-sm font-medium text-[#3d564f]">Duplicates Removed:</span>
-                                    <Badge variant="outline" className="bg-white border-amber-200 text-amber-700 font-bold">
+                                    <Badge
+                                        variant="outline"
+                                        className="bg-white border-amber-200 text-amber-700 font-bold"
+                                    >
                                         {uploadStats.duplicateCount.toLocaleString()}
                                     </Badge>
                                 </div>
                                 <div className="flex items-center justify-between p-2 bg-[#f0f4f2]/60 rounded-md border border-[#0b1f1c]/8">
                                     <span className="text-sm font-medium text-[#3d564f]">Job ID:</span>
-                                    <Badge variant="secondary" className="bg-[#f0f4f2] text-[#3d564f] font-mono text-[10px]">
+                                    <Badge
+                                        variant="secondary"
+                                        className="bg-[#f0f4f2] text-[#3d564f] font-mono text-[10px]"
+                                    >
                                         #{uploadStats.jobId.substring(0, 12)}...
                                     </Badge>
                                 </div>
@@ -359,18 +406,16 @@ export function BulkUploadForm() {
                                 </div>
                             </div>
 
-                            <div className="flex gap-2">
-                                <Button variant="outline" size="sm" asChild className="flex-1 border-[#0f5c52]/25 text-[#0f5c52] hover:bg-[#0f5c52]/5">
-                                    <Link href="/dashboard/jobs">
-                                        <Eye className="mr-2 h-4 w-4" /> View Jobs
-                                    </Link>
-                                </Button>
-                                <Button variant="outline" size="sm" asChild className="flex-1 border-[#0f5c52]/25 text-[#0f5c52] hover:bg-[#0f5c52]/5">
-                                    <a href={`/next-api/proxy/jobs/download?jobId=${uploadStats.jobId}&format=csv`} target="_blank" rel="noopener noreferrer">
-                                        <Download className="mr-2 h-4 w-4" /> Download
-                                    </a>
-                                </Button>
-                            </div>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                asChild
+                                className="w-full border-[#0f5c52]/25 text-[#0f5c52] hover:bg-[#0f5c52]/5"
+                            >
+                                <Link href="/dashboard/jobs">
+                                    <Eye className="mr-2 h-4 w-4" /> View Jobs & Download
+                                </Link>
+                            </Button>
 
                             <Button
                                 variant="ghost"

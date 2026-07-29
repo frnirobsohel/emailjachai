@@ -196,10 +196,16 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
                             <Eye className="mr-2 h-4 w-4 text-[#5a736c]" /> Job Details
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem asChild>
-                            <a href={`/next-api/proxy/jobs/download?jobId=${job.job_id}&format=csv`} target="_blank" rel="noopener noreferrer">
-                                <Download className="mr-2 h-4 w-4 text-[#5a736c]" /> Download
-                            </a>
+                        <DropdownMenuItem asChild disabled={job.status !== "completed" && job.status !== "failed"}>
+                            {job.status === "completed" || job.status === "failed" ? (
+                                <a href={`/next-api/proxy/jobs/download?jobId=${job.job_id}&format=csv`} target="_blank" rel="noopener noreferrer">
+                                    <Download className="mr-2 h-4 w-4 text-[#5a736c]" /> Download
+                                </a>
+                            ) : (
+                                <span className="flex items-center px-2 py-1.5 text-sm text-[#8aa099] cursor-not-allowed">
+                                    <Download className="mr-2 h-4 w-4" /> Download (wait until complete)
+                                </span>
+                            )}
                         </DropdownMenuItem>
                         {job.status === "failed" && (
                             <DropdownMenuItem onClick={() => handleRetryJob(job.job_id)} disabled={isRetrying === job.job_id}>

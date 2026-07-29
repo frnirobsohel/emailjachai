@@ -7,12 +7,28 @@ import (
 	"net/smtp"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/patrickmn/go-cache"
 )
+
+const (
+	defaultSMTPVerifyTimeout = 45 * time.Second
+	smtpDialTimeout          = 8 * time.Second
+	smtpIODeadline           = 10 * time.Second
+)
+
+func smtpVerifyTimeout() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("SMTP_VERIFY_TIMEOUT_SEC")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			return time.Duration(parsed) * time.Second
+		}
+	}
+	return defaultSMTPVerifyTimeout
+}
 
 type VerifyResult struct {
 	Status         string // "valid", "invalid", "catch_all", "unknown", "disposable"
@@ -35,8 +51,8 @@ type VerifyResult struct {
 
 // DomainCache stores domain policies fetched from API
 type DomainCache struct {
-	mu        sync.RWMutex
-	domains   map[string]string // domain -> type
+	mu      sync.RWMutex
+	domains map[string]string // domain -> type
 }
 
 var Cache = &DomainCache{
@@ -49,13 +65,13 @@ var MXCache = cache.New(1*time.Hour, 2*time.Hour)
 func (c *DomainCache) Update(data []map[string]interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	newDomains := make(map[string]string)
 	for _, item := range data {
 		domain, ok1 := item["domain"].(string)
 		dType, ok2 := item["type"].(string)
 		excluded, _ := item["excluded"].(float64)
-		
+
 		if ok1 && ok2 && excluded == 0 {
 			newDomains[strings.ToLower(domain)] = dType
 		}
@@ -99,8 +115,9 @@ func randomString(n int) string {
 
 func VerifyEmail(email string) VerifyResult {
 	start := time.Now()
-	email = strings.TrimSpace(email)
-	
+	deadline := start.Add(smtpVerifyTimeout())
+	email = strings.ToLower(strings.TrimSpace(email))
+
 	result := VerifyResult{
 		Status:      "unknown",
 		SyntaxValid: false,
@@ -119,8 +136,8 @@ func VerifyEmail(email string) VerifyResult {
 		return result
 	}
 
-	user := strings.ToLower(parts[0])
-	domain := strings.ToLower(parts[1])
+	user := parts[0]
+	domain := parts[1]
 	result.SyntaxValid = true
 
 	// Check domain policy
@@ -204,8 +221,14 @@ func VerifyEmail(email string) VerifyResult {
 		if i >= 5 {
 			break
 		}
+		if time.Now().After(deadline) {
+			result.Status = "unknown"
+			result.Reason = "timeout"
+			result.DetailedError = "verification deadline exceeded"
+			return result
+		}
 		host := strings.TrimSuffix(mx.Host, ".")
-		res := probeSMTP(host, domain, email)
+		res := probeSMTP(host, domain, email, deadline)
 		if res.Connected {
 			result.SMTPConnect = true
 			if res.Accepted {
@@ -254,7 +277,7 @@ type smtpProbe struct {
 	MailboxFull bool
 }
 
-func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
+func probeSMTP(mxHost, domain, fullEmail string, deadline time.Time) smtpProbe {
 	res := smtpProbe{}
 	hostname, _ := os.Hostname()
 	if hostname == "" {
@@ -263,25 +286,46 @@ func probeSMTP(mxHost, domain, fullEmail string) smtpProbe {
 		hostname = hostname + ".local"
 	}
 
-	conn, err := net.DialTimeout("tcp", mxHost+":25", 8*time.Second)
-	if err != nil { return res }
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return res
+	}
+	dialTimeout := smtpDialTimeout
+	if remaining < dialTimeout {
+		dialTimeout = remaining
+	}
+
+	conn, err := net.DialTimeout("tcp", mxHost+":25", dialTimeout)
+	if err != nil {
+		return res
+	}
 	defer conn.Close()
-	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+	ioDeadline := time.Now().Add(smtpIODeadline)
+	if ioDeadline.After(deadline) {
+		ioDeadline = deadline
+	}
+	if err := conn.SetDeadline(ioDeadline); err != nil {
 		return res
 	}
 
 	res.Connected = true
 	client, err := smtp.NewClient(conn, mxHost)
-	if err != nil { return res }
+	if err != nil {
+		return res
+	}
 	defer func() {
 		_ = conn.SetDeadline(time.Now().Add(1 * time.Second))
 		_ = client.Quit()
 		_ = client.Close()
 	}()
 
-	if err = client.Hello(hostname); err != nil { return res }
+	if err = client.Hello(hostname); err != nil {
+		return res
+	}
 	// Legacy Parity: Use Null Sender (<>) for verification probes
-	if err = client.Mail(""); err != nil { return res }
+	if err = client.Mail(""); err != nil {
+		return res
+	}
 
 	err = client.Rcpt(fullEmail)
 	if err == nil {

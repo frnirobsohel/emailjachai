@@ -2,10 +2,10 @@ package repo
 
 import (
 	"database/sql"
-	"errors"
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
 	"ejp-backend/pkg/config"
+	"errors"
 	"fmt"
 	"time"
 
@@ -22,7 +22,7 @@ type JobRepository interface {
 	Delete(jobID string, userID uint) error
 	GetStats(userID uint) (map[string]interface{}, error)
 	CountActiveJobs(userID uint) (int64, error)
-	CreateBulkJob(userID uint, jobID string, filename string, totalEmails int, invalidSyntaxCount int, queuedCount int, taskRecords []model.JobTask, apiKeyID *uint) (*model.Job, []model.JobTask, error)
+	CreateBulkJob(userID uint, jobID string, filename string, totalEmails int, invalidSyntaxCount int, queuedCount int, taskRecords []model.JobTask, apiKeyID *uint, maxActiveJobs int) (*model.Job, []model.JobTask, error)
 	RefundBulkJob(userID uint, jobID string, refundCredits int, description string) error
 	ClaimTask(serverName string, taskTimeoutMinutes int) (*model.JobTask, error)
 	GetJobForUser(userID uint, jobID string) (*model.Job, error)
@@ -82,7 +82,7 @@ func (r *jobRepository) List(userID uint, jobType string, limit int, offset int)
 	var jobs []model.Job
 	var total int64
 	query := r.db.Model(&model.Job{}).Where("user_id = ?", userID)
-	
+
 	if jobType != "" && jobType != "all" {
 		query = query.Where("type = ?", jobType)
 	}
@@ -134,10 +134,10 @@ func (r *jobRepository) GetStats(userID uint) (map[string]interface{}, error) {
 		TotalJobs          int64 `json:"total_jobs"`
 		TotalVerifications int64 `json:"total_verifications"`
 	}
-	
+
 	// Use Unscoped() to include soft-deleted jobs in lifetime totals
 	err := r.db.Unscoped().Model(&model.Job{}).Where("user_id = ?", userID).Select("COUNT(*) as total_jobs, COALESCE(SUM(total_emails), 0) as total_verifications").Scan(&stats).Error
-	
+
 	return map[string]interface{}{
 		"total_jobs":          stats.TotalJobs,
 		"total_verifications": stats.TotalVerifications,
@@ -150,11 +150,24 @@ func (r *jobRepository) CountActiveJobs(userID uint) (int64, error) {
 	return count, err
 }
 
-func (r *jobRepository) CreateBulkJob(userID uint, jobID string, filename string, totalEmails int, invalidSyntaxCount int, queuedCount int, taskRecords []model.JobTask, apiKeyID *uint) (*model.Job, []model.JobTask, error) {
+func (r *jobRepository) CreateBulkJob(userID uint, jobID string, filename string, totalEmails int, invalidSyntaxCount int, queuedCount int, taskRecords []model.JobTask, apiKeyID *uint, maxActiveJobs int) (*model.Job, []model.JobTask, error) {
 	var job model.Job
 	var savedTasks []model.JobTask
 
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		// 0. Active-jobs limit inside the same txn (avoids concurrent bypass)
+		if maxActiveJobs > 0 {
+			var activeCount int64
+			if err := tx.Model(&model.Job{}).
+				Where("user_id = ? AND type = 'bulk' AND status IN ('pending', 'processing')", userID).
+				Count(&activeCount).Error; err != nil {
+				return err
+			}
+			if activeCount >= int64(maxActiveJobs) {
+				return fmt.Errorf("you already have %d active jobs. limit is %d", activeCount, maxActiveJobs)
+			}
+		}
+
 		// 1. Atomic credit deduction
 		result := tx.Model(&model.User{}).
 			Where("id = ? AND credits >= ?", userID, queuedCount).
@@ -175,7 +188,7 @@ func (r *jobRepository) CreateBulkJob(userID uint, jobID string, filename string
 			CreditsAdded:  -queuedCount,
 			Type:          "bulk_verify",
 			Status:        "completed",
-			Description:   fmt.Sprintf("Bulk verification: %s (%d emails)", filename, queuedCount),
+			Description:   fmt.Sprintf("Bulk verification (%d emails)", queuedCount),
 		}
 		if err := tx.Create(&transaction).Error; err != nil {
 			return err
@@ -223,6 +236,11 @@ func (r *jobRepository) CreateBulkJob(userID uint, jobID string, filename string
 func (r *jobRepository) RefundBulkJob(userID uint, jobID string, refundCredits int, description string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&model.Job{}).Where("job_id = ?", jobID).Update("status", "failed").Error; err != nil {
+			return err
+		}
+		// Stop workers from claiming/reporting orphaned chunk tasks after refund
+		if err := tx.Model(&model.JobTask{}).Where("job_id = ?", jobID).
+			Update("status", "failed").Error; err != nil {
 			return err
 		}
 

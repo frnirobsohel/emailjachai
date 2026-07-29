@@ -80,6 +80,13 @@ func (s *settingsService) UpdateSettings(updates map[string]string, adminID uint
 		if err := s.repo.Update(k, v); err != nil {
 			return err
 		}
+
+		// X1: keep legacy twin in sync so ClaimTask / old readers never diverge
+		if k == "task_timeout" {
+			if err := s.repo.Update("task_timeout_minutes", v); err != nil {
+				return err
+			}
+		}
 	}
 
 	s.logActivity("INFO", "Admin", "System settings updated", adminID)

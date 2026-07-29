@@ -100,11 +100,22 @@ func (s *workerService) ClaimTask(serverName string) (*model.JobTask, error) {
 		return nil, fmt.Errorf("worker server '%s' is not enabled or not registered", serverName)
 	}
 
-	taskTimeoutMinutes := 10
-	if timeoutSetting, err := s.settingsRepo.GetByKey("task_timeout_minutes"); err == nil {
+	taskTimeoutMinutes := 60
+	if timeoutSetting, err := s.settingsRepo.GetByKey("task_timeout"); err == nil {
 		if v, convErr := helper.SafeAtoi(timeoutSetting.SettingValue); convErr == nil && v > 0 {
 			taskTimeoutMinutes = v
 		}
+	} else if timeoutSetting, err := s.settingsRepo.GetByKey("task_timeout_minutes"); err == nil {
+		// Legacy twin key — Job Control writes task_timeout; keep fallback for old DBs
+		if v, convErr := helper.SafeAtoi(timeoutSetting.SettingValue); convErr == nil && v > 0 {
+			taskTimeoutMinutes = v
+		}
+	}
+	if taskTimeoutMinutes < 1 {
+		taskTimeoutMinutes = 1
+	}
+	if taskTimeoutMinutes > 1440 {
+		taskTimeoutMinutes = 1440
 	}
 
 	return s.jobRepo.ClaimTask(serverName, taskTimeoutMinutes)
@@ -186,6 +197,9 @@ func (s *workerService) ReportTaskResult(payload *WorkerReportPayload) (*model.J
 			Where("job_id = ?", jobID).
 			First(&job).Error; err != nil {
 			return err
+		}
+		if job.Status == "failed" || job.Status == "cancelled" {
+			return fmt.Errorf("job %s is %s; ignoring results", jobID, job.Status)
 		}
 
 		// Idempotency: ignore duplicates for same job+email
@@ -508,6 +522,9 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 			First(&job).Error; err != nil {
 			return err
 		}
+		if job.Status == "failed" || job.Status == "cancelled" {
+			return fmt.Errorf("job %s is %s; ignoring results", jobID, job.Status)
+		}
 
 		var task model.JobTask
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -516,6 +533,9 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 			return err
 		}
 		// Fix 3: Check task status and worker ownership
+		if task.Status == "failed" || task.Status == "cancelled" {
+			return fmt.Errorf("task %d is %s; ignoring results", task.ID, task.Status)
+		}
 		if task.Status != "processing" && task.Status != "queued" {
 			return fmt.Errorf("task %d is not in processing or queued state (current: %s)", task.ID, task.Status)
 		}
@@ -759,7 +779,7 @@ func (s *workerService) BroadcastJobUpdate(jobID string) {
 				}
 				go NewEmailService(repo.NewSystemRepo()).SendTemplateEmail(user.Email, "job_completed", map[string]string{
 					"name":          user.Name,
-					"job_id":         job.JobID,
+					"job_id":        job.JobID,
 					"download_link": fmt.Sprintf("%s/dashboard/jobs/%s/download", frontendURL, job.JobID),
 				})
 			}

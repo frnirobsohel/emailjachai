@@ -171,16 +171,26 @@ export function JobDetailsClient({ initialJob }: { initialJob: JobDetails | null
                     <CardDescription className="text-[#5a736c]">Manage this specific batch job.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex gap-4 pt-6">
-                    <a
-                        href={`/next-api/proxy/jobs/download?jobId=${job.job_id}&format=csv`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                    >
-                        <Button className="rounded-md border border-[#08352f] bg-[#0f5c52] text-white shadow-none hover:bg-[#0b4a42]">
+                    {job.status === "completed" || job.status === "failed" ? (
+                        <a
+                            href={`/next-api/proxy/jobs/download?jobId=${job.job_id}&format=csv`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            <Button className="rounded-md border border-[#08352f] bg-[#0f5c52] text-white shadow-none hover:bg-[#0b4a42]">
+                                <Download className="mr-2 h-4 w-4" />
+                                Download Results
+                            </Button>
+                        </a>
+                    ) : (
+                        <Button
+                            disabled
+                            className="rounded-md border border-[#0b1f1c]/15 bg-[#f0f4f2] text-[#8aa099] shadow-none"
+                        >
                             <Download className="mr-2 h-4 w-4" />
-                            Download Results
+                            Download (processing…)
                         </Button>
-                    </a>
+                    )}
 
                     {job.status === "failed" && (
                         <Button onClick={handleRetryJob} disabled={isRetrying || isDeleting} className="bg-amber-600 hover:bg-amber-700 text-white shadow-none">
