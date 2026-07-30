@@ -3,8 +3,10 @@ package handler
 import (
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -87,12 +89,27 @@ func (h *AdminHandler) StartAdminStatsBroadcaster() {
 }
 
 func (h *AdminHandler) GetAllUsers(c *gin.Context) {
-	users, err := h.adminService.GetAllUsers()
+	page := 1
+	limit := 25
+	if v := strings.TrimSpace(c.Query("page")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			page = n
+		}
+	}
+	if v := strings.TrimSpace(c.Query("limit")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	q := c.Query("q")
+	role := c.Query("role")
+
+	result, err := h.adminService.ListUsers(q, role, page, limit)
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch users", err.Error())
+		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch users.", "ERR_ADMIN_USERS")
 		return
 	}
-	helper.SendSuccess(c, "Users retrieved", users)
+	helper.SendSuccess(c, "Users retrieved", result)
 }
 
 func (h *AdminHandler) UserAction(c *gin.Context) {
@@ -107,13 +124,13 @@ func (h *AdminHandler) UserAction(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Invalid request body.", "ERR_INVALID_REQUEST")
 		return
 	}
 
 	err := h.adminService.UserAction(input.Action, input.TargetUserID, adminID.(uint), input.Status, input.Role, input.Amount, input.AmountPaid)
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Action failed", err.Error())
+		mapAdminUserError(c, err)
 		return
 	}
 
@@ -202,19 +219,19 @@ func (h *AdminHandler) CreateUser(c *gin.Context) {
 	var input struct {
 		Name     string `json:"name" binding:"required"`
 		Email    string `json:"email" binding:"required,email"`
-		Password string `json:"password" binding:"required,min=6"`
+		Password string `json:"password" binding:"required,strong_password"`
 		Role     string `json:"role" binding:"required"`
 		Credits  int    `json:"credits"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Invalid request. Password must be at least 8 characters with upper, lower, and a number.", "ERR_INVALID_REQUEST")
 		return
 	}
 
 	err := h.adminService.CreateUser(input.Name, input.Email, input.Password, input.Role, input.Credits)
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, err.Error(), "")
+		mapAdminUserError(c, err)
 		return
 	}
 
@@ -230,15 +247,48 @@ func (h *AdminHandler) EditUser(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Valid name, email, and role are required.", "ERR_INVALID_REQUEST")
 		return
 	}
 
 	err := h.adminService.EditUser(input.ID, input.Name, input.Email, input.Role)
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, err.Error(), "")
+		mapAdminUserError(c, err)
 		return
 	}
 
 	helper.SendSuccess(c, "User profile updated successfully", nil)
+}
+
+func mapAdminUserError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrAdminWeakPassword):
+		helper.SendError(c, http.StatusBadRequest, "Password must be at least 8 characters and include upper, lower, and a number.", "ERR_WEAK_PASSWORD")
+	case errors.Is(err, service.ErrAdminInvalidRole):
+		helper.SendError(c, http.StatusBadRequest, "Invalid role value.", "ERR_INVALID_ROLE")
+	case errors.Is(err, service.ErrAdminInvalidStatus):
+		helper.SendError(c, http.StatusBadRequest, "Invalid status value.", "ERR_INVALID_STATUS")
+	case errors.Is(err, service.ErrAdminEmailExists):
+		helper.SendError(c, http.StatusConflict, "Email is already registered.", "ERR_EMAIL_EXISTS")
+	case errors.Is(err, service.ErrAdminEmailInUse):
+		helper.SendError(c, http.StatusConflict, "Email is already in use by another user.", "ERR_EMAIL_IN_USE")
+	case errors.Is(err, service.ErrAdminCannotSuspendSelf):
+		helper.SendError(c, http.StatusBadRequest, "You cannot suspend your own admin account.", "ERR_CANNOT_SUSPEND_SELF")
+	case errors.Is(err, service.ErrAdminCannotDemoteSelf):
+		helper.SendError(c, http.StatusBadRequest, "You cannot remove your own admin role.", "ERR_CANNOT_DEMOTE_SELF")
+	case errors.Is(err, service.ErrAdminCannotDeleteSelf):
+		helper.SendError(c, http.StatusBadRequest, "You cannot delete your own admin account.", "ERR_CANNOT_DELETE_SELF")
+	case errors.Is(err, service.ErrAdminCreditAmountZero):
+		helper.SendError(c, http.StatusBadRequest, "Credit amount cannot be zero.", "ERR_CREDIT_AMOUNT")
+	case errors.Is(err, service.ErrAdminCreditPaidMismatch):
+		helper.SendError(c, http.StatusBadRequest, "Amount paid cannot be associated with credit deduction.", "ERR_CREDIT_PAID")
+	case errors.Is(err, service.ErrAdminInvalidAction):
+		helper.SendError(c, http.StatusBadRequest, "Invalid action specified.", "ERR_INVALID_ACTION")
+	case errors.Is(err, service.ErrAdminRequiredFields):
+		helper.SendError(c, http.StatusBadRequest, "Name, email and password are required.", "ERR_REQUIRED_FIELDS")
+	case errors.Is(err, service.ErrAdminNameEmailRequired):
+		helper.SendError(c, http.StatusBadRequest, "Name and email are required.", "ERR_REQUIRED_FIELDS")
+	default:
+		helper.SendError(c, http.StatusInternalServerError, "Action failed. Please try again.", "ERR_ADMIN_USER_ACTION")
+	}
 }

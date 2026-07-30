@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -23,14 +23,12 @@ import {
     Edit,
     Ban,
     Trash2,
-    Mail,
     ShieldCheck,
     Users,
     UserCog,
     Store,
     FlaskConical,
     LogIn,
-    KeyRound,
     Copy,
     CheckCheck,
     CreditCard,
@@ -39,7 +37,9 @@ import {
     Plus,
     Minus,
     Filter,
-    UserX
+    UserX,
+    ChevronLeft,
+    ChevronRight,
 } from "lucide-react"
 import {
     DropdownMenu,
@@ -76,6 +76,21 @@ export type ApiUser = {
     status: string
     credits: number
     created_at: string
+    plan?: string
+    is_paid?: boolean
+}
+
+export type UsersListResponse = {
+    users: ApiUser[]
+    total: number
+    page: number
+    limit: number
+    summary: {
+        total: number
+        inactive: number
+        suspended: number
+        paid: number
+    }
 }
 
 const normalizeStatus = (status: string): "Active" | "Suspended" | "Inactive" => {
@@ -89,7 +104,7 @@ const normalizeUser = (u: ApiUser): User => ({
     id: Number(u.id),
     name: u.name,
     email: u.email,
-    plan: "Basic",
+    plan: u.plan || "Free",
     status: normalizeStatus(u.status),
     role: u.role || "user",
     credits: Number(u.credits || 0),
@@ -109,7 +124,11 @@ const roles: Role[] = ["admin", "manager", "reseller", "user", "demo"]
 const addUserSchema = z.object({
     name: z.string().min(2, "Name is required"),
     email: z.string().email("Invalid email"),
-    password: z.string().min(6, "Password min 6 characters"),
+    password: z.string()
+        .min(8, "Password must be at least 8 characters")
+        .regex(/[A-Z]/, "Must include an uppercase letter")
+        .regex(/[a-z]/, "Must include a lowercase letter")
+        .regex(/[0-9]/, "Must include a number"),
     role: z.enum(["admin", "manager", "reseller", "user", "demo"]),
     credits: z.number().min(0, "Credits cannot be negative")
 })
@@ -129,21 +148,23 @@ const adjustCreditsSchema = z.object({
     amountPaid: z.number().min(0, "Amount paid cannot be negative")
 })
 type AdjustCreditsValues = z.infer<typeof adjustCreditsSchema>
-export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
-    const { users: storeUsers, setUsers } = useUsersStore()
+export function ManageUsersClient({ initialData }: { initialData: UsersListResponse | null }) {
+    const { users: storeUsers, total, page, limit, summary, setList } = useUsersStore()
 
-    // Normalize store users to local User type for display
     const users = storeUsers.map(normalizeUser)
 
     const [isLoading, setIsLoading] = useState(false)
     const [searchTerm, setSearchTerm] = useState("")
+    const [debouncedSearch, setDebouncedSearch] = useState("")
     const [roleFilter, setRoleFilter] = useState<Role | null>(null)
+    const [currentPage, setCurrentPage] = useState(initialData?.page || 1)
     const [loginAsTarget, setLoginAsTarget] = useState<User | null>(null)
     const [adjustCreditsTarget, setAdjustCreditsTarget] = useState<User | null>(null)
     const [copiedId, setCopiedId] = useState<number | null>(null)
 
     const [isAddModalOpen, setIsAddModalOpen] = useState(false)
     const [editUserTarget, setEditUserTarget] = useState<User | null>(null)
+    const seededRef = useRef(false)
 
     const addForm = useForm<AddUserValues>({
         resolver: zodResolver(addUserSchema),
@@ -167,7 +188,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                 setIsAddModalOpen(false);
                 addForm.reset();
                 toast.success("User created successfully!");
-                fetchUsers();
+                fetchUsers(currentPage);
             } else {
                 toast.error(data.message || "Failed to create user");
             }
@@ -183,7 +204,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
             if (data.status === 'success') {
                 setEditUserTarget(null);
                 toast.success("User updated successfully!");
-                fetchUsers();
+                fetchUsers(currentPage);
             } else {
                 toast.error(data.message || "Failed to update user");
             }
@@ -206,29 +227,55 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
         }
     }
 
-    const fetchUsers = useCallback(async () => {
+    const fetchUsers = useCallback(async (pageNum = 1) => {
         try {
-            const data = await ApiClient.get('/admin/users');
-            if (data.status === 'success') {
-                const rows = (data.data as ApiUser[]) || [];
-                setUsers(rows);
+            const params = new URLSearchParams({
+                page: String(pageNum),
+                limit: "25",
+            })
+            if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim())
+            if (roleFilter) params.set("role", roleFilter)
+
+            const data = await ApiClient.get<UsersListResponse>(`/admin/users?${params.toString()}`);
+            if (data.status === 'success' && data.data) {
+                const payload = data.data
+                setList({
+                    users: payload.users || [],
+                    total: payload.total || 0,
+                    page: payload.page || pageNum,
+                    limit: payload.limit || 25,
+                    summary: payload.summary,
+                })
+                setCurrentPage(payload.page || pageNum)
             }
         } catch (error) {
             console.error("Failed to fetch users:", error);
+            toast.error(error instanceof Error ? error.message : "Failed to fetch users")
         } finally {
             setIsLoading(false);
         }
-    }, [setUsers]);
+    }, [debouncedSearch, roleFilter, setList]);
 
     useEffect(() => {
-        if (initialData && initialData.length > 0) {
-            setUsers(initialData);
+        if (initialData && !seededRef.current) {
+            seededRef.current = true
+            setList({
+                users: initialData.users || [],
+                total: initialData.total || 0,
+                page: initialData.page || 1,
+                limit: initialData.limit || 25,
+                summary: initialData.summary,
+            })
         }
-    }, [initialData, setUsers]);
+    }, [initialData, setList]);
 
-    // Always silent-refetch on mount so soft-nav / Router Cache cannot serve stale user rows
     useEffect(() => {
-        void fetchUsers();
+        const t = setTimeout(() => setDebouncedSearch(searchTerm), 300)
+        return () => clearTimeout(t)
+    }, [searchTerm])
+
+    useEffect(() => {
+        void fetchUsers(1);
     }, [fetchUsers]);
 
     const performAction = async (actionData: unknown) => {
@@ -236,14 +283,14 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
             const result = await ApiClient.post('/admin/users/action', actionData);
 
             if (result.status === 'success') {
-                fetchUsers();
+                fetchUsers(currentPage);
                 return true;
             }
             toast.error(result.message);
             return false;
         } catch (error) {
             console.error("Action failed:", error);
-            toast.error("Action failed");
+            toast.error(error instanceof Error ? error.message : "Action failed");
             return false;
         }
     }
@@ -254,13 +301,13 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
             const result = await ApiClient.post('/admin/users/action', { action: 'delete', user_id: id });
             if (result.status === 'success') {
                 toast.success("User deleted successfully!");
-                fetchUsers();
+                fetchUsers(currentPage);
             } else {
                 toast.error(result.message);
             }
         } catch (error) {
             console.error("Delete failed:", error);
-            toast.error("Failed to delete user");
+            toast.error(error instanceof Error ? error.message : "Failed to delete user");
         }
     }
 
@@ -270,15 +317,8 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
         setTimeout(() => setCopiedId(null), 2000)
     }
 
-    const filtered = users.filter(user => {
-        const name = user.name || "";
-        const email = user.email || "";
-        const matchSearch =
-            name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            email.toLowerCase().includes(searchTerm.toLowerCase())
-        const matchRole = !roleFilter || user.role === roleFilter
-        return matchSearch && matchRole
-    })
+    const totalPages = Math.max(1, Math.ceil((total || 0) / (limit || 25)))
+    const displaySummary = summary || { total: 0, inactive: 0, suspended: 0, paid: 0 }
 
     return (
         <div className="flex-1 space-y-4">
@@ -290,7 +330,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                 <div className="flex gap-2">
                     <Button
                         variant="outline"
-                        onClick={() => { setIsLoading(true); fetchUsers(); }}
+                        onClick={() => { setIsLoading(true); fetchUsers(currentPage); }}
                         className="border-[#0b1f1c]/10 text-[#5a736c]"
                     >
                         <RefreshCcw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
@@ -309,7 +349,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                         <Users className="h-4 w-4 text-[#0f5c52]" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-semibold tracking-tight text-[#0b1f1c]">{users.length}</div>
+                        <div className="text-2xl font-semibold tracking-tight text-[#0b1f1c]">{displaySummary.total}</div>
                     </CardContent>
                 </Card>
                 <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none">
@@ -318,7 +358,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                         <UserX className="h-4 w-4 text-amber-500" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-semibold tracking-tight text-[#0b1f1c]">{users.filter(u => u.status === 'Inactive').length}</div>
+                        <div className="text-2xl font-semibold tracking-tight text-[#0b1f1c]">{displaySummary.inactive}</div>
                     </CardContent>
                 </Card>
                 <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none">
@@ -327,7 +367,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                         <Ban className="h-4 w-4 text-rose-500" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-semibold tracking-tight text-[#0b1f1c]">{users.filter(u => u.status === 'Suspended').length}</div>
+                        <div className="text-2xl font-semibold tracking-tight text-[#0b1f1c]">{displaySummary.suspended}</div>
                     </CardContent>
                 </Card>
                 <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none">
@@ -336,8 +376,8 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                         <CreditCard className="h-4 w-4 text-emerald-500" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-semibold tracking-tight text-[#0b1f1c]">{users.filter(u => u.credits > 100 || (u.role && u.role !== 'user' && u.role !== 'demo')).length}</div>
-                        <p className="text-xs text-[#6b857c] font-normal">Credits &gt; 100 or higher role</p>
+                        <div className="text-2xl font-semibold tracking-tight text-[#0b1f1c]">{displaySummary.paid}</div>
+                        <p className="text-xs text-[#6b857c] font-normal">Users with a completed purchase</p>
                     </CardContent>
                 </Card>
             </div>
@@ -366,7 +406,10 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                             <div className="w-32">
                                 <SimpleSelect
                                     value={roleFilter || "all"}
-                                    onChange={(e) => setRoleFilter(e.target.value === "all" ? null : e.target.value as Role)}
+                                    onChange={(e) => {
+                                        setRoleFilter(e.target.value === "all" ? null : e.target.value as Role)
+                                        setCurrentPage(1)
+                                    }}
                                     options={[
                                         { label: "All Roles", value: "all" },
                                         ...roles.map(r => ({ label: roleMeta[r].label, value: r }))
@@ -413,15 +456,16 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                     </TableRow>
                                 ))
                             ) : (
-                                filtered.map((user) => {
-                                    const { label, color, icon: RoleIcon } = roleMeta[user.role]
+                                users.map((user) => {
+                                    const { label, color, icon: RoleIcon } = roleMeta[user.role] || roleMeta.user
+                                    const initial = (user.name || "U").charAt(0).toUpperCase()
                                     return (
                                         <TableRow key={user.id} className="border-b border-[#0b1f1c]/5 hover:bg-[#f0f4f2]/40 group transition-colors">
                                             {/* User */}
                                             <TableCell>
                                                 <div className="flex items-center gap-3">
                                                     <div className="h-8 w-8 rounded-full bg-[#0f5c52]/10 flex items-center justify-center font-bold text-[#0f5c52] text-xs flex-shrink-0 uppercase">
-                                                        {user.name.charAt(0)}
+                                                        {initial}
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="font-medium text-[#0b1f1c] text-sm">{user.name}</span>
@@ -509,9 +553,6 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                                                 <Edit className="mr-2 h-4 w-4 text-[#6b857c]" /> Edit Profile
                                                             </span>
                                                         </DropdownMenuItem>
-                                                        <DropdownMenuItem className="cursor-pointer mx-1 rounded-md focus:bg-[#f0f4f2]/60">
-                                                            <Mail className="mr-2 h-4 w-4 text-[#6b857c]" /> Email User
-                                                        </DropdownMenuItem>
 
                                                         {/* More actions submenu */}
                                                         <DropdownMenuSub>
@@ -520,9 +561,6 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                                             </DropdownMenuSubTrigger>
                                                             <DropdownMenuPortal>
                                                                 <DropdownMenuSubContent className="w-44 bg-white border border-[#0b1f1c]/10 shadow-lg rounded-lg py-1">
-                                                                    <DropdownMenuItem className="cursor-pointer mx-1 rounded-md focus:bg-[#f0f4f2]/60">
-                                                                        <KeyRound className="mr-2 h-4 w-4 text-[#6b857c]" /> Reset Password
-                                                                    </DropdownMenuItem>
                                                                     <DropdownMenuItem
                                                                         className="cursor-pointer mx-1 rounded-md focus:bg-[#f0f4f2]/60"
                                                                         onClick={() => {
@@ -609,7 +647,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                     )
                                 })
                             )}
-                            {(!isLoading && filtered.length === 0 && users.length > 0) && (
+                            {(!isLoading && users.length === 0) && (
                                 <TableRow>
                                     <TableCell colSpan={7} className="text-center py-10 text-[#6b857c]">
                                         No users found matching your search or filter.
@@ -618,15 +656,40 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                             )}
                         </TableBody>
                     </Table>
-                </CardContent>
-
-                <div className="flex items-center justify-between p-4 border-t border-[#0b1f1c]/8 bg-[#f0f4f2]/60">
-                    <p className="text-sm text-[#5a736c]">Showing {filtered.length} of {users.length} users</p>
-                    <div className="flex gap-2">
-                        <Button variant="outline" size="sm" disabled className="border-[#0b1f1c]/10 text-[#5a736c]">Previous</Button>
-                        <Button variant="outline" size="sm" disabled className="border-[#0b1f1c]/10 text-[#5a736c]">Next</Button>
+                    <div className="flex items-center justify-between border-t border-[#0b1f1c]/8 px-4 py-3">
+                        <p className="text-xs text-[#5a736c]">
+                            Page {page || currentPage} of {totalPages} · {total} total
+                        </p>
+                        <div className="flex gap-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 px-2 border-[#0b1f1c]/10"
+                                disabled={currentPage <= 1 || isLoading}
+                                onClick={() => {
+                                    const next = Math.max(1, currentPage - 1)
+                                    setIsLoading(true)
+                                    void fetchUsers(next)
+                                }}
+                            >
+                                <ChevronLeft className="h-4 w-4" />
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 px-2 border-[#0b1f1c]/10"
+                                disabled={currentPage >= totalPages || isLoading}
+                                onClick={() => {
+                                    const next = currentPage + 1
+                                    setIsLoading(true)
+                                    void fetchUsers(next)
+                                }}
+                            >
+                                <ChevronRight className="h-4 w-4" />
+                            </Button>
+                        </div>
                     </div>
-                </div>
+                </CardContent>
             </Card>
 
             {/* Login As User Confirmation Modal */}
@@ -799,7 +862,7 @@ export function ManageUsersClient({ initialData }: { initialData: ApiUser[] }) {
                                 <label className="text-xs font-semibold text-[#5a736c] mb-1 block font-medium">Password</label>
                                 <Input
                                     type="password"
-                                    placeholder="Min 6 characters"
+                                    placeholder="Min 8 chars, upper, lower, number"
                                     {...addForm.register("password")}
                                 />
                                 {addForm.formState.errors.password && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.password.message}</p>}

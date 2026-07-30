@@ -194,9 +194,22 @@ func (s *authService) Login(email, password, ip string) (*model.User, string, er
 }
 
 func (s *authService) Impersonate(targetUserID uint, adminID uint) (*model.User, string, error) {
+	if targetUserID == adminID {
+		return nil, "", errors.New("cannot impersonate yourself")
+	}
+
 	user, err := s.userRepo.GetByID(targetUserID)
 	if err != nil {
 		return nil, "", err
+	}
+
+	if strings.EqualFold(user.Role, "admin") {
+		return nil, "", errors.New("cannot impersonate another admin")
+	}
+
+	status := strings.ToLower(strings.TrimSpace(user.Status))
+	if status == "suspended" || status == "inactive" {
+		return nil, "", errors.New("cannot impersonate a suspended or inactive account")
 	}
 
 	apiKey, err := s.apiKeyService.CreateImpersonationKey(user.ID)
@@ -204,7 +217,6 @@ func (s *authService) Impersonate(targetUserID uint, adminID uint) (*model.User,
 		return nil, "", err
 	}
 
-	// Log activity (Legacy parity: WARN level for impersonation)
 	s.logRepo.Create(&model.ActivityLog{
 		UserID:  &adminID,
 		Level:   "WARN",

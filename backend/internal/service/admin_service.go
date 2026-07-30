@@ -2,6 +2,7 @@ package service
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,11 +13,13 @@ import (
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
 	"ejp-backend/pkg/safe"
+	"ejp-backend/pkg/security"
 )
 
 type AdminService interface {
 	GetAdminStats() (map[string]interface{}, error)
 	GetAllUsers() ([]model.User, error)
+	ListUsers(q, role string, page, limit int) (*AdminUserListResult, error)
 	UserAction(action string, targetUserID uint, adminID uint, status, role string, amount int, amountPaid float64) error
 	GetJobStats() (interface{}, error)
 	CleanupJobs(days int) (int64, error)
@@ -24,6 +27,49 @@ type AdminService interface {
 	EditUser(id uint, name, email, role string) error
 	AdminDownloadAllJobs(jobType string) (*sql.Rows, error)
 }
+
+type AdminUserDTO struct {
+	ID        uint   `json:"id"`
+	Name      string `json:"name"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	Status    string `json:"status"`
+	Credits   int    `json:"credits"`
+	CreatedAt string `json:"created_at"`
+	Plan      string `json:"plan"`
+	IsPaid    bool   `json:"is_paid"`
+}
+
+type AdminUserSummary struct {
+	Total      int64 `json:"total"`
+	Inactive   int64 `json:"inactive"`
+	Suspended  int64 `json:"suspended"`
+	Paid       int64 `json:"paid"`
+}
+
+type AdminUserListResult struct {
+	Users   []AdminUserDTO   `json:"users"`
+	Total   int64            `json:"total"`
+	Page    int              `json:"page"`
+	Limit   int              `json:"limit"`
+	Summary AdminUserSummary `json:"summary"`
+}
+
+var (
+	ErrAdminWeakPassword       = errors.New("password does not meet strength requirements")
+	ErrAdminInvalidRole        = errors.New("invalid role value")
+	ErrAdminInvalidStatus      = errors.New("invalid status value")
+	ErrAdminEmailExists        = errors.New("email is already registered")
+	ErrAdminEmailInUse         = errors.New("email is already in use by another user")
+	ErrAdminCannotSuspendSelf  = errors.New("you cannot suspend your own admin account")
+	ErrAdminCannotDemoteSelf   = errors.New("you cannot remove your own admin role")
+	ErrAdminCannotDeleteSelf   = errors.New("you cannot delete your own admin account")
+	ErrAdminCreditAmountZero   = errors.New("credit amount cannot be zero")
+	ErrAdminCreditPaidMismatch = errors.New("amount paid cannot be associated with credit deduction")
+	ErrAdminInvalidAction      = errors.New("invalid action specified")
+	ErrAdminRequiredFields     = errors.New("name, email and password are required")
+	ErrAdminNameEmailRequired  = errors.New("name and email are required")
+)
 
 type adminService struct {
 	adminRepo    repo.AdminRepo
@@ -271,6 +317,81 @@ func (s *adminService) GetAllUsers() ([]model.User, error) {
 	return s.userRepo.GetAll()
 }
 
+func (s *adminService) ListUsers(q, role string, page, limit int) (*AdminUserListResult, error) {
+	users, total, err := s.userRepo.ListUsers(q, role, page, limit)
+	if err != nil {
+		return nil, err
+	}
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 25
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	ids := make([]uint, 0, len(users))
+	for _, u := range users {
+		ids = append(ids, u.ID)
+	}
+	plans, _ := s.userRepo.LatestPackageByUserIDs(ids)
+	paidSet, _ := s.userRepo.PaidUserIDSet(ids)
+
+	dtos := make([]AdminUserDTO, 0, len(users))
+	for _, u := range users {
+		plan := "Free"
+		if p := strings.TrimSpace(plans[u.ID]); p != "" {
+			plan = p
+		}
+		name := strings.TrimSpace(u.Name)
+		if name == "" {
+			name = "User"
+		}
+		dtos = append(dtos, AdminUserDTO{
+			ID:        u.ID,
+			Name:      name,
+			Email:     u.Email,
+			Role:      u.Role,
+			Status:    u.Status,
+			Credits:   u.Credits,
+			CreatedAt: u.CreatedAt.UTC().Format(time.RFC3339),
+			Plan:      plan,
+			IsPaid:    paidSet[u.ID],
+		})
+	}
+
+	inactive, _ := s.userRepo.CountByStatus("Inactive")
+	suspended, _ := s.userRepo.CountByStatus("Suspended")
+	paid, _ := s.userRepo.CountPaidUsers()
+	allTotal, _ := s.userRepo.CountUsers(nil, nil)
+
+	return &AdminUserListResult{
+		Users: dtos,
+		Total: total,
+		Page:  page,
+		Limit: limit,
+		Summary: AdminUserSummary{
+			Total:     allTotal,
+			Inactive:  inactive,
+			Suspended: suspended,
+			Paid:      paid,
+		},
+	}, nil
+}
+
+func (s *adminService) revokeUserAPIAccess(userID uint) {
+	var keys []model.APIKey
+	if err := config.DB.Where("user_id = ?", userID).Find(&keys).Error; err != nil {
+		return
+	}
+	for _, k := range keys {
+		_ = config.DB.Model(&model.APIKey{}).Where("id = ?", k.ID).Update("status", "revoked").Error
+		config.ClearCachedAPIAuthByKeyID(k.ID)
+	}
+}
+
 func (s *adminService) UserAction(action string, targetUserID uint, adminID uint, status, role string, amount int, amountPaid float64) error {
 	user, err := s.userRepo.GetByID(targetUserID)
 	if err != nil {
@@ -283,15 +404,16 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 	switch action {
 	case "toggle_status":
 		if !allowedStatuses[status] {
-			return fmt.Errorf("invalid status value: %s", status)
+			return ErrAdminInvalidStatus
 		}
 		if targetUserID == adminID && status == "Suspended" {
-			return fmt.Errorf("you cannot suspend your own admin account")
+			return ErrAdminCannotSuspendSelf
 		}
 		if err := s.userRepo.Update(user, map[string]interface{}{"status": status}); err != nil {
 			return err
 		}
 		if status == "Suspended" {
+			s.revokeUserAPIAccess(targetUserID)
 			go s.emailService.SendTemplateEmail(user.Email, "account_banned", map[string]string{
 				"name": user.Name,
 			})
@@ -302,10 +424,10 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 
 	case "update_role":
 		if !allowedRoles[role] {
-			return fmt.Errorf("invalid role value: %s", role)
+			return ErrAdminInvalidRole
 		}
 		if targetUserID == adminID && role != "admin" {
-			return fmt.Errorf("you cannot remove your own admin role")
+			return ErrAdminCannotDemoteSelf
 		}
 		if err := s.userRepo.Update(user, map[string]interface{}{"role": role}); err != nil {
 			return err
@@ -316,8 +438,9 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 
 	case "delete":
 		if targetUserID == adminID {
-			return fmt.Errorf("you cannot delete your own admin account")
+			return ErrAdminCannotDeleteSelf
 		}
+		s.revokeUserAPIAccess(targetUserID)
 		if err := s.userRepo.Delete(targetUserID); err != nil {
 			return err
 		}
@@ -327,10 +450,10 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 
 	case "adjust_credits":
 		if amount == 0 {
-			return fmt.Errorf("credit amount cannot be zero")
+			return ErrAdminCreditAmountZero
 		}
 		if amountPaid > 0 && amount < 0 {
-			return fmt.Errorf("amount paid cannot be associated with credit deduction")
+			return ErrAdminCreditPaidMismatch
 		}
 
 		desc := "Admin removed credits"
@@ -367,7 +490,7 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 		}
 		return err
 	}
-	return fmt.Errorf("invalid action specified: %s", action)
+	return ErrAdminInvalidAction
 }
 
 func (s *adminService) logActivity(level, source, message string, adminID uint) {
@@ -401,22 +524,26 @@ func (s *adminService) CleanupJobs(days int) (int64, error) {
 
 func (s *adminService) CreateUser(name, email, password, role string, credits int) error {
 	if name == "" || email == "" || password == "" {
-		return fmt.Errorf("name, email and password are required")
+		return ErrAdminRequiredFields
 	}
 
 	allowedRoles := map[string]bool{"admin": true, "manager": true, "reseller": true, "user": true, "demo": true}
 	if !allowedRoles[role] {
-		return fmt.Errorf("invalid role value: %s", role)
+		return ErrAdminInvalidRole
+	}
+
+	if !security.IsStrongPassword(password) {
+		return ErrAdminWeakPassword
 	}
 
 	existing, _ := s.userRepo.GetByEmail(email)
 	if existing != nil {
-		return fmt.Errorf("email is already registered")
+		return ErrAdminEmailExists
 	}
 
 	hashedPassword, err := helper.HashPassword(password)
-	if err != nil {
-		return err
+	if err != nil || hashedPassword == "" {
+		return fmt.Errorf("failed to hash password")
 	}
 
 	user := &model.User{
@@ -442,18 +569,18 @@ func (s *adminService) EditUser(id uint, name, email, role string) error {
 	}
 
 	if name == "" || email == "" {
-		return fmt.Errorf("name and email are required")
+		return ErrAdminNameEmailRequired
 	}
 
 	allowedRoles := map[string]bool{"admin": true, "manager": true, "reseller": true, "user": true, "demo": true}
 	if !allowedRoles[role] {
-		return fmt.Errorf("invalid role value: %s", role)
+		return ErrAdminInvalidRole
 	}
 
 	if email != user.Email {
 		existing, _ := s.userRepo.GetByEmail(email)
 		if existing != nil {
-			return fmt.Errorf("email is already in use by another user")
+			return ErrAdminEmailInUse
 		}
 	}
 

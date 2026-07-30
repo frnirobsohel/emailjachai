@@ -74,7 +74,7 @@ export async function POST(request: Request) {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
-            maxAge: 60 * 60 * 24 * 7,
+            maxAge: 20 * 60, // match CreateImpersonationKey expiry (20 minutes)
             path: '/',
         });
 
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
                 httpOnly: true,
                 secure: process.env.NODE_ENV === 'production',
                 sameSite: 'lax',
-                maxAge: 60 * 60 * 24 * 7,
+                maxAge: 20 * 60,
                 path: '/',
             });
         }
@@ -95,7 +95,7 @@ export async function POST(request: Request) {
                 httpOnly: true,
                 secure: process.env.NODE_ENV === 'production',
                 sameSite: 'lax',
-                maxAge: 60 * 60 * 24 * 7,
+                maxAge: 20 * 60,
                 path: '/',
             });
         }

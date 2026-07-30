@@ -15,7 +15,7 @@ func (h *AdminHandler) UpdateUserCredits(c *gin.Context) {
 	userIDStr := c.Param("id")
 	userID, err := strconv.ParseUint(userIDStr, 10, 32)
 	if err != nil {
-		helper.SendError(c, http.StatusBadRequest, "Invalid user ID", "")
+		helper.SendError(c, http.StatusBadRequest, "Invalid user ID.", "ERR_INVALID_USER_ID")
 		return
 	}
 
@@ -25,18 +25,15 @@ func (h *AdminHandler) UpdateUserCredits(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "A non-zero credit amount is required.", "ERR_INVALID_REQUEST")
 		return
 	}
 
 	err = h.adminService.UserAction("adjust_credits", uint(userID), adminID.(uint), "", "", input.Amount, 0)
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to update credits", err.Error())
+		mapAdminUserError(c, err)
 		return
 	}
 
 	helper.SendSuccess(c, "Credits updated successfully", nil)
 }
-
-
-

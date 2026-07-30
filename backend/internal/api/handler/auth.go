@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"ejp-backend/internal/api/presenter"
@@ -142,14 +143,24 @@ func (h *AuthHandler) Impersonate(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, "User ID is required", "")
+		helper.SendError(c, http.StatusBadRequest, "User ID is required.", "ERR_INVALID_REQUEST")
 		return
 	}
 
 	adminID, _ := c.Get("userID")
 	user, apiKey, err := h.authService.Impersonate(input.UserID, adminID.(uint))
 	if err != nil {
-		helper.SendError(c, http.StatusNotFound, "Target user not found", err.Error())
+		errStr := err.Error()
+		switch {
+		case strings.Contains(errStr, "yourself"):
+			helper.SendError(c, http.StatusBadRequest, "You cannot impersonate yourself.", "ERR_IMPERSONATE_SELF")
+		case strings.Contains(errStr, "another admin"):
+			helper.SendError(c, http.StatusForbidden, "You cannot impersonate another admin.", "ERR_IMPERSONATE_ADMIN")
+		case strings.Contains(errStr, "suspended") || strings.Contains(errStr, "inactive"):
+			helper.SendError(c, http.StatusBadRequest, "Cannot impersonate a suspended or inactive account.", "ERR_IMPERSONATE_STATUS")
+		default:
+			helper.SendError(c, http.StatusNotFound, "Target user not found.", "ERR_USER_NOT_FOUND")
+		}
 		return
 	}
 
@@ -161,6 +172,7 @@ func (h *AuthHandler) Impersonate(c *gin.Context) {
 			Email:   user.Email,
 			Credits: user.Credits,
 			Role:    user.Role,
+			Status:  user.Status,
 		},
 	})
 }
