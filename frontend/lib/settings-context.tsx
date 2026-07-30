@@ -26,14 +26,19 @@ export type PublicSettings = {
 const SettingsContext = createContext<PublicSettings>({});
 
 export const SettingsProvider = ({ settings: initialSettings, children }: { settings: PublicSettings, children: React.ReactNode }) => {
+    // Always sync SSR/public settings into the client store so auth/sidebar
+    // never keep a stale in-memory title after a brand save + navigation.
     useEffect(() => {
-        if (initialSettings) {
+        if (initialSettings && Object.keys(initialSettings).length > 0) {
             useConfigStore.getState().setSettings(initialSettings);
         }
     }, [initialSettings]);
 
     const liveSettings = useConfigStore((state) => state.settings);
-    const settings = liveSettings || initialSettings || {};
+    // Prefer the latest store value once hydrated; fall back to SSR props on first paint.
+    const settings = liveSettings && Object.keys(liveSettings).length > 0
+        ? liveSettings
+        : (initialSettings || {});
 
     return <SettingsContext.Provider value={settings}>{children}</SettingsContext.Provider>;
 };

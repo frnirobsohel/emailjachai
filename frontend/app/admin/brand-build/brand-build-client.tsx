@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -12,6 +13,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { toast } from "react-hot-toast"
 import { cn } from "@/lib/utils"
+import { useConfigStore } from "@/stores/config-store"
 
 const httpUrl = z
     .string()
@@ -60,6 +62,7 @@ function mapBrandValues(data: Record<string, string>): BrandSettingsValues {
 }
 
 export function BrandBuildClient({ initialData }: { initialData: Record<string, string> }) {
+    const router = useRouter()
     const [isRefreshing, setIsRefreshing] = useState(false)
 
     const form = useForm<BrandSettingsValues>({
@@ -81,13 +84,37 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
         }
     }
 
+    // Keep form in sync with SSR props; if SSR missed auth, fill from client fetch (avoids empty→value flicker gap).
+    useEffect(() => {
+        if (Object.keys(initialData).length > 0) {
+            form.reset(mapBrandValues(initialData))
+            return
+        }
+        void refreshSettings()
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate from SSR / one client fallback
+    }, [initialData])
+
     const handleSaveSubmit = async (values: BrandSettingsValues) => {
         try {
             const result = await ApiClient.post("/admin/settings/brand", { settings: values })
 
             if (result.status === "success") {
+                const prev = useConfigStore.getState().settings || {}
+                useConfigStore.getState().setSettings({
+                    ...prev,
+                    site_title: values.site_title,
+                    site_tagline: values.site_tagline || "",
+                    logo_url: values.logo_url || "",
+                    favicon_url: values.favicon_url || "",
+                    support_email: values.support_email || "",
+                    help_center_url: values.help_center_url || "",
+                    twitter_url: values.twitter_url || "",
+                    linkedin_url: values.linkedin_url || "",
+                    github_url: values.github_url || "",
+                })
                 toast.success("Brand settings updated successfully.")
-                void refreshSettings()
+                form.reset(values)
+                router.refresh()
             } else {
                 toast.error(result.message || "Failed to save settings.")
             }

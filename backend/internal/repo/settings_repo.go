@@ -3,6 +3,7 @@ package repo
 import (
 	"ejp-backend/internal/model"
 	"ejp-backend/pkg/config"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -56,8 +57,14 @@ func (r *settingsRepo) GetByKeys(keys []string) ([]model.Setting, error) {
 }
 
 func (r *settingsRepo) Update(key string, value string) error {
-	return r.db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "setting_key"}},
-		DoUpdates: clause.AssignmentColumns([]string{"setting_value"}),
+	// Unscoped + clear deleted_at so soft-deleted rows don't block unique upsert
+	// while remaining invisible to normal GetByKeys queries.
+	return r.db.Unscoped().Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "setting_key"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"setting_value": value,
+			"deleted_at":    nil,
+			"updated_at":    time.Now(),
+		}),
 	}).Create(&model.Setting{SettingKey: key, SettingValue: value}).Error
 }

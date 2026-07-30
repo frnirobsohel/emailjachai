@@ -184,7 +184,7 @@ func (h *AdminHandler) GetPublicSettings(c *gin.Context) {
 		results[s.SettingKey] = val
 	}
 
-	if _, ok := results["site_title"]; !ok {
+	if _, ok := results["site_title"]; !ok || strings.TrimSpace(results["site_title"]) == "" {
 		results["site_title"] = "EmailJachai Pro"
 	}
 	if _, ok := results["stripe_enabled"]; !ok {

@@ -94,7 +94,11 @@ async function proxyRequest(request: NextRequest, { params }: { params: Promise<
             ...(isMultipart ? { duplex: 'half' as const } : {}),
         } as RequestInit);
 
-        if ((slug === 'admin/settings/update' || slug === 'admin/settings/brand') && response.ok && request.method === 'POST') {
+        if (
+            (slug === "admin/settings/update" || slug === "admin/settings/brand") &&
+            request.method === "POST" &&
+            response.ok
+        ) {
             try {
                 revalidateTag('public-settings', { expire: 0 });
             } catch (err) {
