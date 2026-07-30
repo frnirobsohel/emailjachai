@@ -69,5 +69,17 @@ func (r *apiKeyRepo) Update(key *model.APIKey, updates map[string]interface{}) e
 }
 
 func (r *apiKeyRepo) Delete(id uint, userID uint) error {
-	return r.db.Where("id = ? AND user_id = ?", id, userID).Delete(&model.APIKey{}).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&model.APIKey{}).
+			Where("id = ? AND user_id = ?", id, userID).
+			Update("status", "revoked")
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		// Soft-delete so default queries no longer return the row
+		return tx.Where("id = ? AND user_id = ?", id, userID).Delete(&model.APIKey{}).Error
+	})
 }

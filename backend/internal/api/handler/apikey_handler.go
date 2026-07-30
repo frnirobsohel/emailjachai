@@ -1,14 +1,18 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/service"
 	"ejp-backend/pkg/config"
+	"ejp-backend/pkg/logger"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type APIKeyHandler struct {
@@ -19,58 +23,76 @@ func NewAPIKeyHandler(apiKeyService service.APIKeyService) *APIKeyHandler {
 	return &APIKeyHandler{apiKeyService: apiKeyService}
 }
 
+func apiKeyPlainDTO(id uint, name, plainKey, prefix string) gin.H {
+	masked := prefix + strings.Repeat("*", 20)
+	if prefix == "" && len(plainKey) >= 16 {
+		masked = plainKey[:16] + strings.Repeat("*", 20)
+	}
+	return gin.H{
+		"id":         id,
+		"name":       name,
+		"api_key":    plainKey,
+		"key_masked": masked,
+	}
+}
+
 func (h *APIKeyHandler) GetAPIKeys(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	keys, err := h.apiKeyService.GetByUserID(userID.(uint))
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch keys", err.Error())
+		logger.Error("Failed to fetch API keys", "error", err)
+		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch keys", "ERR_FETCH_KEYS")
 		return
 	}
 
-	// Fetch real usage statistics per API key
-	var stats []struct {
-		APIKeyID       uint
-		SingleJobs     int
-		BulkJobs       int
-		CreditsUsed    int
+	loc := time.UTC
+	if tz := strings.TrimSpace(c.Query("tz")); tz != "" {
+		if loaded, err := time.LoadLocation(tz); err == nil {
+			loc = loaded
+		}
 	}
-	
+
+	var stats []struct {
+		APIKeyID    uint
+		SingleJobs  int
+		BulkJobs    int
+		CreditsUsed int
+	}
+
 	config.DB.Table("jobs").
 		Select("api_key_id, sum(case when type = 'single' then 1 else 0 end) as single_jobs, sum(case when type = 'bulk' then 1 else 0 end) as bulk_jobs, sum(total_emails) as credits_used").
 		Where("user_id = ? AND api_key_id IS NOT NULL", userID).
 		Group("api_key_id").
 		Scan(&stats)
 
-	// Create a map for O(1) lookup
-	statsMap := make(map[uint]struct{SingleJobs, BulkJobs, CreditsUsed int})
+	statsMap := make(map[uint]struct{ SingleJobs, BulkJobs, CreditsUsed int })
 	for _, s := range stats {
-		statsMap[s.APIKeyID] = struct{SingleJobs, BulkJobs, CreditsUsed int}{s.SingleJobs, s.BulkJobs, s.CreditsUsed}
+		statsMap[s.APIKeyID] = struct{ SingleJobs, BulkJobs, CreditsUsed int }{s.SingleJobs, s.BulkJobs, s.CreditsUsed}
 	}
-	
+
 	formattedKeys := make([]map[string]interface{}, 0)
 	for _, k := range keys {
-		// Filter out Login and Impersonation keys from the list (Legacy Parity)
 		if k.Name == "Login Key" || k.Name == "Impersonation Key" {
 			continue
 		}
 
 		lastUsed := "Never"
 		if k.LastUsedAt != nil {
-			lastUsed = k.LastUsedAt.Format("2006-01-02 15:04")
+			lastUsed = k.LastUsedAt.In(loc).Format("2006-01-02 15:04")
 		}
 
 		keyStats := statsMap[k.ID]
 
 		formattedKeys = append(formattedKeys, map[string]interface{}{
-			"id":            k.ID,
-			"name":          k.Name,
-			"key_masked":    k.KeyPrefix + strings.Repeat("*", 20),
-			"created":       k.CreatedAt.Format("2006-01-02"),
-			"status":        k.Status,
-			"last_used":     lastUsed,
-			"single_jobs":   keyStats.SingleJobs,
-			"bulk_jobs":     keyStats.BulkJobs,
-			"credits_used":  keyStats.CreditsUsed,
+			"id":           k.ID,
+			"name":         k.Name,
+			"key_masked":   k.KeyPrefix + strings.Repeat("*", 20),
+			"created":      k.CreatedAt.In(loc).Format("2006-01-02"),
+			"status":       k.Status,
+			"last_used":    lastUsed,
+			"single_jobs":  keyStats.SingleJobs,
+			"bulk_jobs":    keyStats.BulkJobs,
+			"credits_used": keyStats.CreditsUsed,
 		})
 	}
 
@@ -89,14 +111,21 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 
 	key, err := h.apiKeyService.Create(userID.(uint), input.Name)
 	if err != nil {
-		if err.Error() == "maximum 5 active API keys allowed per user" {
-			helper.SendError(c, http.StatusBadRequest, err.Error(), "ERR_LIMIT_EXCEEDED")
-			return
+		switch {
+		case errors.Is(err, service.ErrMaxAPIKeys):
+			helper.SendError(c, http.StatusBadRequest, "Maximum 5 active API keys allowed per user", "ERR_LIMIT_EXCEEDED")
+		case errors.Is(err, service.ErrReservedKeyName):
+			helper.SendError(c, http.StatusBadRequest, "This key name is reserved. Please choose another name.", "ERR_RESERVED_NAME")
+		case errors.Is(err, service.ErrAPIKeyGenerateFailed):
+			helper.SendError(c, http.StatusInternalServerError, "Failed to generate API key", "ERR_KEY_GENERATE")
+		default:
+			logger.Error("Failed to create API key", "error", err)
+			helper.SendError(c, http.StatusInternalServerError, "Failed to create key", "ERR_CREATE_KEY")
 		}
-		helper.SendError(c, http.StatusInternalServerError, "Failed to create key", err.Error())
 		return
 	}
-	helper.SendSuccess(c, "API key created successfully", key)
+
+	helper.SendSuccess(c, "API key created successfully", apiKeyPlainDTO(key.ID, key.Name, key.APIKey, key.KeyPrefix))
 }
 
 func (h *APIKeyHandler) DeleteAPIKey(c *gin.Context) {
@@ -105,19 +134,24 @@ func (h *APIKeyHandler) DeleteAPIKey(c *gin.Context) {
 		ID uint `json:"id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Invalid request", "ERR_INVALID_REQUEST")
 		return
 	}
 
 	if err := h.apiKeyService.Delete(input.ID, userID.(uint)); err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to delete key", err.Error())
+		switch {
+		case errors.Is(err, service.ErrSystemKeyProtected):
+			helper.SendError(c, http.StatusForbidden, "System keys cannot be revoked.", "ERR_SYSTEM_KEY")
+		case errors.Is(err, service.ErrAPIKeyNotFound), errors.Is(err, gorm.ErrRecordNotFound):
+			helper.SendError(c, http.StatusNotFound, "API key not found", "ERR_KEY_NOT_FOUND")
+		default:
+			logger.Error("Failed to delete API key", "error", err)
+			helper.SendError(c, http.StatusInternalServerError, "Failed to delete key", "ERR_DELETE_KEY")
+		}
 		return
 	}
 
-	// M1 Fix: Clear API auth cache so the revoked key stops working immediately
-	// (previously revoked keys remained valid for up to 2 minutes via in-memory cache)
 	h.apiKeyService.InvalidateCacheByKeyID(input.ID)
-
 	helper.SendSuccess(c, "API key deleted successfully", nil)
 }
 
@@ -127,17 +161,29 @@ func (h *APIKeyHandler) RotateAPIKey(c *gin.Context) {
 		ID uint `json:"id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Invalid request", "ERR_INVALID_REQUEST")
 		return
 	}
 
-	// M1 Fix: Clear cache for old key before rotating
 	h.apiKeyService.InvalidateCacheByKeyID(input.ID)
 
 	key, err := h.apiKeyService.Rotate(input.ID, userID.(uint))
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to rotate key", err.Error())
+		switch {
+		case errors.Is(err, service.ErrSystemKeyProtected):
+			helper.SendError(c, http.StatusForbidden, "System keys cannot be rotated.", "ERR_SYSTEM_KEY")
+		case errors.Is(err, service.ErrAPIKeyNotFound):
+			helper.SendError(c, http.StatusNotFound, "API key not found", "ERR_KEY_NOT_FOUND")
+		case errors.Is(err, service.ErrAPIKeyNotActive):
+			helper.SendError(c, http.StatusBadRequest, "Only active API keys can be rotated.", "ERR_KEY_NOT_ACTIVE")
+		case errors.Is(err, service.ErrAPIKeyGenerateFailed):
+			helper.SendError(c, http.StatusInternalServerError, "Failed to generate API key", "ERR_KEY_GENERATE")
+		default:
+			logger.Error("Failed to rotate API key", "error", err)
+			helper.SendError(c, http.StatusInternalServerError, "Failed to rotate key", "ERR_ROTATE_KEY")
+		}
 		return
 	}
-	helper.SendSuccess(c, "API key rotated successfully", key)
+
+	helper.SendSuccess(c, "API key rotated successfully", apiKeyPlainDTO(key.ID, key.Name, key.APIKey, key.KeyPrefix))
 }

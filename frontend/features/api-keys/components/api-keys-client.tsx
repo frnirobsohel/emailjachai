@@ -27,6 +27,7 @@ import {
     DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import { ApiClient } from "@/lib/api-client"
+import { withTimeZoneQuery } from "@/lib/timezone"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -54,7 +55,7 @@ export interface ApiKey {
  * Manages the UI for generating, viewing, rotating, and revoking API keys.
  * Handles the "Max 5 keys" limit on the frontend.
  */
-export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
+export function ApiKeysClient({ initialKeys, apiBaseUrl }: { initialKeys: ApiKey[]; apiBaseUrl: string }) {
     const [keys, setKeys] = useState<ApiKey[]>(initialKeys)
     const [isLoading, setIsLoading] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
@@ -78,13 +79,13 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
     const [isRevoking, setIsRevoking] = useState(false)
 
     // Snippet tab
-    const [activeTab, setActiveTab] = useState<'curl' | 'js'>('curl')
+    const [activeTab, setActiveTab] = useState<'curl' | 'js' | 'python'>('curl')
     const [isMounted, setIsMounted] = useState(false)
-    const [baseUrl, setBaseUrl] = useState('http://localhost:8000')
+    const baseUrl = (apiBaseUrl || "http://localhost:8000/api/v1").replace(/\/$/, "")
 
     const fetchKeys = async () => {
         try {
-            const data = await ApiClient.get('/user/keys');
+            const data = await ApiClient.get(withTimeZoneQuery('/user/keys'));
             if (data.status === 'success') {
                 setKeys(data.data as ApiKey[]);
             }
@@ -103,10 +104,9 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
 
     useEffect(() => {
         setIsMounted(true);
-        if (typeof window !== 'undefined') {
-            setBaseUrl(window.location.origin);
-        }
         fetchDashboardStats();
+        void fetchKeys();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount refresh with browser tz
     }, [fetchDashboardStats]);
 
     const onCreateKey = async (values: z.infer<typeof createKeySchema>) => {
@@ -278,19 +278,18 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                 <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium text-[#5a736c]">
-                            Service Status
+                            Security Tip
                         </CardTitle>
-                        <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-emerald-50">
-                            <Activity className="h-4 w-4 text-emerald-600" />
+                        <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-amber-50">
+                            <AlertTriangle className="h-4 w-4 text-amber-600" />
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-emerald-600 flex items-center gap-2">
-                            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
-                            Operational
+                        <div className="text-sm font-semibold text-[#0b1f1c]">
+                            Server-side only
                         </div>
                         <div className="flex items-center text-xs text-[#5a736c] mt-1">
-                            Response latency ~248ms
+                            Never expose API keys in browser or mobile apps.
                         </div>
                     </CardContent>
                 </Card>
@@ -454,21 +453,25 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                                                     <Eye className="h-4 w-4 text-slate-500 hover:text-[#0f5c52]" />
                                                     View Details
                                                 </DropdownMenuItem>
-                                                <DropdownMenuItem 
-                                                    onClick={() => setRotateConfirmKey(key)}
-                                                    className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-[#0f5c52]/10 hover:text-[#0f5c52] rounded-lg cursor-pointer outline-none"
-                                                >
-                                                    <RefreshCw className="h-4 w-4 text-slate-500 hover:text-[#0f5c52]" />
-                                                    Rotate Key
-                                                </DropdownMenuItem>
+                                                {key.status?.toLowerCase() === "active" && (
+                                                    <DropdownMenuItem 
+                                                        onClick={() => setRotateConfirmKey(key)}
+                                                        className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-[#0f5c52]/10 hover:text-[#0f5c52] rounded-lg cursor-pointer outline-none"
+                                                    >
+                                                        <RefreshCw className="h-4 w-4 text-slate-500 hover:text-[#0f5c52]" />
+                                                        Rotate Key
+                                                    </DropdownMenuItem>
+                                                )}
                                                 <DropdownMenuSeparator className="my-1 border-t border-slate-100" />
-                                                <DropdownMenuItem 
-                                                    onClick={() => setRevokeConfirmKey(key)}
-                                                    className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 hover:text-red-700 rounded-lg cursor-pointer outline-none"
-                                                >
-                                                    <Trash2 className="h-4 w-4 text-red-500" />
-                                                    Revoke Key
-                                                </DropdownMenuItem>
+                                                {key.status?.toLowerCase() === "active" && (
+                                                    <DropdownMenuItem 
+                                                        onClick={() => setRevokeConfirmKey(key)}
+                                                        className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 hover:text-red-700 rounded-lg cursor-pointer outline-none"
+                                                    >
+                                                        <Trash2 className="h-4 w-4 text-red-500" />
+                                                        Revoke Key
+                                                    </DropdownMenuItem>
+                                                )}
                                             </DropdownMenuContent>
                                         </DropdownMenu>
                                     </TableCell>
@@ -596,7 +599,7 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                 </CardHeader>
                 <CardContent className="p-6 space-y-4">
                     {/* Tabs */}
-                    <div className="flex border-b border-[#0b1f1c]/8 pb-3 gap-2">
+                    <div className="flex border-b border-[#0b1f1c]/8 pb-3 gap-2 flex-wrap">
                         <Button 
                             variant={activeTab === 'curl' ? 'default' : 'ghost'}
                             size="sm"
@@ -623,25 +626,39 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
                         >
                             JavaScript Fetch
                         </Button>
+                        <Button 
+                            variant={activeTab === 'python' ? 'default' : 'ghost'}
+                            size="sm"
+                            onClick={() => setActiveTab('python')}
+                            className={cn(
+                                "rounded-lg text-xs font-semibold px-3 py-1.5 h-8",
+                                activeTab === 'python' 
+                                    ? "bg-[#0b1f1c] hover:bg-[#0b1f1c]/90 text-white shadow-sm" 
+                                    : "text-[#5a736c] hover:text-[#0b1f1c] hover:bg-slate-100"
+                            )}
+                        >
+                            Python
+                        </Button>
                     </div>
 
                     <p className="text-xs text-[#5a736c] leading-relaxed">
-                        Use the code below in your backend server applications. Remember to replace the placeholder token with your actual private API key.
+                        Use the code below in your backend server applications against the API base URL. Replace YOUR_API_KEY with your private key.
                     </p>
 
                     <div className="relative">
                         {isMounted && (
                             <>
-                                {activeTab === 'curl' ? (
-                                    <pre className="bg-slate-900 text-slate-100 rounded-xl p-4 text-[11px] font-mono leading-relaxed overflow-x-auto shadow-inner h-32">
-{`curl -X POST "${baseUrl}/api/v1/jobs/verify-single" \\
+                                {activeTab === 'curl' && (
+                                    <pre className="bg-slate-900 text-slate-100 rounded-xl p-4 text-[11px] font-mono leading-relaxed overflow-x-auto shadow-inner min-h-32">
+{`curl -X POST "${baseUrl}/jobs/verify-single" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"email": "user@example.com"}'`}
                                     </pre>
-                                ) : (
-                                    <pre className="bg-slate-900 text-slate-100 rounded-xl p-4 text-[11px] font-mono leading-relaxed overflow-x-auto shadow-inner h-32">
-{`fetch("${baseUrl}/api/v1/jobs/verify-single", {
+                                )}
+                                {activeTab === 'js' && (
+                                    <pre className="bg-slate-900 text-slate-100 rounded-xl p-4 text-[11px] font-mono leading-relaxed overflow-x-auto shadow-inner min-h-32">
+{`fetch("${baseUrl}/jobs/verify-single", {
   method: "POST",
   headers: {
     "Authorization": "Bearer YOUR_API_KEY",
@@ -655,14 +672,34 @@ export function ApiKeysClient({ initialKeys }: { initialKeys: ApiKey[] }) {
 .then(data => console.log(data));`}
                                     </pre>
                                 )}
+                                {activeTab === 'python' && (
+                                    <pre className="bg-slate-900 text-slate-100 rounded-xl p-4 text-[11px] font-mono leading-relaxed overflow-x-auto shadow-inner min-h-32">
+{`import requests
+
+resp = requests.post(
+    "${baseUrl}/jobs/verify-single",
+    headers={
+        "Authorization": "Bearer YOUR_API_KEY",
+        "Content-Type": "application/json",
+    },
+    json={"email": "user@example.com"},
+    timeout=30,
+)
+print(resp.json())`}
+                                    </pre>
+                                )}
                             </>
                         )}
                         <Button
                             size="sm"
-                            onClick={() => copyToClipboard('snippet', activeTab === 'curl' 
-                                ? `curl -X POST "${baseUrl}/api/v1/jobs/verify-single" -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" -d '{"email": "user@example.com"}'`
-                                : `fetch("${baseUrl}/api/v1/jobs/verify-single", { method: "POST", headers: { "Authorization": "Bearer YOUR_API_KEY", "Content-Type": "application/json" }, body: JSON.stringify({ email: "user@example.com" }) }).then(res => res.json()).then(data => console.log(data));`
-                            )}
+                            onClick={() => {
+                                const snippets = {
+                                    curl: `curl -X POST "${baseUrl}/jobs/verify-single" -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" -d '{"email": "user@example.com"}'`,
+                                    js: `fetch("${baseUrl}/jobs/verify-single", { method: "POST", headers: { "Authorization": "Bearer YOUR_API_KEY", "Content-Type": "application/json" }, body: JSON.stringify({ email: "user@example.com" }) }).then(res => res.json()).then(data => console.log(data));`,
+                                    python: `import requests\n\nresp = requests.post(\n    "${baseUrl}/jobs/verify-single",\n    headers={"Authorization": "Bearer YOUR_API_KEY", "Content-Type": "application/json"},\n    json={"email": "user@example.com"},\n    timeout=30,\n)\nprint(resp.json())`,
+                                }
+                                void copyToClipboard('snippet', snippets[activeTab])
+                            }}
                             className="absolute right-3 top-3 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg py-1 px-2.5 h-7 text-xs font-semibold"
                         >
                             {justCopied === 'snippet' ? (

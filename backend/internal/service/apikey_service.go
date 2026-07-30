@@ -4,11 +4,27 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
+
+	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
-	"ejp-backend/internal/helper"
 	"ejp-backend/pkg/config"
+)
+
+var (
+	ErrMaxAPIKeys          = errors.New("maximum 5 active API keys allowed per user")
+	ErrReservedKeyName     = errors.New("reserved key name")
+	ErrSystemKeyProtected  = errors.New("system keys cannot be modified")
+	ErrAPIKeyNotFound      = errors.New("api key not found")
+	ErrAPIKeyNotActive     = errors.New("api key is not active")
+	ErrAPIKeyGenerateFailed = errors.New("failed to generate secure api key")
+)
+
+const (
+	loginKeyName         = "Login Key"
+	impersonationKeyName = "Impersonation Key"
 )
 
 type APIKeyService interface {
@@ -19,8 +35,6 @@ type APIKeyService interface {
 	Create(userID uint, name string) (*model.APIKey, error)
 	Delete(id uint, userID uint) error
 	Rotate(id uint, userID uint) (*model.APIKey, error)
-	// InvalidateCacheByKeyID immediately removes the given key from the auth cache
-	// so a revoked/rotated key stops working without waiting for TTL expiry.
 	InvalidateCacheByKeyID(keyID uint)
 }
 
@@ -32,16 +46,35 @@ func NewAPIKeyService(repo repo.APIKeyRepo) APIKeyService {
 	return &apiKeyService{repo: repo}
 }
 
+func isSystemKeyName(name string) bool {
+	n := strings.TrimSpace(name)
+	return strings.EqualFold(n, loginKeyName) || strings.EqualFold(n, impersonationKeyName)
+}
+
+func newPlainAPIKey() (plainKey, prefix, hashedKey string, err error) {
+	suffix, err := helper.GenerateRandomHexE(32)
+	if err != nil || suffix == "" {
+		return "", "", "", ErrAPIKeyGenerateFailed
+	}
+	plainKey = "ak_live_" + suffix
+	if len(plainKey) < 16 {
+		return "", "", "", ErrAPIKeyGenerateFailed
+	}
+	prefix = plainKey[:16]
+	sum := sha256.Sum256([]byte(plainKey))
+	hashedKey = hex.EncodeToString(sum[:])
+	return plainKey, prefix, hashedKey, nil
+}
+
 func (s *apiKeyService) CreateLoginKey(userID uint) (string, error) {
-	plainKey := "ak_live_" + helper.GenerateRandomKey()
-	prefix := plainKey[:16]
-	hasher := sha256.New()
-	hasher.Write([]byte(plainKey))
-	hashedKey := hex.EncodeToString(hasher.Sum(nil))
+	plainKey, prefix, hashedKey, err := newPlainAPIKey()
+	if err != nil {
+		return "", err
+	}
 
 	apiKey := &model.APIKey{
 		UserID:    userID,
-		Name:      "Login Key",
+		Name:      loginKeyName,
 		APIKey:    hashedKey,
 		Key:       hashedKey,
 		KeyPrefix: prefix,
@@ -56,16 +89,15 @@ func (s *apiKeyService) CreateLoginKey(userID uint) (string, error) {
 }
 
 func (s *apiKeyService) CreateImpersonationKey(userID uint) (string, error) {
-	plainKey := "ak_live_" + helper.GenerateRandomKey()
-	prefix := plainKey[:16]
-	hasher := sha256.New()
-	hasher.Write([]byte(plainKey))
-	hashedKey := hex.EncodeToString(hasher.Sum(nil))
+	plainKey, prefix, hashedKey, err := newPlainAPIKey()
+	if err != nil {
+		return "", err
+	}
 
 	expiry := time.Now().Add(20 * time.Minute)
 	apiKey := &model.APIKey{
 		UserID:    userID,
-		Name:      "Impersonation Key",
+		Name:      impersonationKeyName,
 		APIKey:    hashedKey,
 		Key:       hashedKey,
 		KeyPrefix: prefix,
@@ -89,25 +121,31 @@ func (s *apiKeyService) GetByUserID(userID uint) ([]model.APIKey, error) {
 }
 
 func (s *apiKeyService) Create(userID uint, name string) (*model.APIKey, error) {
-	// Check max 5 active keys rule
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, errors.New("name is required")
+	}
+	if isSystemKeyName(name) {
+		return nil, ErrReservedKeyName
+	}
+
 	keys, err := s.repo.GetByUserID(userID)
 	if err == nil {
 		activeCount := 0
 		for _, k := range keys {
-			if k.Status == "active" && k.Name != "Login Key" && k.Name != "Impersonation Key" {
+			if k.Status == "active" && !isSystemKeyName(k.Name) {
 				activeCount++
 			}
 		}
 		if activeCount >= 5 {
-			return nil, errors.New("maximum 5 active API keys allowed per user")
+			return nil, ErrMaxAPIKeys
 		}
 	}
 
-	plainKey := "ak_live_" + helper.GenerateRandomKey()
-	prefix := plainKey[:16]
-	hasher := sha256.New()
-	hasher.Write([]byte(plainKey))
-	hashedKey := hex.EncodeToString(hasher.Sum(nil))
+	plainKey, prefix, hashedKey, err := newPlainAPIKey()
+	if err != nil {
+		return nil, err
+	}
 
 	apiKey := &model.APIKey{
 		UserID:    userID,
@@ -122,17 +160,30 @@ func (s *apiKeyService) Create(userID uint, name string) (*model.APIKey, error) 
 		return nil, err
 	}
 
-	// Temporarily store plain key to return to user once
+	// Return plaintext once via APIKey field (handler maps to DTO)
 	apiKey.APIKey = plainKey
+	apiKey.Key = ""
 	return apiKey, nil
 }
 
 func (s *apiKeyService) Delete(id uint, userID uint) error {
-	return s.repo.Delete(id, userID)
+	key, err := s.repo.GetByID(id)
+	if err != nil {
+		return ErrAPIKeyNotFound
+	}
+	if key.UserID != userID {
+		return ErrAPIKeyNotFound
+	}
+	if isSystemKeyName(key.Name) {
+		return ErrSystemKeyProtected
+	}
+
+	if err := s.repo.Delete(id, userID); err != nil {
+		return err
+	}
+	return nil
 }
 
-// InvalidateCacheByKeyID immediately evicts the auth cache entries for the
-// given key ID so the key stops being accepted within the same process.
 func (s *apiKeyService) InvalidateCacheByKeyID(keyID uint) {
 	config.ClearCachedAPIAuthByKeyID(keyID)
 }
@@ -140,14 +191,19 @@ func (s *apiKeyService) InvalidateCacheByKeyID(keyID uint) {
 func (s *apiKeyService) Rotate(id uint, userID uint) (*model.APIKey, error) {
 	key, err := s.repo.GetByID(id)
 	if err != nil || key.UserID != userID {
-		return nil, err
+		return nil, ErrAPIKeyNotFound
+	}
+	if isSystemKeyName(key.Name) {
+		return nil, ErrSystemKeyProtected
+	}
+	if key.Status != "active" {
+		return nil, ErrAPIKeyNotActive
 	}
 
-	plainKey := "ak_live_" + helper.GenerateRandomKey()
-	prefix := plainKey[:16]
-	hasher := sha256.New()
-	hasher.Write([]byte(plainKey))
-	hashedKey := hex.EncodeToString(hasher.Sum(nil))
+	plainKey, prefix, hashedKey, err := newPlainAPIKey()
+	if err != nil {
+		return nil, err
+	}
 
 	updates := map[string]interface{}{
 		"api_key":    hashedKey,
@@ -159,6 +215,8 @@ func (s *apiKeyService) Rotate(id uint, userID uint) (*model.APIKey, error) {
 		return nil, err
 	}
 
-	key.APIKey = plainKey // Return plain key once
+	key.APIKey = plainKey
+	key.Key = ""
+	key.KeyPrefix = prefix
 	return key, nil
 }
