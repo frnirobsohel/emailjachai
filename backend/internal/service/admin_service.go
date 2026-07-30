@@ -26,39 +26,73 @@ type AdminService interface {
 }
 
 type adminService struct {
-	adminRepo     repo.AdminRepo
-	userRepo      repo.UserRepo
-	jobRepo       repo.JobRepository
-	logRepo       repo.LogRepo
-	txRepo        repo.TransactionRepo
-	emailService  EmailService
+	adminRepo    repo.AdminRepo
+	userRepo     repo.UserRepo
+	jobRepo      repo.JobRepository
+	logRepo      repo.LogRepo
+	txRepo       repo.TransactionRepo
+	serverRepo   repo.ServerRepo
+	emailService EmailService
 }
 
-func NewAdminService(adminRepo repo.AdminRepo, userRepo repo.UserRepo, jobRepo repo.JobRepository, logRepo repo.LogRepo, txRepo repo.TransactionRepo, emailService EmailService) AdminService {
+func NewAdminService(
+	adminRepo repo.AdminRepo,
+	userRepo repo.UserRepo,
+	jobRepo repo.JobRepository,
+	logRepo repo.LogRepo,
+	txRepo repo.TransactionRepo,
+	serverRepo repo.ServerRepo,
+	emailService EmailService,
+) AdminService {
 	return &adminService{
 		adminRepo:    adminRepo,
 		userRepo:     userRepo,
 		jobRepo:      jobRepo,
 		logRepo:      logRepo,
 		txRepo:       txRepo,
+		serverRepo:   serverRepo,
 		emailService: emailService,
 	}
 }
 
 func (s *adminService) GetAdminStats() (map[string]interface{}, error) {
-	totalUsers, _ := s.userRepo.CountUsers(nil, nil)
-	activeJobs, _ := s.jobRepo.CountAllActiveJobs()
-	totalCredits, _ := s.txRepo.SumCreditsSold(nil, nil)
-	totalRevenue, _ := s.txRepo.SumRevenue(nil, nil)
+	totalUsers, err := s.userRepo.CountUsers(nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("count users: %w", err)
+	}
+	activeJobs, err := s.jobRepo.CountAllActiveJobs()
+	if err != nil {
+		return nil, fmt.Errorf("count active jobs: %w", err)
+	}
+	totalCredits, err := s.txRepo.SumCreditsSold(nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("sum credits sold: %w", err)
+	}
+	totalRevenue, err := s.txRepo.SumRevenue(nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("sum revenue: %w", err)
+	}
+	emailsVerified, err := s.jobRepo.SumProcessedEmails()
+	if err != nil {
+		return nil, fmt.Errorf("sum emails verified: %w", err)
+	}
+	activeWorkers, err := s.serverRepo.CountOnlineEnabled()
+	if err != nil {
+		return nil, fmt.Errorf("count workers: %w", err)
+	}
 
-	// Dynamic MoM growth calculations
 	now := time.Now()
 	last30Days := now.AddDate(0, 0, -30)
 	prev30Days := now.AddDate(0, 0, -60)
 
-	// 1. Users MoM
-	newUsersLast30, _ := s.userRepo.CountUsers(&last30Days, nil)
-	newUsersPrev30, _ := s.userRepo.CountUsers(&prev30Days, &last30Days)
+	newUsersLast30, err := s.userRepo.CountUsers(&last30Days, nil)
+	if err != nil {
+		return nil, fmt.Errorf("count users last 30d: %w", err)
+	}
+	newUsersPrev30, err := s.userRepo.CountUsers(&prev30Days, &last30Days)
+	if err != nil {
+		return nil, fmt.Errorf("count users prev 30d: %w", err)
+	}
 
 	usersTrend := "+0.0% MoM"
 	usersStatus := "up"
@@ -74,9 +108,14 @@ func (s *adminService) GetAdminStats() (map[string]interface{}, error) {
 		usersTrend = fmt.Sprintf("+%d users last 30d", newUsersLast30)
 	}
 
-	// 2. Credits Sold MoM
-	creditsLast30, _ := s.txRepo.SumCreditsSold(&last30Days, nil)
-	creditsPrev30, _ := s.txRepo.SumCreditsSold(&prev30Days, &last30Days)
+	creditsLast30, err := s.txRepo.SumCreditsSold(&last30Days, nil)
+	if err != nil {
+		return nil, fmt.Errorf("sum credits last 30d: %w", err)
+	}
+	creditsPrev30, err := s.txRepo.SumCreditsSold(&prev30Days, &last30Days)
+	if err != nil {
+		return nil, fmt.Errorf("sum credits prev 30d: %w", err)
+	}
 
 	creditsTrend := "+0.0% MoM"
 	creditsStatus := "up"
@@ -92,9 +131,14 @@ func (s *adminService) GetAdminStats() (map[string]interface{}, error) {
 		creditsTrend = fmt.Sprintf("+%s credits last 30d", helper.FormatNumber(creditsLast30))
 	}
 
-	// 3. Revenue MoM
-	revLast30, _ := s.txRepo.SumRevenue(&last30Days, nil)
-	revPrev30, _ := s.txRepo.SumRevenue(&prev30Days, &last30Days)
+	revLast30, err := s.txRepo.SumRevenue(&last30Days, nil)
+	if err != nil {
+		return nil, fmt.Errorf("sum revenue last 30d: %w", err)
+	}
+	revPrev30, err := s.txRepo.SumRevenue(&prev30Days, &last30Days)
+	if err != nil {
+		return nil, fmt.Errorf("sum revenue prev 30d: %w", err)
+	}
 
 	revTrend := "+0.0% MoM"
 	revStatus := "up"
@@ -110,21 +154,59 @@ func (s *adminService) GetAdminStats() (map[string]interface{}, error) {
 		revTrend = fmt.Sprintf("+$%.2f last 30d", revLast30)
 	}
 
-	// Recent Users (Legacy Parity: Top 5)
-	var recentUsers []map[string]interface{}
-	dbUsers, _ := s.userRepo.GetRecentUsers(5)
+	jobsTrend := "Idle"
+	jobsStatus := "down"
+	if activeJobs > 0 {
+		jobsTrend = fmt.Sprintf("%d running", activeJobs)
+		jobsStatus = "up"
+	}
+
+	healthLabel := "Healthy"
+	healthStatus := "up"
+	switch {
+	case activeJobs > 0 && activeWorkers == 0:
+		healthLabel = "Degraded — jobs queued, no online workers"
+		healthStatus = "down"
+	case activeWorkers == 0:
+		healthLabel = "No online workers"
+		healthStatus = "down"
+	default:
+		healthLabel = fmt.Sprintf("%d worker node(s) online", activeWorkers)
+	}
+
+	recentUsers := make([]map[string]interface{}, 0, 5)
+	dbUsers, err := s.userRepo.GetRecentUsers(5)
+	if err != nil {
+		return nil, fmt.Errorf("recent users: %w", err)
+	}
 	for _, u := range dbUsers {
+		plan := "Free"
+		var lastPkg string
+		_ = s.txRepo.DB().Model(&model.Transaction{}).
+			Where("user_id = ? AND status = ? AND package <> '' AND package IS NOT NULL", u.ID, "completed").
+			Order("id DESC").
+			Limit(1).
+			Pluck("package", &lastPkg)
+		if strings.TrimSpace(lastPkg) != "" {
+			plan = strings.TrimSpace(lastPkg)
+		}
+		name := strings.TrimSpace(u.Name)
+		if name == "" {
+			name = "User"
+		}
 		recentUsers = append(recentUsers, map[string]interface{}{
-			"name":  u.Name,
+			"name":  name,
 			"email": u.Email,
-			"plan":  "Basic",
+			"plan":  plan,
 			"date":  u.CreatedAt.Format("2006-01-02"),
 		})
 	}
 
-	// Recent Logs (Legacy Parity: Top 5)
-	var recentLogs []map[string]interface{}
-	dbLogs, _, _ := s.logRepo.List(5, 0)
+	recentLogs := make([]map[string]interface{}, 0, 5)
+	dbLogs, _, err := s.logRepo.List(5, 0)
+	if err != nil {
+		return nil, fmt.Errorf("recent logs: %w", err)
+	}
 	for _, l := range dbLogs {
 		status := "success"
 		lvl := strings.ToLower(l.Level)
@@ -136,8 +218,9 @@ func (s *adminService) GetAdminStats() (map[string]interface{}, error) {
 		}
 
 		recentLogs = append(recentLogs, map[string]interface{}{
+			"id":     l.ID,
 			"user":   l.Source,
-			"event":  l.Message, // Legacy Parity: message as event
+			"event":  l.Message,
 			"time":   l.CreatedAt.Format("2006-01-02 15:04"),
 			"status": status,
 		})
@@ -151,8 +234,8 @@ func (s *adminService) GetAdminStats() (map[string]interface{}, error) {
 		},
 		"active_jobs": map[string]interface{}{
 			"value":  fmt.Sprintf("%d", activeJobs),
-			"trend":  "Running",
-			"status": "up",
+			"trend":  jobsTrend,
+			"status": jobsStatus,
 		},
 		"total_credits": map[string]interface{}{
 			"value":  helper.FormatNumber(totalCredits),
@@ -163,6 +246,21 @@ func (s *adminService) GetAdminStats() (map[string]interface{}, error) {
 			"value":  fmt.Sprintf("$%.2f", totalRevenue),
 			"trend":  revTrend,
 			"status": revStatus,
+		},
+		"emails_verified": map[string]interface{}{
+			"value":  helper.FormatNumber(emailsVerified),
+			"trend":  "Lifetime processed",
+			"status": "up",
+		},
+		"active_workers": map[string]interface{}{
+			"value":  fmt.Sprintf("%d", activeWorkers),
+			"trend":  healthLabel,
+			"status": healthStatus,
+		},
+		"system_health": map[string]interface{}{
+			"value":  healthLabel,
+			"trend":  healthLabel,
+			"status": healthStatus,
 		},
 		"recent_users": recentUsers,
 		"recent_logs":  recentLogs,
@@ -256,7 +354,6 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 			}
 			s.logActivity("INFO", "Admin", fmt.Sprintf("Adjusted %d credits for user #%d", amount, targetUserID), adminID)
 
-			// Broadcast updated credits and stats to the target user in real-time
 			targetUserIDCopy := targetUserID
 			safe.Go(func() {
 				if updatedUser, getErr := s.userRepo.GetByID(targetUserIDCopy); getErr == nil && updatedUser != nil {
@@ -273,7 +370,6 @@ func (s *adminService) UserAction(action string, targetUserID uint, adminID uint
 	return fmt.Errorf("invalid action specified: %s", action)
 }
 
-// logActivity is a helper to record administrative actions (Legacy Parity)
 func (s *adminService) logActivity(level, source, message string, adminID uint) {
 	log := &model.ActivityLog{
 		UserID:  &adminID,
@@ -291,21 +387,7 @@ func (s *adminService) GetJobStats() (interface{}, error) {
 	fourteenDaysAgo := now.AddDate(0, 0, -14)
 	thirtyDaysAgo := now.AddDate(0, 0, -30)
 
-	summaryInterface, err := s.adminRepo.GetJobStatsSummary(todayStart, sevenDaysAgo, fourteenDaysAgo, thirtyDaysAgo)
-	if err != nil {
-		return nil, err
-	}
-
-	// Because Go doesn't let us easily access fields of an anonymous struct hidden in interface{},
-	// we will define the struct type again here, or better, we can just cast it.
-	// Since we defined the struct in the repo but returned interface{}, we need a clean way to pass data.
-	// Actually, wait, let's fix this in a cleaner way. I'll pass back the interface{} from repo, 
-	// but I need to map it here. Let's assume GetJobStatsSummary returns the exact map we want?
-	// Oh, I'll just change the repo to return the map directly! Wait, no, I'll update it inside the method below.
-	
-	// Let's do the mapping inside GetJobStatsSummary in the repo and return the map[string]interface{}.
-	// For now, I will assume GetJobStatsSummary returns map[string]interface{}
-	return summaryInterface, nil
+	return s.adminRepo.GetJobStatsSummary(todayStart, sevenDaysAgo, fourteenDaysAgo, thirtyDaysAgo)
 }
 
 func (s *adminService) CleanupJobs(days int) (int64, error) {
@@ -327,7 +409,6 @@ func (s *adminService) CreateUser(name, email, password, role string, credits in
 		return fmt.Errorf("invalid role value: %s", role)
 	}
 
-	// Check if email already exists
 	existing, _ := s.userRepo.GetByEmail(email)
 	if existing != nil {
 		return fmt.Errorf("email is already registered")
@@ -369,7 +450,6 @@ func (s *adminService) EditUser(id uint, name, email, role string) error {
 		return fmt.Errorf("invalid role value: %s", role)
 	}
 
-	// If email changed, verify uniqueness
 	if email != user.Email {
 		existing, _ := s.userRepo.GetByEmail(email)
 		if existing != nil {

@@ -12,8 +12,11 @@ export interface AdminDashboardStats {
     active_jobs?: AdminStatCard;
     total_credits?: AdminStatCard;
     total_revenue?: AdminStatCard;
+    emails_verified?: AdminStatCard;
+    active_workers?: AdminStatCard;
+    system_health?: AdminStatCard;
     recent_users?: Array<{ name: string; email: string; plan: string; date: string }>;
-    recent_logs?: Array<{ event: string; user: string; time: string; status: string }>;
+    recent_logs?: Array<{ id?: number; event: string; user: string; time: string; status: string }>;
 }
 
 export interface AdminStore {

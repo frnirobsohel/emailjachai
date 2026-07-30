@@ -56,12 +56,15 @@ func (h *SystemHandler) ServeWS(c *gin.Context) {
 	}
 
 	userID, _ := c.Get("userID")
+	roleVal, _ := c.Get("role")
+	role, _ := roleVal.(string)
 
 	client := &ws.Client{
 		Hub:    ws.GlobalHub,
 		Conn:   conn,
 		Send:   make(chan []byte, 256),
 		UserID: userID.(uint),
+		Role:   role,
 	}
 	client.Hub.Register <- client
 

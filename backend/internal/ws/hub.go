@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 
 	"ejp-backend/pkg/config"
@@ -100,9 +101,9 @@ func (h *Hub) broadcastLocal(message Message) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	// If UserID is 0, it's a global/admin broadcast
+	// UserID 0 = admin-scoped broadcast (never fan-out to all users)
 	if message.UserID == 0 {
-		h.broadcastGlobal(message)
+		h.broadcastToAdminsLocal(message)
 		return
 	}
 
@@ -120,10 +121,14 @@ func (h *Hub) broadcastLocal(message Message) {
 	}
 }
 
-func (h *Hub) broadcastGlobal(message Message) {
+// broadcastToAdminsLocal delivers only to clients whose Role is admin.
+func (h *Hub) broadcastToAdminsLocal(message Message) {
 	jsonMsg, _ := json.Marshal(message)
 	for _, connections := range h.Clients {
 		for client := range connections {
+			if !strings.EqualFold(client.Role, "admin") {
+				continue
+			}
 			select {
 			case client.Send <- jsonMsg:
 			default:
@@ -140,7 +145,7 @@ func InitGlobalHub() {
 	go GlobalHub.Run()
 }
 
-// BroadcastToAdmins sends a message to all connected clients (UserID 0 logic)
+// BroadcastToAdmins sends a message only to connected admin-role clients.
 func (h *Hub) BroadcastToAdmins(msgType string, data interface{}) {
 	msg := Message{
 		UserID: 0,
@@ -182,6 +187,20 @@ func (h *Hub) HasActiveConnections() bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.Clients) > 0
+}
+
+// HasAdminConnections returns true if at least one admin-role WebSocket is connected.
+func (h *Hub) HasAdminConnections() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, connections := range h.Clients {
+		for client := range connections {
+			if strings.EqualFold(client.Role, "admin") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 

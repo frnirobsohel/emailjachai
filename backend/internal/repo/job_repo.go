@@ -28,6 +28,7 @@ type JobRepository interface {
 	GetJobForUser(userID uint, jobID string) (*model.Job, error)
 	GetJobResultsRows(jobInternalID uint) (*sql.Rows, error)
 	CountAllActiveJobs() (int64, error)
+	SumProcessedEmails() (int64, error)
 	DB() *gorm.DB
 	CheckAndApplyRiskyRefund(tx *gorm.DB, jobID string) error
 }
@@ -320,6 +321,12 @@ func (r *jobRepository) CountAllActiveJobs() (int64, error) {
 	var count int64
 	err := r.db.Model(&model.Job{}).Where("status IN ?", []string{"pending", "processing"}).Count(&count).Error
 	return count, err
+}
+
+func (r *jobRepository) SumProcessedEmails() (int64, error) {
+	var total int64
+	err := r.db.Model(&model.Job{}).Select("COALESCE(SUM(processed_count), 0)").Scan(&total).Error
+	return total, err
 }
 
 func (r *jobRepository) CheckAndApplyRiskyRefund(tx *gorm.DB, jobID string) error {

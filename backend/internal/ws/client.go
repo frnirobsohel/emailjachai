@@ -33,6 +33,7 @@ type Client struct {
 
 	// Context info
 	UserID uint
+	Role   string
 }
 
 // ReadPump pumps messages from the websocket connection to the hub.

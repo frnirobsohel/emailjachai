@@ -29,6 +29,7 @@ type ServerRepo interface {
 	UpdateFields(id uint, updates map[string]interface{}) error
 	Delete(id uint) error
 	GetActiveTasksCountByWorker() ([]WorkerTaskSummary, error)
+	CountOnlineEnabled() (int64, error)
 	GetOrProvisionWorkerKey() (plainKey, maskedKey string, err error)
 	RotateWorkerKey() (newKey, maskedKey string, err error)
 	CheckAdminPassword(adminID uint, password string) (bool, error)
@@ -50,6 +51,14 @@ func (r *serverRepo) List() ([]model.WorkerServer, error) {
 	var servers []model.WorkerServer
 	err := r.db.Order("id DESC").Find(&servers).Error
 	return servers, err
+}
+
+func (r *serverRepo) CountOnlineEnabled() (int64, error) {
+	var count int64
+	err := r.db.Model(&model.WorkerServer{}).
+		Where("enabled = ? AND LOWER(status) = ?", true, "online").
+		Count(&count).Error
+	return count, err
 }
 
 func (r *serverRepo) GetByID(id uint) (*model.WorkerServer, error) {

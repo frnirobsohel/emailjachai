@@ -46,7 +46,7 @@ func SetupRoutes(router *gin.Engine) {
 	settingsService := service.NewSettingsService(settingsRepo, logRepo)
 	paymentService := service.NewPaymentService(txRepo, packageRepo, userRepo, emailService, settingsRepo)
 	workerService := service.NewWorkerService(workerRepo, jobRepo, serverRepo, settingsRepo)
-	adminService := service.NewAdminService(adminRepo, userRepo, jobRepo, logRepo, txRepo, emailService)
+	adminService := service.NewAdminService(adminRepo, userRepo, jobRepo, logRepo, txRepo, serverRepo, emailService)
 	systemService := service.NewSystemService(systemRepo)
 	resellerService := service.NewResellerService(userRepo, txRepo, settingsRepo)
 

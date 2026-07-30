@@ -59,7 +59,7 @@ func (h *AdminHandler) AdminStats(c *gin.Context) {
 
 	stats, err := h.adminService.GetAdminStats()
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch stats", err.Error())
+		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch admin stats.", "ERR_ADMIN_STATS")
 		return
 	}
 
@@ -70,10 +70,10 @@ func (h *AdminHandler) AdminStats(c *gin.Context) {
 // StartAdminStatsBroadcaster starts a background ticker to periodically recalculate and broadcast stats.
 func (h *AdminHandler) StartAdminStatsBroadcaster() {
 	safe.Go(func() {
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			if ws.GlobalHub == nil || !ws.GlobalHub.HasActiveConnections() {
+			if ws.GlobalHub == nil || !ws.GlobalHub.HasAdminConnections() {
 				continue
 			}
 

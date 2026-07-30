@@ -230,7 +230,7 @@ func (h *AdminHandler) StartServerListBroadcaster() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			if ws.GlobalHub == nil || !ws.GlobalHub.HasActiveConnections() {
+			if ws.GlobalHub == nil || !ws.GlobalHub.HasAdminConnections() {
 				continue
 			}
 
