@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+	"time"
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
@@ -54,9 +55,12 @@ func (r *serverRepo) List() ([]model.WorkerServer, error) {
 }
 
 func (r *serverRepo) CountOnlineEnabled() (int64, error) {
+	// Match admin server list: "active" = enabled AND last_ping within 130s.
+	// DB status='online' can stay stale after a worker dies, so do not trust it alone.
 	var count int64
+	cutoff := time.Now().UTC().Add(-130 * time.Second)
 	err := r.db.Model(&model.WorkerServer{}).
-		Where("enabled = ? AND LOWER(status) = ?", true, "online").
+		Where("enabled = ? AND last_ping IS NOT NULL AND last_ping >= ?", true, cutoff).
 		Count(&count).Error
 	return count, err
 }
