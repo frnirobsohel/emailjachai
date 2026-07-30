@@ -31,18 +31,12 @@ const brandSettingsSchema = z.object({
     site_tagline: z.string().max(200, "Tagline must be at most 200 characters").optional().or(z.literal("")),
     logo_url: httpUrl.optional().or(z.literal("")),
     favicon_url: httpUrl.optional().or(z.literal("")),
-    primary_color: z
-        .string()
-        .regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, "Must be a valid HEX color code")
-        .optional()
-        .or(z.literal("")),
-    nav_style: z.enum(["dark", "light"]),
     support_email: z
         .string()
         .max(254)
-        .email("Must be a valid email address")
-        .optional()
-        .or(z.literal("")),
+        .refine((value) => value === "" || z.string().email().safeParse(value).success, {
+            message: "Must be a valid email address",
+        }),
     help_center_url: httpUrl.optional().or(z.literal("")),
     twitter_url: httpUrl.optional().or(z.literal("")),
     linkedin_url: httpUrl.optional().or(z.literal("")),
@@ -52,14 +46,11 @@ const brandSettingsSchema = z.object({
 type BrandSettingsValues = z.infer<typeof brandSettingsSchema>
 
 function mapBrandValues(data: Record<string, string>): BrandSettingsValues {
-    const nav = data.nav_style === "light" ? "light" : "dark"
     return {
         site_title: data.site_title || "",
         site_tagline: data.site_tagline || "",
         logo_url: data.logo_url || "",
         favicon_url: data.favicon_url || "",
-        primary_color: data.primary_color || "#0F172B",
-        nav_style: nav,
         support_email: data.support_email || "",
         help_center_url: data.help_center_url || "",
         twitter_url: data.twitter_url || "",
@@ -185,44 +176,6 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                         </CardTitle>
                         <CardDescription className="text-[#5a736c]">Manage the look and feel of the user dashboard.</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-4 pt-6">
-                        <div className="space-y-2">
-                            <Label htmlFor="primary-color" className="text-sm font-medium">Primary Brand Color</Label>
-                            <div className="flex gap-3 items-center">
-                                <div
-                                    className="h-10 w-10 rounded-md border border-[#0b1f1c]/10"
-                                    style={{ backgroundColor: form.watch("primary_color") || "#0F172B" }}
-                                />
-                                <Input
-                                    id="primary-color"
-                                    className={cn("w-32 font-mono text-center uppercase", form.formState.errors.primary_color && "border-red-500")}
-                                    placeholder="#0F172B"
-                                    {...form.register("primary_color")}
-                                />
-                                <p className="text-xs text-[#6b857c]">HEX color code</p>
-                            </div>
-                            {form.formState.errors.primary_color && <p className="text-[10px] text-red-500">{form.formState.errors.primary_color.message}</p>}
-                        </div>
-                        <div className="space-y-2 pt-2">
-                            <label className="text-sm font-medium">Navigation Style</label>
-                            <div className="grid grid-cols-2 gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => form.setValue("nav_style", "dark", { shouldValidate: true })}
-                                    className={`border rounded-md p-3 transition-all ${form.watch("nav_style") === "dark" ? "bg-[#f0f4f2] border-[#0f5c52]/30 ring-1 ring-[#0f5c52]" : "hover:bg-[#f0f4f2]/60"}`}
-                                >
-                                    <p className="text-xs font-bold text-center text-[#0b1f1c]">Dark Sidebar</p>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => form.setValue("nav_style", "light", { shouldValidate: true })}
-                                    className={`border rounded-md p-3 transition-all ${form.watch("nav_style") === "light" ? "bg-[#f0f4f2] border-[#0f5c52]/30 ring-1 ring-[#0f5c52]" : "hover:bg-[#f0f4f2]/60"}`}
-                                >
-                                    <p className="text-xs font-bold text-center text-[#0b1f1c]">Light Sidebar</p>
-                                </button>
-                            </div>
-                        </div>
-                    </CardContent>
                 </Card>
 
                 <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">

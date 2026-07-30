@@ -30,8 +30,6 @@ var BrandSettingKeys = []string{
 	"site_tagline",
 	"logo_url",
 	"favicon_url",
-	"primary_color",
-	"nav_style",
 	"support_email",
 	"help_center_url",
 	"twitter_url",
@@ -76,6 +74,7 @@ var SensitiveSettingKeys = map[string]bool{
 	"cryptomus_payment_key":    true,
 	"cryptomus_secret_key":     true,
 	"cryptomus_webhook_secret": true,
+	"paypal_webhook_secret":    true,
 	"worker_api_key_encrypted": true,
 	"worker_api_key_hash":      true,
 	"license_key":              true,
@@ -138,12 +137,6 @@ func (s *settingsService) GetBrandSettings() (map[string]string, error) {
 	}
 	if out["site_title"] == "" {
 		out["site_title"] = "EmailJachai Pro"
-	}
-	if out["primary_color"] == "" {
-		out["primary_color"] = "#0F172B"
-	}
-	if out["nav_style"] == "" {
-		out["nav_style"] = "dark"
 	}
 	return out, nil
 }
