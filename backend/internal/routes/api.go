@@ -202,6 +202,8 @@ func SetupRoutes(router *gin.Engine) {
 			admin.POST("/impersonate", authHandler.Impersonate)
 			
 			admin.GET("/settings", adminHandler.GetSettings)
+			admin.GET("/settings/brand", adminHandler.GetBrandSettings)
+			admin.POST("/settings/brand", adminHandler.UpdateBrandSettings)
 			admin.POST("/settings/update", adminHandler.UpdateSettings)
 
 			admin.GET("/packages", adminHandler.ListPackages)

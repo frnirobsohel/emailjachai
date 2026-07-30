@@ -8,24 +8,15 @@ import { fetchServer } from "@/lib/fetch-server"
 import { BrandBuildClient } from "./brand-build-client"
 
 export default async function BrandBuildPage() {
-    let initialData: Record<string, string> = {};
-    
+    let initialData: Record<string, string> = {}
+
     try {
-        const result = await fetchServer('/admin/settings');
-        if (result.status === 'success') {
-            const payload = result.data;
-            if (Array.isArray(payload)) {
-                for (const item of payload) {
-                    if (item.setting_key) {
-                        initialData[item.setting_key] = item.setting_value ?? "";
-                    }
-                }
-            } else if (payload && typeof payload === "object") {
-                initialData = payload as Record<string, string>;
-            }
+        const result = await fetchServer("/admin/settings/brand")
+        if (result.status === "success" && result.data && typeof result.data === "object" && !Array.isArray(result.data)) {
+            initialData = result.data as Record<string, string>
         }
     } catch (e) {
-        console.error("Failed to fetch admin brand settings:", e);
+        console.error("Failed to fetch admin brand settings:", e)
     }
 
     return <BrandBuildClient initialData={initialData} />

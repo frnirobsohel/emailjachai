@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -13,98 +13,95 @@ import * as z from "zod"
 import { toast } from "react-hot-toast"
 import { cn } from "@/lib/utils"
 
+const httpUrl = z
+    .string()
+    .max(2048, "URL is too long")
+    .refine((v) => {
+        if (!v) return true
+        try {
+            const u = new URL(v)
+            return u.protocol === "http:" || u.protocol === "https:"
+        } catch {
+            return false
+        }
+    }, "Must be a valid http(s) URL")
+
 const brandSettingsSchema = z.object({
-    site_title: z.string().min(1, "Site title is required").optional().or(z.literal("")),
-    site_tagline: z.string().optional().or(z.literal("")),
-    logo_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
-    favicon_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
-    primary_color: z.string().regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, "Must be a valid HEX color code").optional().or(z.literal("")),
-    nav_style: z.enum(['dark', 'light']).optional().or(z.literal("")),
-    support_email: z.string().email("Must be a valid email address").optional().or(z.literal("")),
-    help_center_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
-    twitter_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
-    linkedin_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
-    github_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
+    site_title: z.string().trim().min(1, "Site title is required").max(100, "Site title must be at most 100 characters"),
+    site_tagline: z.string().max(200, "Tagline must be at most 200 characters").optional().or(z.literal("")),
+    logo_url: httpUrl.optional().or(z.literal("")),
+    favicon_url: httpUrl.optional().or(z.literal("")),
+    primary_color: z
+        .string()
+        .regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, "Must be a valid HEX color code")
+        .optional()
+        .or(z.literal("")),
+    nav_style: z.enum(["dark", "light"]),
+    support_email: z
+        .string()
+        .max(254)
+        .email("Must be a valid email address")
+        .optional()
+        .or(z.literal("")),
+    help_center_url: httpUrl.optional().or(z.literal("")),
+    twitter_url: httpUrl.optional().or(z.literal("")),
+    linkedin_url: httpUrl.optional().or(z.literal("")),
+    github_url: httpUrl.optional().or(z.literal("")),
 })
 
 type BrandSettingsValues = z.infer<typeof brandSettingsSchema>
 
+function mapBrandValues(data: Record<string, string>): BrandSettingsValues {
+    const nav = data.nav_style === "light" ? "light" : "dark"
+    return {
+        site_title: data.site_title || "",
+        site_tagline: data.site_tagline || "",
+        logo_url: data.logo_url || "",
+        favicon_url: data.favicon_url || "",
+        primary_color: data.primary_color || "#0F172B",
+        nav_style: nav,
+        support_email: data.support_email || "",
+        help_center_url: data.help_center_url || "",
+        twitter_url: data.twitter_url || "",
+        linkedin_url: data.linkedin_url || "",
+        github_url: data.github_url || "",
+    }
+}
+
 export function BrandBuildClient({ initialData }: { initialData: Record<string, string> }) {
-    const [isLoading, setIsLoading] = useState(false)
+    const [isRefreshing, setIsRefreshing] = useState(false)
 
     const form = useForm<BrandSettingsValues>({
         resolver: zodResolver(brandSettingsSchema),
-        defaultValues: {
-            site_title: initialData.site_title || "",
-            site_tagline: initialData.site_tagline || "",
-            logo_url: initialData.logo_url || "",
-            favicon_url: initialData.favicon_url || "",
-            primary_color: initialData.primary_color || "#0F172B",
-            nav_style: (initialData.nav_style as 'dark' | 'light') || "dark",
-            support_email: initialData.support_email || "",
-            help_center_url: initialData.help_center_url || "",
-            twitter_url: initialData.twitter_url || "",
-            linkedin_url: initialData.linkedin_url || "",
-            github_url: initialData.github_url || "",
-        }
+        defaultValues: mapBrandValues(initialData),
     })
 
-    const fetchSettings = async () => {
-        setIsLoading(true);
+    const refreshSettings = async () => {
+        setIsRefreshing(true)
         try {
-            const result = await ApiClient.get('/admin/settings');
-            if (result.status === 'success') {
-                const payload = result.data;
-                const mapped: Record<string, string> = {};
-                if (Array.isArray(payload)) {
-                    for (const item of payload) {
-                        if (item.setting_key) {
-                            mapped[item.setting_key] = item.setting_value ?? "";
-                        }
-                    }
-                } else if (payload && typeof payload === "object") {
-                    Object.assign(mapped, payload);
-                }
-                form.reset({
-                    site_title: mapped.site_title || "",
-                    site_tagline: mapped.site_tagline || "",
-                    logo_url: mapped.logo_url || "",
-                    favicon_url: mapped.favicon_url || "",
-                    primary_color: mapped.primary_color || "#0F172B",
-                    nav_style: (mapped.nav_style as 'dark' | 'light') || "dark",
-                    support_email: mapped.support_email || "",
-                    help_center_url: mapped.help_center_url || "",
-                    twitter_url: mapped.twitter_url || "",
-                    linkedin_url: mapped.linkedin_url || "",
-                    github_url: mapped.github_url || "",
-                });
+            const result = await ApiClient.get<Record<string, string>>("/admin/settings/brand")
+            if (result.status === "success" && result.data) {
+                form.reset(mapBrandValues(result.data))
             }
         } catch (error) {
-            console.error("Failed to fetch brand settings:", error);
+            console.error("Failed to fetch brand settings:", error)
         } finally {
-            setIsLoading(false);
+            setIsRefreshing(false)
         }
-    };
-
-    useEffect(() => {
-        void fetchSettings();
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only refresh
-    }, []);
+    }
 
     const handleSaveSubmit = async (values: BrandSettingsValues) => {
         try {
-            // Clean up empty strings to not fail backend logic or keep them if intended.
-            // Our backend accepts string maps, so we send the values directly
-            const result = await ApiClient.post('/admin/settings/update', { settings: values });
+            const result = await ApiClient.post("/admin/settings/brand", { settings: values })
 
-            if (result.status === 'success') {
-                toast.success("Brand settings updated successfully.");
-                void fetchSettings();
+            if (result.status === "success") {
+                toast.success("Brand settings updated successfully.")
+                void refreshSettings()
             } else {
-                toast.error(result.message || "Failed to save settings.");
+                toast.error(result.message || "Failed to save settings.")
             }
         } catch (error: unknown) {
-            toast.error(error instanceof Error ? error.message : "Server error occurred.");
+            toast.error(error instanceof Error ? error.message : "Server error occurred.")
         }
     }
 
@@ -117,16 +114,15 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                 </div>
                 <Button
                     type="submit"
-                    disabled={form.formState.isSubmitting || isLoading}
+                    disabled={form.formState.isSubmitting || isRefreshing}
                     className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none min-w-[140px]"
                 >
                     {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                    {form.formState.isSubmitting ? 'Saving...' : 'Save Changes'}
+                    {form.formState.isSubmitting ? "Saving..." : "Save Changes"}
                 </Button>
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
-                {/* General Branding */}
                 <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                     <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                         <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
@@ -158,34 +154,29 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="logo-url" className="text-sm font-medium">Logo URL</Label>
-                            <div className="flex items-center gap-4">
-                                <Input
-                                    id="logo-url"
-                                    placeholder="https://example.com/logo.png"
-                                    className={cn(form.formState.errors.logo_url && "border-red-500")}
-                                    {...form.register("logo_url")}
-                                />
-                            </div>
+                            <Input
+                                id="logo-url"
+                                placeholder="https://example.com/logo.png"
+                                className={cn(form.formState.errors.logo_url && "border-red-500")}
+                                {...form.register("logo_url")}
+                            />
                             {form.formState.errors.logo_url && <p className="text-[10px] text-red-500">{form.formState.errors.logo_url.message}</p>}
                             <p className="text-[10px] text-[#6b857c]">Direct link to your brand logo image.</p>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="favicon-url" className="text-sm font-medium">Favicon URL</Label>
-                            <div className="flex items-center gap-4">
-                                <Input
-                                    id="favicon-url"
-                                    placeholder="https://example.com/favicon.ico"
-                                    className={cn(form.formState.errors.favicon_url && "border-red-500")}
-                                    {...form.register("favicon_url")}
-                                />
-                            </div>
+                            <Input
+                                id="favicon-url"
+                                placeholder="https://example.com/favicon.ico"
+                                className={cn(form.formState.errors.favicon_url && "border-red-500")}
+                                {...form.register("favicon_url")}
+                            />
                             {form.formState.errors.favicon_url && <p className="text-[10px] text-red-500">{form.formState.errors.favicon_url.message}</p>}
                             <p className="text-[10px] text-[#6b857c]">Direct link to your website favicon.</p>
                         </div>
                     </CardContent>
                 </Card>
 
-                {/* Appearance & Theme */}
                 <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                     <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                         <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
@@ -200,8 +191,8 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                             <div className="flex gap-3 items-center">
                                 <div
                                     className="h-10 w-10 rounded-md border border-[#0b1f1c]/10"
-                                    style={{ backgroundColor: form.watch('primary_color') || '#0F172B' }}
-                                ></div>
+                                    style={{ backgroundColor: form.watch("primary_color") || "#0F172B" }}
+                                />
                                 <Input
                                     id="primary-color"
                                     className={cn("w-32 font-mono text-center uppercase", form.formState.errors.primary_color && "border-red-500")}
@@ -217,15 +208,15 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                             <div className="grid grid-cols-2 gap-3">
                                 <button
                                     type="button"
-                                    onClick={() => form.setValue('nav_style', 'dark')}
-                                    className={`border rounded-md p-3 transition-all ${form.watch('nav_style') === 'dark' ? "bg-[#f0f4f2] border-[#0f5c52]/30 ring-1 ring-[#0f5c52]" : "hover:bg-[#f0f4f2]/60"}`}
+                                    onClick={() => form.setValue("nav_style", "dark", { shouldValidate: true })}
+                                    className={`border rounded-md p-3 transition-all ${form.watch("nav_style") === "dark" ? "bg-[#f0f4f2] border-[#0f5c52]/30 ring-1 ring-[#0f5c52]" : "hover:bg-[#f0f4f2]/60"}`}
                                 >
                                     <p className="text-xs font-bold text-center text-[#0b1f1c]">Dark Sidebar</p>
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => form.setValue('nav_style', 'light')}
-                                    className={`border rounded-md p-3 transition-all ${form.watch('nav_style') === 'light' ? "bg-[#f0f4f2] border-[#0f5c52]/30 ring-1 ring-[#0f5c52]" : "hover:bg-[#f0f4f2]/60"}`}
+                                    onClick={() => form.setValue("nav_style", "light", { shouldValidate: true })}
+                                    className={`border rounded-md p-3 transition-all ${form.watch("nav_style") === "light" ? "bg-[#f0f4f2] border-[#0f5c52]/30 ring-1 ring-[#0f5c52]" : "hover:bg-[#f0f4f2]/60"}`}
                                 >
                                     <p className="text-xs font-bold text-center text-[#0b1f1c]">Light Sidebar</p>
                                 </button>
@@ -234,7 +225,6 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                     </CardContent>
                 </Card>
 
-                {/* Contact & Support */}
                 <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                     <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                         <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
@@ -267,7 +257,6 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                     </CardContent>
                 </Card>
 
-                {/* Social Presence */}
                 <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                     <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                         <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">

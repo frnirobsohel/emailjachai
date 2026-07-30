@@ -1,114 +1,129 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/security"
+	"ejp-backend/internal/service"
 	"ejp-backend/pkg/config"
 
 	"github.com/gin-gonic/gin"
 )
 
-// GetSettings fetches all settings
-func (h *AdminHandler) GetSettings(c *gin.Context) {
-	settings, err := h.settingsService.GetAllSettings()
-	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch settings", err.Error())
-		return
+func mapSettingsError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrSettingsUnknownKey):
+		helper.SendError(c, http.StatusBadRequest, "One or more setting keys are not allowed.", "ERR_SETTINGS_KEY")
+	case errors.Is(err, service.ErrSettingsInvalidURL):
+		helper.SendError(c, http.StatusBadRequest, "Invalid URL. Use a full http(s) URL.", "ERR_INVALID_URL")
+	case errors.Is(err, service.ErrSettingsInvalidEmail):
+		helper.SendError(c, http.StatusBadRequest, "Invalid email address format.", "ERR_INVALID_EMAIL")
+	case errors.Is(err, service.ErrSettingsInvalidColor):
+		helper.SendError(c, http.StatusBadRequest, "Invalid hex color format.", "ERR_INVALID_COLOR")
+	case errors.Is(err, service.ErrSettingsInvalidNav):
+		helper.SendError(c, http.StatusBadRequest, "Navigation style must be dark or light.", "ERR_INVALID_NAV")
+	case errors.Is(err, service.ErrSettingsInvalidLength):
+		helper.SendError(c, http.StatusBadRequest, "One or more values exceed the maximum length.", "ERR_SETTINGS_LENGTH")
+	case errors.Is(err, service.ErrSettingsTitleRequired):
+		helper.SendError(c, http.StatusBadRequest, "Site title is required.", "ERR_TITLE_REQUIRED")
+	default:
+		helper.SendError(c, http.StatusInternalServerError, "Failed to update settings. Please try again.", "ERR_SETTINGS_UPDATE")
 	}
-
-	sensitiveKeys := map[string]bool{
-		"stripe_secret_key":        true,
-		"stripe_webhook_secret":    true,
-		"paypal_secret_key":        true,
-		"paypal_webhook_id":        true,
-		"cryptomus_payment_key":    true,
-		"cryptomus_secret_key":     true,
-		"cryptomus_webhook_secret": true,
-	}
-
-	for i, s := range settings {
-		if sensitiveKeys[s.SettingKey] && s.SettingValue != "" {
-			settings[i].SettingValue = "********"
-		}
-	}
-
-	helper.SendSuccess(c, "Settings retrieved", settings)
 }
 
-// UpdateSettings updates or creates multiple settings at once
-func (h *AdminHandler) UpdateSettings(c *gin.Context) {
-	adminID, _ := c.Get("userID")
-
+func parseSettingsBody(c *gin.Context) (map[string]string, error) {
 	var body map[string]interface{}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		helper.SendError(c, http.StatusBadRequest, "Invalid JSON payload", err.Error())
-		return
+		return nil, err
 	}
 
 	settingsMap := make(map[string]string)
 	if s, ok := body["settings"].(map[string]interface{}); ok {
 		for k, v := range s {
-			settingsMap[k] = fmt.Sprintf("%v", v)
+			settingsMap[k] = strings.TrimSpace(fmt.Sprintf("%v", v))
+			if settingsMap[k] == "<nil>" {
+				settingsMap[k] = ""
+			}
 		}
 	} else {
 		for k, v := range body {
-			if k != "action" && k != "id" {
-				settingsMap[k] = fmt.Sprintf("%v", v)
+			if k == "action" || k == "id" {
+				continue
+			}
+			settingsMap[k] = strings.TrimSpace(fmt.Sprintf("%v", v))
+			if settingsMap[k] == "<nil>" {
+				settingsMap[k] = ""
 			}
 		}
 	}
+	return settingsMap, nil
+}
 
-	numericRules := map[string]struct{ min, max, def int }{
-		"chunk_size":               {10, 50000, 1000},
-		"task_timeout":             {1, 1440, 60},
-		"max_emails_per_job":       {10, 1000000, 100000},
-		"max_active_jobs_per_user": {0, 10000, 0},
+// GetSettings fetches all settings with secrets masked.
+func (h *AdminHandler) GetSettings(c *gin.Context) {
+	settings, err := h.settingsService.GetAllSettings()
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch settings", "ERR_SETTINGS_FETCH")
+		return
+	}
+	helper.SendSuccess(c, "Settings retrieved", settings)
+}
+
+// GetBrandSettings returns only brand-related settings as a key/value map.
+func (h *AdminHandler) GetBrandSettings(c *gin.Context) {
+	settings, err := h.settingsService.GetBrandSettings()
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch brand settings", "ERR_SETTINGS_FETCH")
+		return
+	}
+	helper.SendSuccess(c, "Brand settings retrieved", settings)
+}
+
+// UpdateBrandSettings updates only brand allowlisted keys.
+func (h *AdminHandler) UpdateBrandSettings(c *gin.Context) {
+	adminID, _ := c.Get("userID")
+
+	settingsMap, err := parseSettingsBody(c)
+	if err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Invalid JSON payload", "ERR_INVALID_REQUEST")
+		return
+	}
+	if len(settingsMap) == 0 {
+		helper.SendError(c, http.StatusBadRequest, "No settings provided", "ERR_INVALID_REQUEST")
+		return
 	}
 
-	hexRegex := regexp.MustCompile(`^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$`)
-	urlRegex := regexp.MustCompile(`^https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(/.*)?$`)
-	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	if err := h.settingsService.UpdateBrandSettings(settingsMap, adminID.(uint)); err != nil {
+		mapSettingsError(c, err)
+		return
+	}
 
-	for k, v := range settingsMap {
-		if rule, ok := numericRules[k]; ok {
-			num, err := strconv.Atoi(v)
-			if err != nil {
-				num = rule.def
-			}
-			if num < rule.min {
-				num = rule.min
-			}
-			if num > rule.max {
-				num = rule.max
-			}
-			settingsMap[k] = strconv.Itoa(num)
-		}
+	logAction(adminID.(uint), "INFO", "Admin", "Brand settings updated")
+	config.ClearPublicSettingsCache()
+	helper.SendSuccess(c, "Brand settings updated successfully", nil)
+}
 
-		if v != "" {
-			if k == "primary_color" && !hexRegex.MatchString(v) {
-				helper.SendError(c, http.StatusBadRequest, "Invalid hex color format", "")
-				return
-			}
-			if (k == "logo_url" || k == "favicon_url" || k == "help_center_url" || k == "twitter_url" || k == "linkedin_url" || k == "github_url") && !urlRegex.MatchString(v) {
-				helper.SendError(c, http.StatusBadRequest, fmt.Sprintf("Invalid URL format for %s", k), "")
-				return
-			}
-			if k == "support_email" && !emailRegex.MatchString(v) {
-				helper.SendError(c, http.StatusBadRequest, "Invalid email address format", "")
-				return
-			}
-		}
+// UpdateSettings updates or creates multiple settings at once (global writable allowlist).
+func (h *AdminHandler) UpdateSettings(c *gin.Context) {
+	adminID, _ := c.Get("userID")
+
+	settingsMap, err := parseSettingsBody(c)
+	if err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Invalid JSON payload", "ERR_INVALID_REQUEST")
+		return
+	}
+	if len(settingsMap) == 0 {
+		helper.SendError(c, http.StatusBadRequest, "No settings provided", "ERR_INVALID_REQUEST")
+		return
 	}
 
 	if err := h.settingsService.UpdateSettings(settingsMap, adminID.(uint)); err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to update settings", err.Error())
+		mapSettingsError(c, err)
 		return
 	}
 
@@ -152,14 +167,13 @@ func (h *AdminHandler) GetPublicSettings(c *gin.Context) {
 
 	settings, err := h.settingsService.GetSettingsByKeys(publicKeys)
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to load public settings", "")
+		helper.SendError(c, http.StatusInternalServerError, "Failed to load public settings", "ERR_SETTINGS_FETCH")
 		return
 	}
 
 	results := make(map[string]string)
 	for _, s := range settings {
 		val := s.SettingValue
-		// Parity: Ensure enabled flags and maintenance_mode are "1" or "0"
 		if strings.HasSuffix(s.SettingKey, "_enabled") || s.SettingKey == "maintenance_mode" {
 			if val == "true" || val == "1" || val == "active" {
 				val = "1"
@@ -170,7 +184,6 @@ func (h *AdminHandler) GetPublicSettings(c *gin.Context) {
 		results[s.SettingKey] = val
 	}
 
-	// Add defaults if missing
 	if _, ok := results["site_title"]; !ok {
 		results["site_title"] = "EmailJachai Pro"
 	}
@@ -203,6 +216,3 @@ func boolSetting(v bool) string {
 	}
 	return "0"
 }
-
-
-
