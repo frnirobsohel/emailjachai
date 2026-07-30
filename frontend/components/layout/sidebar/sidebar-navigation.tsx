@@ -338,7 +338,7 @@ export function SidebarNavigation({
                 />
             </div>
 
-            {userRole === "reseller" && (
+            {(userRole === "reseller" || userRole === "admin") && (
                 <div className="mb-1">
                     <SectionHeader
                         section="reseller"

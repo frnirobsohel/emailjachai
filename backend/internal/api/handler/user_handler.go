@@ -165,21 +165,51 @@ func (h *UserHandler) TransferCredits(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
 	var input struct {
-		Email  string `json:"email" binding:"required"`
-		Amount int    `json:"amount" binding:"required"`
+		Email          string `json:"email" binding:"required,email"`
+		Amount         int    `json:"amount" binding:"required,gt=0"`
+		IdempotencyKey string `json:"idempotencyKey"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, "Invalid request data", err.Error())
+		helper.SendError(c, http.StatusBadRequest, "Valid recipient email and a credit amount greater than zero are required.", "ERR_INVALID_REQUEST")
 		return
 	}
 
-	if err := h.resellerService.TransferCredits(userID.(uint), input.Email, input.Amount); err != nil {
-		helper.SendError(c, http.StatusBadRequest, "Transfer failed", err.Error())
+	idempotencyKey := strings.TrimSpace(input.IdempotencyKey)
+	if idempotencyKey == "" {
+		idempotencyKey = strings.TrimSpace(c.GetHeader("X-Idempotency-Key"))
+	}
+
+	result, err := h.resellerService.TransferCredits(userID.(uint), input.Email, input.Amount, idempotencyKey)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrTransferAmountInvalid):
+			helper.SendError(c, http.StatusBadRequest, "Transfer amount must be greater than zero.", "ERR_TRANSFER_AMOUNT")
+		case errors.Is(err, service.ErrTransferRecipientMissing):
+			helper.SendError(c, http.StatusNotFound, "Recipient user not found.", "ERR_RECIPIENT_NOT_FOUND")
+		case errors.Is(err, service.ErrTransferSelf):
+			helper.SendError(c, http.StatusBadRequest, "You cannot transfer credits to yourself.", "ERR_TRANSFER_SELF")
+		case errors.Is(err, service.ErrTransferRecipientRole):
+			helper.SendError(c, http.StatusBadRequest, "Credits can only be transferred to regular user accounts.", "ERR_TRANSFER_RECIPIENT_ROLE")
+		case errors.Is(err, service.ErrTransferUnauthorized):
+			helper.SendError(c, http.StatusForbidden, "Only resellers or admins can transfer credits.", "ERR_FORBIDDEN")
+		case errors.Is(err, service.ErrTransferInsufficient):
+			helper.SendError(c, http.StatusPaymentRequired, "Insufficient credits for transfer.", "ERR_INSUFFICIENT_CREDITS")
+		case errors.Is(err, service.ErrTransferRecipientStatus):
+			helper.SendError(c, http.StatusBadRequest, "Cannot transfer credits to a suspended or inactive account.", "ERR_RECIPIENT_STATUS")
+		case errors.Is(err, service.ErrTransferIdempotencyBusy):
+			helper.SendError(c, http.StatusConflict, "A transfer with this idempotency key is already in progress.", "ERR_IDEMPOTENCY_IN_PROGRESS")
+		default:
+			helper.SendError(c, http.StatusInternalServerError, "Transfer failed. Please try again.", "ERR_TRANSFER_FAILED")
+		}
 		return
 	}
 
-	helper.SendSuccess(c, fmt.Sprintf("Successfully transferred %d credits to %s", input.Amount, input.Email), nil)
+	msg := fmt.Sprintf("Successfully transferred %d credits to %s", input.Amount, strings.ToLower(strings.TrimSpace(input.Email)))
+	if result != nil && result.AlreadyProcessed {
+		msg = "Transfer already processed."
+	}
+	helper.SendSuccess(c, msg, result)
 }
 
 // toTitleCase converts "transfer_out" → "Transfer Out" without using

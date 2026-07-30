@@ -184,7 +184,7 @@ func SetupRoutes(router *gin.Engine) {
 			protected.POST("/payment/cryptomus/create", paymentHandler.CreateSession)
 
 			// Reseller
-			protected.POST("/reseller/transfer", middleware.MaintenanceMiddleware(), userHandler.TransferCredits)
+			protected.POST("/reseller/transfer", middleware.MaintenanceMiddleware(), middleware.ResellerOrAdminMiddleware(), userHandler.TransferCredits)
 		}
 
 		// ==========================================

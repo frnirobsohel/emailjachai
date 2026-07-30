@@ -1,4 +1,5 @@
 import { Metadata } from "next"
+import { redirect } from "next/navigation"
 
 export const metadata: Metadata = {
     title: "Reseller Credit Transfer",
@@ -16,17 +17,21 @@ type AuthMeResponse = {
 } & AuthMeUser
 
 export default async function ResellerTransferPage() {
-    let initialRole = "user";
-    
+    let role = "user"
+
     try {
-        const result = await fetchServer<AuthMeResponse>('/auth/me');
-        if (result.status === 'success' && result.data) {
-            const profile = result.data.user || result.data;
-            initialRole = profile.role || "user";
+        const result = await fetchServer<AuthMeResponse>("/auth/me")
+        if (result.status === "success" && result.data) {
+            const profile = result.data.user || result.data
+            role = profile.role || "user"
         }
     } catch (e) {
-        console.error("Failed to fetch profile for reseller check:", e);
+        console.error("Failed to fetch profile for reseller check:", e)
     }
 
-    return <ResellerTransferClient initialRole={initialRole} />
+    if (role !== "reseller" && role !== "admin") {
+        redirect("/dashboard")
+    }
+
+    return <ResellerTransferClient />
 }
