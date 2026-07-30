@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -105,13 +106,13 @@ func (h *UserHandler) GetWebhookSettings(c *gin.Context) {
 
 	user, err := h.userService.GetByID(userID)
 	if err != nil {
-		helper.SendError(c, http.StatusNotFound, "User not found", err.Error())
+		helper.SendError(c, http.StatusNotFound, "User not found", "ERR_USER_NOT_FOUND")
 		return
 	}
 
 	helper.SendSuccess(c, "Webhook settings retrieved", gin.H{
-		"webhook_url":    user.WebhookURL,
-		"webhook_secret": user.WebhookSecret,
+		"webhook_url": user.WebhookURL,
+		"has_secret":  strings.TrimSpace(user.WebhookSecret) != "",
 	})
 }
 
@@ -120,21 +121,44 @@ func (h *UserHandler) UpdateWebhookSettings(c *gin.Context) {
 	userID := userIDVal.(uint)
 
 	var input struct {
-		WebhookURL    string `json:"webhook_url"`
-		WebhookSecret string `json:"webhook_secret"`
+		WebhookURL       string `json:"webhook_url"`
+		WebhookSecret    string `json:"webhook_secret"`
+		RegenerateSecret bool   `json:"regenerate_secret"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, "Invalid request body", err.Error())
+		helper.SendError(c, http.StatusBadRequest, "Invalid request body", "ERR_INVALID_REQUEST")
 		return
 	}
 
-	if err := h.userService.UpdateWebhookSettings(userID, input.WebhookURL, input.WebhookSecret); err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to update webhook settings", err.Error())
+	plainOnce, err := h.userService.UpdateWebhookSettings(userID, input.WebhookURL, input.WebhookSecret, input.RegenerateSecret)
+	if err != nil {
+		errStr := err.Error()
+		switch {
+		case errors.Is(err, service.ErrWebhookSecretTooShort):
+			helper.SendError(c, http.StatusBadRequest, "Webhook secret must be at least 16 characters.", "ERR_WEBHOOK_SECRET")
+		case strings.Contains(errStr, "https") || strings.Contains(errStr, "private") || strings.Contains(errStr, "invalid webhook") || strings.Contains(errStr, "resolved"):
+			helper.SendError(c, http.StatusBadRequest, errStr, "ERR_WEBHOOK_URL")
+		default:
+			helper.SendError(c, http.StatusInternalServerError, "Failed to update webhook settings", "ERR_WEBHOOK_UPDATE")
+		}
 		return
 	}
 
-	helper.SendSuccess(c, "Webhook settings updated", nil)
+	hasSecret := plainOnce != ""
+	if !hasSecret && strings.TrimSpace(input.WebhookURL) != "" {
+		if updated, getErr := h.userService.GetByID(userID); getErr == nil {
+			hasSecret = strings.TrimSpace(updated.WebhookSecret) != ""
+		}
+	}
+	resp := gin.H{
+		"webhook_url": strings.TrimSpace(input.WebhookURL),
+		"has_secret":  hasSecret,
+	}
+	if plainOnce != "" {
+		resp["webhook_secret"] = plainOnce
+	}
+	helper.SendSuccess(c, "Webhook settings updated", resp)
 }
 
 func (h *UserHandler) TransferCredits(c *gin.Context) {

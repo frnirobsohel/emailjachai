@@ -115,6 +115,19 @@ export function Sidebar({ className, defaultCollapsed = false }: SidebarProps) {
         syncAuthMe()
     }, [])
 
+    useEffect(() => {
+        const onProfileUpdated = (event: Event) => {
+            const detail = (event as CustomEvent<{ name?: string }>).detail
+            const name = detail?.name?.trim()
+            if (!name) return
+            const current = useUserStore.getState().user
+            if (!current) return
+            useUserStore.getState().setUser({ ...current, name })
+        }
+        window.addEventListener("ejp:profile-updated", onProfileUpdated)
+        return () => window.removeEventListener("ejp:profile-updated", onProfileUpdated)
+    }, [])
+
     return (
         <div
             suppressHydrationWarning

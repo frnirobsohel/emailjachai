@@ -15,6 +15,6 @@ type LoginRequest struct {
 type UpdateProfileRequest struct {
 	Name            string `json:"name"`
 	CurrentPassword string `json:"current_password"`
-	NewPassword     string `json:"new_password"`
-	Password        string `json:"password"` // Compatibility
+	NewPassword     string `json:"new_password" binding:"omitempty,strong_password"`
+	Password        string `json:"password" binding:"omitempty,strong_password"` // Compatibility
 }

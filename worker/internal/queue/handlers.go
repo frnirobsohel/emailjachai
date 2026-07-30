@@ -9,7 +9,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -188,6 +191,10 @@ func HandleWebhookTask(ctx context.Context, t *asynq.Task) error {
 
 	logger.Info("Delivering Webhook", zap.String("event", p.Event), zap.String("url", p.URL))
 
+	if err := assertSafeWebhookURL(p.URL); err != nil {
+		return fmt.Errorf("unsafe webhook URL: %v: %w", err, asynq.SkipRetry)
+	}
+
 	jsonData, err := json.Marshal(map[string]interface{}{
 		"event":     p.Event,
 		"data":      p.Payload,
@@ -268,4 +275,43 @@ func HandleDeadLetterTask(ctx context.Context, t *asynq.Task, err error) {
 			_ = reporter.ReportBatchToAPI(p.JobID, p.TaskID, results)
 		}
 	}
+}
+
+// assertSafeWebhookURL blocks non-HTTPS and private/loopback delivery targets (SSRF).
+func assertSafeWebhookURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fmt.Errorf("empty webhook URL")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid webhook URL")
+	}
+	if !strings.EqualFold(u.Scheme, "https") {
+		return fmt.Errorf("webhook URL must use https")
+	}
+	if u.Host == "" || u.User != nil {
+		return fmt.Errorf("invalid webhook URL")
+	}
+	host := u.Hostname()
+	lower := strings.ToLower(host)
+	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") || lower == "metadata.google.internal" {
+		return fmt.Errorf("private or local webhook target")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+			return fmt.Errorf("private or local webhook target")
+		}
+		return nil
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return fmt.Errorf("webhook host could not be resolved")
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+			return fmt.Errorf("private or local webhook target")
+		}
+	}
+	return nil
 }

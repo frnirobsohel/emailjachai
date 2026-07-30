@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"os"
+	"time"
 
 	"ejp-backend/internal/api/presenter"
 	"ejp-backend/internal/api/request"
@@ -88,11 +90,13 @@ func (h *AuthHandler) GetMe(c *gin.Context) {
 	}
 
 	helper.SendSuccess(c, "User profile retrieved", presenter.UserResponse{
-		ID:      user.ID,
-		Name:    user.Name,
-		Email:   user.Email,
-		Credits: user.Credits,
-		Role:    user.Role,
+		ID:        user.ID,
+		Name:      user.Name,
+		Email:     user.Email,
+		Credits:   user.Credits,
+		Role:      user.Role,
+		Status:    user.Status,
+		CreatedAt: user.CreatedAt.UTC().Format(time.RFC3339),
 	})
 }
 
@@ -101,7 +105,7 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 
 	var input request.UpdateProfileRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Invalid request. If changing password, use at least 8 characters with upper, lower, and a number.", "ERR_INVALID_REQUEST")
 		return
 	}
 
@@ -112,7 +116,20 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 
 	err := h.userService.UpdateProfile(userID.(uint), input.Name, input.CurrentPassword, newPass)
 	if err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		switch {
+		case errors.Is(err, service.ErrCurrentPasswordRequired):
+			helper.SendError(c, http.StatusBadRequest, "Current password is required.", "ERR_CURRENT_PASSWORD_REQUIRED")
+		case errors.Is(err, service.ErrCurrentPasswordIncorrect):
+			helper.SendError(c, http.StatusUnauthorized, "Current password is incorrect.", "ERR_CURRENT_PASSWORD")
+		case errors.Is(err, service.ErrWeakPassword):
+			helper.SendError(c, http.StatusBadRequest, "Password must be at least 8 characters and include upper, lower, and a number.", "ERR_WEAK_PASSWORD")
+		case errors.Is(err, service.ErrNoProfileUpdates):
+			helper.SendError(c, http.StatusBadRequest, "No updates provided.", "ERR_NO_UPDATES")
+		case errors.Is(err, service.ErrPasswordHashFailed):
+			helper.SendError(c, http.StatusInternalServerError, "Failed to update password.", "ERR_PASSWORD_HASH")
+		default:
+			helper.SendError(c, http.StatusInternalServerError, "Failed to update profile.", "ERR_PROFILE_UPDATE")
+		}
 		return
 	}
 
