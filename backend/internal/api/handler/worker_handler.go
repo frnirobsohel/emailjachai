@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/service"
 	"ejp-backend/internal/storage"
+	"ejp-backend/pkg/config"
 	"ejp-backend/pkg/logger"
 	"ejp-backend/pkg/safe"
 
@@ -93,10 +95,11 @@ func (h *WorkerHandler) ResetWorkerTasks(c *gin.Context) {
 func (h *WorkerHandler) GetWorkerDomains(c *gin.Context) {
 	domains, err := h.workerService.GetWorkerDomains()
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch domains", err.Error())
+		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch domains", "ERR_WORKER_DOMAINS")
 		return
 	}
 
+	c.Header("X-Domain-Revision", strconv.FormatInt(config.GetDomainCacheRevision(), 10))
 	helper.SendSuccess(c, "Domains retrieved", domains)
 }
 

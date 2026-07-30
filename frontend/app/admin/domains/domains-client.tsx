@@ -19,10 +19,21 @@ import { toast } from "react-hot-toast"
 type DomainType = 'disposable' | 'free' | 'blacklist' | 'spam-trap'
 
 const addDomainSchema = z.object({
-    domain: z.string().min(3, "Domain name is required").regex(/^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/, "Invalid domain format"),
+    domain: z.string().min(3, "Domain name is required").regex(
+        /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i,
+        "Invalid domain format"
+    ),
     type: z.enum(['disposable', 'free', 'blacklist', 'spam-trap'])
 })
 type AddDomainValues = z.infer<typeof addDomainSchema>
+
+const domainTypeOptions = [
+    { label: 'Disposable Provider', value: 'disposable' },
+    { label: 'Free Webmail (Gmail/etc)', value: 'free' },
+    { label: 'Global Blacklist', value: 'blacklist' },
+    { label: 'Known Spam Trap', value: 'spam-trap' },
+] as const
+
 
 type DomainRow = {
     id: number
@@ -62,6 +73,7 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
     const [search, setSearch] = useState("")
     const [typeFilter, setTypeFilter] = useState<string>("")
     const [page, setPage] = useState(1)
+    const [uploadType, setUploadType] = useState<DomainType>("disposable")
 
     const isInitialMount = useRef(true)
 
@@ -174,10 +186,7 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
         setIsUploading(true)
         const formData = new FormData()
         formData.append('file', file)
-        // Default to "disposable" for bulk upload if we want, or keep it generic
-        // Since we don't have a specific type selector for upload anymore, we will default to disposable
-        // Wait, previously newType was used. Let's use the current form's type value.
-        formData.append('type', addForm.getValues("type"))
+        formData.append('type', uploadType)
 
         try {
             const response = await fetch('/next-api/proxy/admin/domains/upload', {
@@ -254,23 +263,33 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                             </CardTitle>
                             <CardDescription className="text-[#5a736c]">Manually add or upload a list of domains</CardDescription>
                         </div>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="border-[#0f5c52]/30 text-[#0f5c52] hover:bg-[#0f5c52]/10"
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={isUploading}
-                        >
-                            {isUploading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
-                            Bulk Upload
-                        </Button>
-                        <input
-                            type="file"
-                            className="hidden"
-                            ref={fileInputRef}
-                            onChange={handleFileUpload}
-                            accept=".csv,.txt"
-                        />
+                        <div className="flex items-center gap-2">
+                            <Label htmlFor="upload-type" className="sr-only">Bulk upload type</Label>
+                            <SimpleSelect
+                                id="upload-type"
+                                value={uploadType}
+                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setUploadType(e.target.value as DomainType)}
+                                options={[...domainTypeOptions]}
+                                className="h-9 w-44"
+                            />
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-[#0f5c52]/30 text-[#0f5c52] hover:bg-[#0f5c52]/10"
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={isUploading}
+                            >
+                                {isUploading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
+                                Bulk Upload
+                            </Button>
+                            <input
+                                type="file"
+                                className="hidden"
+                                ref={fileInputRef}
+                                onChange={handleFileUpload}
+                                accept=".csv,.txt"
+                            />
+                        </div>
                     </div>
                 </CardHeader>
 
@@ -290,12 +309,7 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                             <Label htmlFor="new-type" className="sr-only">Domain Type</Label>
                             <SimpleSelect
                                 id="new-type"
-                                options={[
-                                    { label: 'Disposable Provider', value: 'disposable' },
-                                    { label: 'Free Webmail (Gmail/etc)', value: 'free' },
-                                    { label: 'Global Blacklist', value: 'blacklist' },
-                                    { label: 'Known Spam Trap', value: 'spam-trap' },
-                                ]}
+                                options={[...domainTypeOptions]}
                                 {...addForm.register("type")}
                             />
                             {addForm.formState.errors.type && <p className="text-[10px] text-red-500 mt-1">{addForm.formState.errors.type.message}</p>}
@@ -325,7 +339,10 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                                     name="domainSearch"
                                     placeholder="Search domains..."
                                     value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
+                                    onChange={(e) => {
+                                        setSearch(e.target.value)
+                                        setPage(1)
+                                    }}
                                     className="pl-8 h-9 text-sm focus-visible:ring-[#0f5c52]/30"
                                     aria-label="Search domains"
                                 />
@@ -336,7 +353,10 @@ export function DomainsClient({ initialData }: { initialData: DomainsResponse | 
                                 id="type-filter"
                                 name="typeFilter"
                                 value={typeFilter}
-                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTypeFilter(e.target.value)}
+                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                                    setTypeFilter(e.target.value)
+                                    setPage(1)
+                                }}
                                 options={[
                                     { label: 'All Types', value: '' },
                                     { label: 'Disposable', value: 'disposable' },

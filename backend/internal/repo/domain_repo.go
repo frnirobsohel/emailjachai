@@ -1,6 +1,9 @@
 package repo
 
 import (
+	"fmt"
+	"strings"
+
 	"ejp-backend/internal/model"
 	"ejp-backend/pkg/config"
 
@@ -25,12 +28,18 @@ func NewDomainRepo() DomainRepo {
 	return &domainRepo{db: config.DB}
 }
 
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
 func (r *domainRepo) Create(domain *model.Domain) error {
 	return r.db.Create(domain).Error
 }
 
 func (r *domainRepo) BulkCreate(domains []*model.Domain) (int64, error) {
-	// Use CreateInBatches with OnConflict DoNothing to ignore duplicates
 	res := r.db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(domains, 1000)
 	return res.RowsAffected, res.Error
 }
@@ -42,21 +51,40 @@ func (r *domainRepo) List(search, domainType string, limit, offset int) ([]model
 	query := r.db.Model(&model.Domain{})
 
 	if search != "" {
-		query = query.Where("domain LIKE ?", "%"+search+"%")
+		query = query.Where("domain LIKE ? ESCAPE ?", "%"+escapeLike(search)+"%", `\`)
 	}
 
 	if domainType != "" {
 		query = query.Where("type = ?", domainType)
 	}
 
-	query.Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 
 	err := query.Order("id desc").Limit(limit).Offset(offset).Find(&domains).Error
 	return domains, total, err
 }
 
 func (r *domainRepo) Delete(id uint) error {
-	return r.db.Delete(&model.Domain{}, id).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var domain model.Domain
+		if err := tx.First(&domain, id).Error; err != nil {
+			return err
+		}
+
+		// Free the unique domain name for re-add while retaining the soft-deleted row.
+		suffix := fmt.Sprintf(".deleted.%d", domain.ID)
+		base := domain.Domain
+		if len(base)+len(suffix) > 255 {
+			base = base[:255-len(suffix)]
+		}
+		tombstone := base + suffix
+		if err := tx.Model(&domain).Update("domain", tombstone).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&domain).Error
+	})
 }
 
 func (r *domainRepo) ToggleStatus(id uint) (bool, error) {

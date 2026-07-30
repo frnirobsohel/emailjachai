@@ -2,6 +2,7 @@ package reporter
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"ejp-worker/pkg/config"
 	"ejp-worker/pkg/logger"
 
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -162,44 +164,82 @@ func SelfHeal() {
 	}
 }
 
-// UpdateDomainCache polls for domain policy updates periodically
+// UpdateDomainCache keeps the in-memory domain policy cache fresh.
+// Workers poll every 2 minutes and also refresh immediately on Redis pub/sub invalidation.
 func UpdateDomainCache() {
-	for {
-		logger.Info("Updating domain cache from API...")
-		
-		domainURL := config.Cfg.APIBaseURL + "/domains"
+	var refreshMu sync.Mutex
+	refresh := func() {
+		refreshMu.Lock()
+		defer refreshMu.Unlock()
 
+		logger.Info("Updating domain cache from API...")
+
+		domainURL := config.Cfg.APIBaseURL + "/domains"
 		req, err := http.NewRequest("GET", domainURL, nil)
 		if err != nil {
 			logger.Error("Failed to create domain cache request", zap.Error(err))
-			time.Sleep(1 * time.Hour)
-			continue
+			return
 		}
 		req.Header.Set("X-Worker-Key", config.Cfg.WorkerAPIKey)
 
-		func() {
-			resp, err := httpClient.Do(req)
-			if err != nil {
-				logger.Error("Failed to update domain cache", zap.Error(err))
-				return
-			}
-			defer resp.Body.Close()
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			logger.Error("Failed to update domain cache", zap.Error(err))
+			return
+		}
+		defer resp.Body.Close()
 
-			if resp.StatusCode == http.StatusOK {
-				var result struct {
-					Data []map[string]interface{} `json:"data"`
-				}
-				if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
-					engine.Cache.Update(result.Data)
-					logger.Info("Domain cache updated", zap.Int("entries", len(result.Data)))
-				}
+		if resp.StatusCode == http.StatusOK {
+			var result struct {
+				Data []map[string]interface{} `json:"data"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
+				engine.Cache.Update(result.Data)
+				logger.Info("Domain cache updated",
+					zap.Int("entries", len(result.Data)),
+					zap.String("revision", resp.Header.Get("X-Domain-Revision")),
+				)
 			} else {
-				logger.Error("Failed to update domain cache with status", zap.Int("status", resp.StatusCode))
+				logger.Error("Failed to decode domain cache response", zap.Error(err))
 			}
-			// Drain remainder of body to enable connection reuse
-			_, _ = io.Copy(io.Discard, resp.Body)
-		}()
+		} else {
+			logger.Error("Failed to update domain cache with status", zap.Int("status", resp.StatusCode))
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+	}
 
-		time.Sleep(1 * time.Hour)
+	refresh()
+
+	go subscribeDomainCacheInvalidation(refresh)
+
+	for {
+		time.Sleep(2 * time.Minute)
+		refresh()
+	}
+}
+
+func subscribeDomainCacheInvalidation(refresh func()) {
+	opt, err := redis.ParseURL(config.Cfg.RedisURL)
+	if err != nil {
+		logger.Error("Domain cache pub/sub: failed to parse REDIS_URL", zap.Error(err))
+		return
+	}
+	rdb := redis.NewClient(opt)
+	defer rdb.Close()
+
+	ctx := context.Background()
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		logger.Error("Domain cache pub/sub: redis ping failed", zap.Error(err))
+		return
+	}
+
+	sub := rdb.Subscribe(ctx, "ejp_domains_changed")
+	defer sub.Close()
+
+	logger.Info("Listening for domain cache invalidation", zap.String("channel", "ejp_domains_changed"))
+	ch := sub.Channel()
+	for range ch {
+		logger.Info("Domain cache invalidation received")
+		refresh()
 	}
 }
