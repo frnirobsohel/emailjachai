@@ -62,18 +62,18 @@ export function AdminDashboardClient({ initialData }: { initialData: AdminDashbo
             trend: data?.total_users?.status || "up",
         },
         {
-            title: "Active Jobs",
-            value: data?.active_jobs?.value || "0",
-            description: data?.active_jobs?.trend || "Idle",
-            icon: Activity,
-            trend: data?.active_jobs?.status || "down",
-        },
-        {
             title: "Emails Verified",
             value: data?.emails_verified?.value || "0",
             description: data?.emails_verified?.trend || "Lifetime processed",
             icon: MailCheck,
             trend: data?.emails_verified?.status || "up",
+        },
+        {
+            title: "Active Jobs",
+            value: data?.active_jobs?.value || "0",
+            description: data?.active_jobs?.trend || "Idle",
+            icon: Activity,
+            trend: data?.active_jobs?.status || "down",
         },
         {
             title: "Active Workers",
