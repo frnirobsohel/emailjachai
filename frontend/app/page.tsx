@@ -6,7 +6,9 @@ import { Navbar } from "@/components/home/navbar"
 import { Hero } from "@/components/home/hero"
 import { Features } from "@/components/home/features"
 import { Pricing, type PackageRow } from "@/components/home/pricing"
+import { FutureVision } from "@/components/home/future-vision"
 import { Footer } from "@/components/home/footer"
+import { getPublicSettings } from "@/lib/services/settings"
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1'
 
@@ -14,14 +16,11 @@ export async function generateMetadata(): Promise<Metadata> {
   let title = "EmailJachai Pro"
   let tagline = "Professional Email Verification Platform"
 
-  try {
-    const res = await fetch(`${API_BASE_URL}/settings/public`, { next: { revalidate: 60 } })
-    const json = await res.json()
-    if (json.status === 'success' && json.data) {
-      title = json.data.site_title || title
-      tagline = json.data.site_tagline || tagline
-    }
-  } catch {}
+  const settings = await getPublicSettings()
+  if (settings) {
+    title = settings.site_title || title
+    tagline = settings.site_tagline || tagline
+  }
 
   return {
     title: `${title} — ${tagline}`,
@@ -74,26 +73,24 @@ export default async function Home() {
 
   let packages: PackageRow[] = []
 
-  try {
-    const res = await fetch(`${API_BASE_URL}/settings/public`, { next: { revalidate: 60 } })
-    const json = await res.json()
-    if (json.status === 'success' && json.data) {
-      siteTitle = json.data.site_title || siteTitle
-      siteTagline = json.data.site_tagline || siteTagline
-      logoUrl = json.data.logo_url || json.data.favicon_url || "/logo.svg"
-      twitterUrl = json.data.twitter_url || ""
-      linkedinUrl = json.data.linkedin_url || ""
-      githubUrl = json.data.github_url || ""
-    }
-  } catch {}
+  const settings = await getPublicSettings()
+  if (settings) {
+    siteTitle = settings.site_title || siteTitle
+    siteTagline = settings.site_tagline || siteTagline
+    logoUrl = settings.logo_url || settings.favicon_url || "/logo.svg"
+    twitterUrl = settings.twitter_url || ""
+    linkedinUrl = settings.linkedin_url || ""
+    githubUrl = settings.github_url || ""
+  }
 
   try {
-    const res = await fetch(`${API_BASE_URL}/packages/list`, { 
-        next: { revalidate: 60 } 
+    const res = await fetch(`${API_BASE_URL}/packages/list`, {
+      signal: AbortSignal.timeout(2500),
+      next: { revalidate: 60 },
     })
     const json = await res.json()
-    if (json.status === 'success' && Array.isArray(json.data)) {
-        packages = json.data.filter((p: PackageRow) => p.status === 'active')
+    if (json.status === "success" && Array.isArray(json.data)) {
+      packages = json.data.filter((p: PackageRow) => p.status === "active")
     }
   } catch {}
 
@@ -147,6 +144,7 @@ export default async function Home() {
         <Hero siteTagline={siteTagline} />
         <Features />
         <Pricing packages={packages} />
+        <FutureVision />
 
         <section id="support" className="relative bg-[#eef3f0] py-16 md:py-28">
           <div className="mx-auto max-w-7xl px-4 sm:px-6">

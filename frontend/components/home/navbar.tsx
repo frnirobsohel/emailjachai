@@ -31,6 +31,12 @@ export function Navbar({ siteTitle, logoUrl }: NavbarProps) {
                         Pricing
                     </Link>
                     <Link
+                        href="#vision"
+                        className="hidden px-3 py-2 text-sm text-[#4a635c] transition-colors hover:text-[#0b1f1c] md:inline-flex"
+                    >
+                        Vision
+                    </Link>
+                    <Link
                         href="#support"
                         className="hidden px-3 py-2 text-sm text-[#4a635c] transition-colors hover:text-[#0b1f1c] md:inline-flex"
                     >

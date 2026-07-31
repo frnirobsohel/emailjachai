@@ -105,6 +105,11 @@ export function Footer({
                                 </Link>
                             </li>
                             <li>
+                                <Link href="#vision" className="text-sm text-[#8aa099] transition-colors hover:text-white">
+                                    Vision
+                                </Link>
+                            </li>
+                            <li>
                                 <Link href="#support" className="text-sm text-[#8aa099] transition-colors hover:text-white">
                                     FAQ
                                 </Link>
@@ -123,12 +128,12 @@ export function Footer({
                         </h4>
                         <ul className="space-y-3">
                             <li>
-                                <Link href="#" className="text-sm text-[#8aa099] transition-colors hover:text-white">
+                                <Link href="/terms" className="text-sm text-[#8aa099] transition-colors hover:text-white">
                                     Terms of Service
                                 </Link>
                             </li>
                             <li>
-                                <Link href="#" className="text-sm text-[#8aa099] transition-colors hover:text-white">
+                                <Link href="/privacy" className="text-sm text-[#8aa099] transition-colors hover:text-white">
                                     Privacy Policy
                                 </Link>
                             </li>

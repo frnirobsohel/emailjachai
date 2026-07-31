@@ -23,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
   let title = "EmailJachai Pro";
   let tagline = "Professional Email Verification Platform";
   let favicon = "/icon.svg";
-  
+
   const settings = await getPublicSettings();
   if (settings) {
       title = settings.site_title || title;
@@ -32,12 +32,22 @@ export async function generateMetadata(): Promise<Metadata> {
           favicon = settings.favicon_url;
       }
   }
-  
+
+  // Prefer custom favicon when set; keep local /icon.svg as fallback so the
+  // tab never sits empty while a remote icon is still downloading / 404s.
+  const iconList =
+    favicon === "/icon.svg"
+      ? [{ url: "/icon.svg", type: "image/svg+xml" }]
+      : [
+          { url: favicon },
+          { url: "/icon.svg", type: "image/svg+xml" },
+        ];
+
   return {
     title: { default: title, template: "%s | " + title },
     description: tagline,
     icons: {
-      icon: favicon,
+      icon: iconList,
       shortcut: favicon,
       apple: favicon,
     },
