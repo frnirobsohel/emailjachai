@@ -357,38 +357,7 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                     </CardContent>
                 </Card>
 
-                {/* SEO & Search Console */}
-                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
-                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
-                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
-                            <Search className="h-5 w-5 text-[#0f5c52]" />
-                            SEO & Verification
-                        </CardTitle>
-                        <CardDescription className="text-[#5a736c]">Search engine indexing & verification codes.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4 pt-6">
-                        <div className="space-y-2">
-                            <Label htmlFor="site-base-url" className="text-sm font-medium">Site Base URL (for Sitemap)</Label>
-                            <Input
-                                id="site-base-url"
-                                placeholder="https://emailjachai.pro"
-                                className={cn(form.formState.errors.site_base_url && "border-red-500")}
-                                {...form.register("site_base_url")}
-                            />
-                            {form.formState.errors.site_base_url && <p className="text-[10px] text-red-500">{form.formState.errors.site_base_url.message}</p>}
-                            <p className="text-[10px] text-[#6b857c]">Used for generate sitemap.xml and canonical URLs.</p>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="google-site-verification" className="text-sm font-medium">Google Search Console Code</Label>
-                            <Input
-                                id="google-site-verification"
-                                placeholder="e.g. google-site-verification=abc123xyz..."
-                                {...form.register("google_site_verification")}
-                            />
-                            <p className="text-[10px] text-[#6b857c]">Paste the content value from Google HTML tag verification.</p>
-                        </div>
-                    </CardContent>
-                </Card>
+
 
                 {/* Social Presence */}
                 <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
