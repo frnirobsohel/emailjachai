@@ -23,6 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
   let title = "EmailJachai Pro";
   let tagline = "Professional Email Verification Platform";
   let favicon = "/icon.svg";
+  let googleVerification: string | undefined = undefined;
 
   const settings = await getPublicSettings();
   if (settings) {
@@ -30,6 +31,9 @@ export async function generateMetadata(): Promise<Metadata> {
       tagline = settings.site_tagline || tagline;
       if (settings.favicon_url) {
           favicon = settings.favicon_url;
+      }
+      if (settings.google_site_verification) {
+          googleVerification = settings.google_site_verification;
       }
   }
 
@@ -51,10 +55,18 @@ export async function generateMetadata(): Promise<Metadata> {
       shortcut: favicon,
       apple: favicon,
     },
+    verification: googleVerification ? { google: googleVerification } : undefined,
   };
 }
 
 import { Toaster } from "react-hot-toast";
+
+interface HeadScriptItem {
+  id: string;
+  name: string;
+  code: string;
+  enabled: boolean;
+}
 
 export default async function RootLayout({
   children,
@@ -63,8 +75,28 @@ export default async function RootLayout({
 }>) {
   const settings = await getPublicSettings() || {};
 
+  let activeScripts: HeadScriptItem[] = [];
+  if (settings.head_scripts_json) {
+    try {
+      const parsed = JSON.parse(settings.head_scripts_json);
+      if (Array.isArray(parsed)) {
+        activeScripts = parsed.filter((s: HeadScriptItem) => s.enabled && s.code?.trim());
+      }
+    } catch {
+      // ignore JSON parse error
+    }
+  }
+
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {activeScripts.map((script) => (
+          <script
+            key={script.id}
+            dangerouslySetInnerHTML={{ __html: script.code }}
+          />
+        ))}
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning

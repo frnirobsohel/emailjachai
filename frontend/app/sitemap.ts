@@ -1,8 +1,9 @@
 import { MetadataRoute } from 'next'
+import { getPublicSettings } from '@/lib/services/settings'
 
-export default function sitemap(): MetadataRoute.Sitemap {
-  // Static URLs for EJP public landing and auth pages
-  const baseUrl = 'https://emailjachai.pro'
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const settings = await getPublicSettings()
+  const baseUrl = (settings?.site_base_url || 'https://emailjachai.pro').replace(/\/$/, '')
   
   return [
     {
@@ -28,6 +29,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: new Date(),
       changeFrequency: 'monthly',
       priority: 0.5,
+    },
+    {
+      url: `${baseUrl}/privacy`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly',
+      priority: 0.4,
+    },
+    {
+      url: `${baseUrl}/terms`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly',
+      priority: 0.4,
     },
   ]
 }

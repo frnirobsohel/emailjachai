@@ -15,6 +15,11 @@ export type PublicSettings = {
     linkedin_url?: string;
     youtube_url?: string;
     facebook_url?: string;
+    head_scripts_json?: string;
+    custom_robots_txt?: string;
+    use_custom_robots?: string;
+    google_site_verification?: string;
+    site_base_url?: string;
     cryptomus_enabled?: string;
     stripe_enabled?: string;
     paypal_enabled?: string;

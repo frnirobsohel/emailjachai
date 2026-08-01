@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useEffect, useState } from "react"
 import { BrandLogo } from "@/components/home/brand-logo"
 import { useSettings } from "@/lib/settings-context"
 
@@ -10,9 +11,17 @@ export default function AuthLayout({
     children: React.ReactNode
 }) {
     const settings = useSettings()
-    const siteTitle = settings?.site_title || "EmailJachai Pro"
-    const logoUrl = settings?.logo_url || settings?.favicon_url || "/logo.svg"
-    const siteTagline = settings?.site_tagline || "Professional Email Verification Platform"
+    const [mounted, setMounted] = useState(false)
+
+    useEffect(() => {
+        setMounted(true)
+    }, [])
+
+    // Don't render real values until client is mounted to avoid hydration mismatch
+    // and prevent showing the default fallback name before settings load
+    const siteTitle = mounted ? (settings?.site_title || "EmailJachai Pro") : ""
+    const logoUrl = mounted ? (settings?.logo_url || settings?.favicon_url || "/logo.svg") : null
+    const siteTagline = mounted ? (settings?.site_tagline || "Professional Email Verification Platform") : ""
 
     return (
         <div className="relative flex min-h-screen flex-col items-center justify-start overflow-hidden bg-[#f0f4f2] px-4 py-10 text-[#0b1f1c] sm:px-6 md:py-16">
@@ -28,13 +37,19 @@ export default function AuthLayout({
                         href="/"
                         className="inline-flex items-center gap-2.5 text-xl font-semibold tracking-tight text-[#0b1f1c] transition-opacity hover:opacity-90 sm:text-2xl"
                     >
-                        <BrandLogo
-                            logoUrl={logoUrl}
-                            siteTitle={siteTitle}
-                            size={32}
-                            className="h-8 w-8 object-contain"
-                        />
-                        <span>{siteTitle}</span>
+                        {/* Fixed-size wrapper prevents logo jump on reload */}
+                        <span className="inline-block h-8 w-8 shrink-0">
+                            {logoUrl && (
+                                <BrandLogo
+                                    logoUrl={logoUrl}
+                                    siteTitle={siteTitle || "Logo"}
+                                    size={32}
+                                    className="h-8 w-8 object-contain"
+                                />
+                            )}
+                        </span>
+                        {/* Stable-width container prevents title from jumping */}
+                        <span className="min-w-[120px]">{siteTitle}</span>
                     </Link>
                     <p className="mx-auto mt-2 max-w-[320px] text-xs font-medium leading-relaxed text-[#5a736c]">
                         {siteTagline}
@@ -44,7 +59,7 @@ export default function AuthLayout({
                 <div className="w-full">{children}</div>
 
                 <p className="mt-8 text-center text-xs text-[#6b857c]">
-                    © {new Date().getFullYear()} {siteTitle}. All rights reserved.
+                    © {new Date().getFullYear()}{siteTitle ? ` ${siteTitle}.` : ""} All rights reserved.
                 </p>
             </div>
         </div>

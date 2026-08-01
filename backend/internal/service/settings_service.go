@@ -45,6 +45,11 @@ var BrandSettingKeys = []string{
 	"linkedin_url",
 	"youtube_url",
 	"facebook_url",
+	"head_scripts_json",
+	"custom_robots_txt",
+	"use_custom_robots",
+	"google_site_verification",
+	"site_base_url",
 }
 
 var brandKeySet = func() map[string]bool {
@@ -61,6 +66,8 @@ var WritableSettingKeys = map[string]bool{
 	"site_title": true, "site_tagline": true, "logo_url": true, "favicon_url": true,
 	"primary_color": true, "nav_style": true, "support_email": true, "help_center_url": true,
 	"twitter_url": true, "linkedin_url": true, "youtube_url": true, "facebook_url": true,
+	"head_scripts_json": true, "custom_robots_txt": true, "use_custom_robots": true,
+	"google_site_verification": true, "site_base_url": true,
 	// job control
 	"chunk_size": true, "task_timeout": true, "task_timeout_minutes": true,
 	"max_emails_per_job": true, "max_active_jobs_per_user": true,
@@ -91,6 +98,7 @@ var SensitiveSettingKeys = map[string]bool{
 var urlSettingKeys = map[string]bool{
 	"logo_url": true, "favicon_url": true, "help_center_url": true,
 	"twitter_url": true, "linkedin_url": true, "youtube_url": true, "facebook_url": true,
+	"site_base_url": true,
 }
 
 const (
