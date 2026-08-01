@@ -15,12 +15,18 @@ const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1'
 export async function generateMetadata(): Promise<Metadata> {
   let title = "EmailJachai Pro"
   let tagline = "Professional Email Verification Platform"
+  let baseUrl = "https://emailjachai.pro"
 
   const settings = await getPublicSettings()
   if (settings) {
     title = settings.site_title || title
     tagline = settings.site_tagline || tagline
+    if (settings.site_base_url) {
+      baseUrl = settings.site_base_url.replace(/\/$/, '')
+    }
   }
+
+  const previewImage = `${baseUrl}/dashboard-preview.png`
 
   return {
     title: `${title} — ${tagline}`,
@@ -30,11 +36,11 @@ export async function generateMetadata(): Promise<Metadata> {
       title: `${title} — ${tagline}`,
       description: tagline,
       type: "website",
-      url: "https://emailjachai.pro",
+      url: baseUrl,
       siteName: title,
       images: [
         {
-          url: "https://emailjachai.pro/dashboard-preview.png",
+          url: previewImage,
           width: 1200,
           height: 630,
           alt: `${title} - ${tagline}`,
@@ -45,7 +51,7 @@ export async function generateMetadata(): Promise<Metadata> {
       card: "summary_large_image",
       title: `${title} — ${tagline}`,
       description: tagline,
-      images: ["https://emailjachai.pro/dashboard-preview.png"],
+      images: [previewImage],
     },
     robots: {
       index: true,
