@@ -1,9 +1,28 @@
 import { MetadataRoute } from 'next'
+import { headers } from 'next/headers'
 import { getPublicSettings } from '@/lib/services/settings'
 
 export default async function robots(): Promise<MetadataRoute.Robots> {
+  let baseUrl = ""
+  try {
+    const reqHeaders = await headers()
+    const host = reqHeaders.get("x-forwarded-host") || reqHeaders.get("host")
+    const proto = reqHeaders.get("x-forwarded-proto") || "https"
+    if (host) {
+      baseUrl = `${proto}://${host}`
+    }
+  } catch {
+    // fallback
+  }
+
   const settings = await getPublicSettings()
-  const baseUrl = (settings?.site_base_url || 'https://emailjachai.pro').replace(/\/$/, '')
+  if (settings?.site_base_url?.trim()) {
+    baseUrl = settings.site_base_url.replace(/\/$/, '')
+  }
+
+  if (!baseUrl) {
+    baseUrl = "https://emailjachai.pro"
+  }
 
   if (settings?.use_custom_robots === "1" && settings?.custom_robots_txt?.trim()) {
     const lines = settings.custom_robots_txt.split('\n')

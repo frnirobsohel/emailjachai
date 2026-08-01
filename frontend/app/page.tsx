@@ -8,6 +8,7 @@ import { Features } from "@/components/home/features"
 import { Pricing, type PackageRow } from "@/components/home/pricing"
 import { FutureVision } from "@/components/home/future-vision"
 import { Footer } from "@/components/home/footer"
+import { headers } from "next/headers"
 import { getPublicSettings } from "@/lib/services/settings"
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1'
@@ -15,15 +16,30 @@ const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1'
 export async function generateMetadata(): Promise<Metadata> {
   let title = "EmailJachai Pro"
   let tagline = "Professional Email Verification Platform"
-  let baseUrl = "https://emailjachai.pro"
+
+  let baseUrl = ""
+  try {
+    const reqHeaders = await headers()
+    const host = reqHeaders.get("x-forwarded-host") || reqHeaders.get("host")
+    const proto = reqHeaders.get("x-forwarded-proto") || "https"
+    if (host) {
+      baseUrl = `${proto}://${host}`
+    }
+  } catch {
+    // fallback if headers() not available
+  }
 
   const settings = await getPublicSettings()
   if (settings) {
     title = settings.site_title || title
     tagline = settings.site_tagline || tagline
-    if (settings.site_base_url) {
+    if (settings.site_base_url?.trim()) {
       baseUrl = settings.site_base_url.replace(/\/$/, '')
     }
+  }
+
+  if (!baseUrl) {
+    baseUrl = "https://emailjachai.pro"
   }
 
   const previewImage = `${baseUrl}/dashboard-preview.png`
