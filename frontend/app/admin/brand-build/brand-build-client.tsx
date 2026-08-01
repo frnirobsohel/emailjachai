@@ -53,6 +53,8 @@ const brandSettingsSchema = z.object({
     linkedin_url: httpUrl.optional().or(z.literal("")),
     youtube_url: httpUrl.optional().or(z.literal("")),
     facebook_url: httpUrl.optional().or(z.literal("")),
+    primary_color: z.string().max(20).optional().or(z.literal("")),
+    nav_style: z.string().optional().or(z.literal("")),
     google_site_verification: z.string().optional().or(z.literal("")),
     site_base_url: httpUrl.optional().or(z.literal("")),
     custom_robots_txt: z.string().optional().or(z.literal("")),
@@ -73,6 +75,8 @@ function mapBrandValues(data: Record<string, string>): BrandSettingsValues {
         linkedin_url: data.linkedin_url || "",
         youtube_url: data.youtube_url || "",
         facebook_url: data.facebook_url || "",
+        primary_color: data.primary_color || "#0f5c52",
+        nav_style: data.nav_style || "dark",
         google_site_verification: data.google_site_verification || "",
         site_base_url: data.site_base_url || "",
         custom_robots_txt: data.custom_robots_txt || "",
@@ -233,6 +237,8 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                     linkedin_url: values.linkedin_url || "",
                     youtube_url: values.youtube_url || "",
                     facebook_url: values.facebook_url || "",
+                    primary_color: values.primary_color || "#0f5c52",
+                    nav_style: values.nav_style || "dark",
                     google_site_verification: values.google_site_verification || "",
                     site_base_url: values.site_base_url || "",
                     custom_robots_txt: values.custom_robots_txt || "",
@@ -255,7 +261,7 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
             <div className="flex items-center justify-between space-y-2">
                 <div>
                     <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Brand & Head Scripts Settings</h2>
-                    <p className="mt-1 text-sm text-[#5a736c]">Customize identity, SEO meta, custom head scripts, and robots.txt.</p>
+                    <p className="mt-1 text-sm text-[#5a736c]">Customize identity, appearance, head scripts, and robots.txt.</p>
                 </div>
                 <Button
                     type="submit"
@@ -319,6 +325,50 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                             />
                             {form.formState.errors.favicon_url && <p className="text-[10px] text-red-500">{form.formState.errors.favicon_url.message}</p>}
                             <p className="text-[10px] text-[#6b857c]">HTTPS direct link to your website favicon.</p>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Appearance & Theme */}
+                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                            <Palette className="h-5 w-5 text-[#0f5c52]" />
+                            Appearance & Theme
+                        </CardTitle>
+                        <CardDescription className="text-[#5a736c]">Manage primary theme color and navigation bar style.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4 pt-6">
+                        <div className="space-y-2">
+                            <Label htmlFor="primary-color" className="text-sm font-medium">Primary Brand Color (Hex)</Label>
+                            <div className="flex items-center gap-3">
+                                <input
+                                    type="color"
+                                    id="primary-color-picker"
+                                    value={form.watch("primary_color") || "#0f5c52"}
+                                    onChange={(e) => form.setValue("primary_color", e.target.value)}
+                                    className="h-9 w-12 cursor-pointer rounded border border-gray-300 p-0.5"
+                                />
+                                <Input
+                                    id="primary-color"
+                                    placeholder="#0f5c52"
+                                    className="font-mono"
+                                    {...form.register("primary_color")}
+                                />
+                            </div>
+                            <p className="text-[10px] text-[#6b857c]">Primary accent color used for buttons and key brand highlights.</p>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="nav-style" className="text-sm font-medium">Navigation Bar Style</Label>
+                            <select
+                                id="nav-style"
+                                {...form.register("nav_style")}
+                                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            >
+                                <option value="dark">Dark Theme (Default)</option>
+                                <option value="light">Light Theme</option>
+                            </select>
+                            <p className="text-[10px] text-[#6b857c]">Choose default top navigation bar visual style.</p>
                         </div>
                     </CardContent>
                 </Card>
