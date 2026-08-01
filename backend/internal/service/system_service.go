@@ -1,11 +1,27 @@
 package service
 
 import (
+	"errors"
+	"strings"
+
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
-	"errors"
-	"strings"
+)
+
+var AllowedEmailTemplateKeys = map[string]bool{
+	"register":        true,
+	"forgot":          true,
+	"buy_credits":     true,
+	"job_completed":   true,
+	"transaction":     true,
+	"credit_assigned": true,
+	"account_banned":  true,
+}
+
+var (
+	ErrTemplateNameRequired = errors.New("template name is required")
+	ErrTemplateNameInvalid  = errors.New("template name is not allowed")
 )
 
 type SystemService interface {
@@ -18,7 +34,7 @@ type SystemService interface {
 	SaveTemplate(template *model.EmailTemplate) error
 }
 
-type systemService struct{
+type systemService struct {
 	systemRepo repo.SystemRepo
 }
 
@@ -50,7 +66,7 @@ func (s *systemService) SaveSmtpSettings(inputCfg *model.SmtpConfig, passwordInp
 
 	finalPassword := cfg.Password
 	if !shouldPreservePassword {
-		enc, encErr := helper.EncryptSecret(passwordInput)
+		enc, encErr := helper.EncryptSmtpSecret(passwordInput)
 		if encErr != nil {
 			return errors.New("server security misconfiguration")
 		}
@@ -58,13 +74,7 @@ func (s *systemService) SaveSmtpSettings(inputCfg *model.SmtpConfig, passwordInp
 	}
 
 	inputCfg.Password = finalPassword
-
-	if cfg.ID == 0 {
-		return s.systemRepo.CreateSmtpSettings(inputCfg)
-	}
-
-	inputCfg.ID = cfg.ID
-	return s.systemRepo.UpdateSmtpSettings(inputCfg)
+	return s.systemRepo.UpsertSmtpSettings(inputCfg)
 }
 
 func (s *systemService) GetTemplates() ([]model.EmailTemplate, error) {
@@ -72,8 +82,18 @@ func (s *systemService) GetTemplates() ([]model.EmailTemplate, error) {
 }
 
 func (s *systemService) SaveTemplate(template *model.EmailTemplate) error {
-	if strings.TrimSpace(template.TemplateName) == "" {
-		return errors.New("template name is required")
+	key := strings.TrimSpace(template.TemplateName)
+	if key == "" {
+		return ErrTemplateNameRequired
+	}
+	if !AllowedEmailTemplateKeys[key] {
+		return ErrTemplateNameInvalid
+	}
+	template.TemplateName = key
+	template.Subject = strings.TrimSpace(template.Subject)
+	template.Body = helper.SanitizeEmailTemplateHTML(template.Body)
+	if template.Subject == "" || template.Body == "" {
+		return errors.New("subject and body are required")
 	}
 	return s.systemRepo.SaveTemplate(template)
 }

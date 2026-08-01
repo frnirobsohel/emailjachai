@@ -22,7 +22,8 @@ export default async function PrivacyPage() {
             logoUrl={logoUrl}
             twitterUrl={settings?.twitter_url}
             linkedinUrl={settings?.linkedin_url}
-            githubUrl={settings?.github_url}
+            youtubeUrl={settings?.youtube_url}
+            facebookUrl={settings?.facebook_url}
             title="Privacy Policy"
             updatedAt="July 31, 2026"
             intro={`This Privacy Policy explains how ${siteTitle} ("we", "us") collects, uses, and protects information when you use our website and email verification Service.`}

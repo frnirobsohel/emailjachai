@@ -3,6 +3,7 @@ package repo
 import (
 	"ejp-backend/internal/model"
 	"ejp-backend/pkg/config"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -10,6 +11,7 @@ import (
 
 type SystemRepo interface {
 	GetSmtpSettings() (*model.SmtpConfig, error)
+	UpsertSmtpSettings(cfg *model.SmtpConfig) error
 	CreateSmtpSettings(cfg *model.SmtpConfig) error
 	UpdateSmtpSettings(cfg *model.SmtpConfig) error
 	GetTemplates() ([]model.EmailTemplate, error)
@@ -27,7 +29,7 @@ func NewSystemRepo() SystemRepo {
 
 func (r *systemRepo) GetSmtpSettings() (*model.SmtpConfig, error) {
 	var cfg model.SmtpConfig
-	err := r.db.First(&cfg).Error
+	err := r.db.Order("id ASC").First(&cfg).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return &model.SmtpConfig{}, nil
@@ -37,12 +39,29 @@ func (r *systemRepo) GetSmtpSettings() (*model.SmtpConfig, error) {
 	return &cfg, nil
 }
 
+func (r *systemRepo) UpsertSmtpSettings(cfg *model.SmtpConfig) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var existing model.SmtpConfig
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Order("id ASC").First(&existing).Error
+		if err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return tx.Create(cfg).Error
+			}
+			return err
+		}
+		cfg.ID = existing.ID
+		cfg.CreatedAt = existing.CreatedAt
+		cfg.UpdatedAt = time.Now()
+		return tx.Save(cfg).Error
+	})
+}
+
 func (r *systemRepo) CreateSmtpSettings(cfg *model.SmtpConfig) error {
-	return r.db.Create(cfg).Error
+	return r.UpsertSmtpSettings(cfg)
 }
 
 func (r *systemRepo) UpdateSmtpSettings(cfg *model.SmtpConfig) error {
-	return r.db.Save(cfg).Error
+	return r.UpsertSmtpSettings(cfg)
 }
 
 func (r *systemRepo) GetTemplates() ([]model.EmailTemplate, error) {
@@ -62,8 +81,16 @@ func (r *systemRepo) GetTemplate(templateKey string) (*model.EmailTemplate, erro
 }
 
 func (r *systemRepo) SaveTemplate(template *model.EmailTemplate) error {
-	return r.db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "template_name"}},
-		DoUpdates: clause.AssignmentColumns([]string{"subject", "body", "is_active", "updated_at"}),
+	now := time.Now()
+	template.UpdatedAt = now
+	return r.db.Unscoped().Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "template_name"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"subject":    template.Subject,
+			"body":       template.Body,
+			"is_active":  template.IsActive,
+			"deleted_at": nil,
+			"updated_at": now,
+		}),
 	}).Create(template).Error
 }

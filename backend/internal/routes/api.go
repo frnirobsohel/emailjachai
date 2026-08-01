@@ -61,6 +61,7 @@ func SetupRoutes(router *gin.Engine) {
 	systemHandler := handler.NewSystemHandler()
 	adminHandler := handler.NewAdminHandler(adminService, logService, domainService, serverService, packageService, settingsService, systemService)
 	cacheHandler := handler.NewCacheHandler(cacheRepo, settingsRepo)
+	contactHandler := handler.NewContactHandler(settingsRepo, emailService)
 
 	// Start Global Background Broadcasters
 	adminHandler.StartAdminStatsBroadcaster()
@@ -77,6 +78,7 @@ func SetupRoutes(router *gin.Engine) {
 		v1.GET("/ping", middleware.RateLimiter(), systemHandler.Ping)
 		v1.GET("/settings/public", middleware.RateLimiter(), adminHandler.GetPublicSettings)
 		v1.GET("/packages/list", middleware.RateLimiter(), adminHandler.GetActivePackages)
+		v1.POST("/contact", middleware.PublicRateLimiter(), middleware.MaintenanceMiddleware(), contactHandler.SubmitContact)
 		// Public email verify (no auth, no credits, strict IP rate limit)
 		v1.POST("/jobs/verify-public", middleware.PublicRateLimiter(), middleware.MaintenanceMiddleware(), publicVerifyHandler.VerifyPublic)
 		v1.GET("/jobs/verify-public/status", publicVerifyHandler.GetPublicStatus)
@@ -205,6 +207,9 @@ func SetupRoutes(router *gin.Engine) {
 			admin.GET("/settings/brand", adminHandler.GetBrandSettings)
 			admin.POST("/settings/brand", adminHandler.UpdateBrandSettings)
 			admin.POST("/settings/update", adminHandler.UpdateSettings)
+			admin.GET("/settings/payment", adminHandler.GetPaymentSettings)
+			admin.POST("/settings/payment", adminHandler.UpdatePaymentSettings)
+			admin.POST("/settings/payment/test", adminHandler.TestPaymentSettings)
 
 			admin.GET("/packages", adminHandler.ListPackages)
 			admin.POST("/packages/create", adminHandler.CreatePackage)
@@ -250,6 +255,7 @@ func SetupRoutes(router *gin.Engine) {
 			admin.GET("/system/backups", adminHandler.ListBackups)
 			admin.POST("/system/backups", adminHandler.CreateBackup)
 			admin.DELETE("/system/backups", adminHandler.DeleteBackup)
+			admin.GET("/system/backups/download", adminHandler.DownloadBackup)
 			admin.POST("/system/backups/restore", adminHandler.RestoreBackup)
 
 			// SMTP Settings

@@ -2,7 +2,9 @@
 
 import Link from "next/link"
 import { BrandLogo } from "@/components/home/brand-logo"
+import { BRAND_LOGO_CLASS, BRAND_LOGO_PX, BRAND_NAME_CLASS } from "@/components/home/brand-mark"
 import { useSettings } from "@/lib/settings-context"
+import { cn } from "@/lib/utils"
 
 export default function AuthLayout({
     children,
@@ -26,15 +28,18 @@ export default function AuthLayout({
                 <div className="mb-7 text-center">
                     <Link
                         href="/"
-                        className="inline-flex items-center gap-2.5 text-xl font-semibold tracking-tight text-[#0b1f1c] transition-opacity hover:opacity-90 sm:text-2xl"
+                        className={cn(
+                            "inline-flex items-center gap-2.5 text-[#0b1f1c] transition-opacity hover:opacity-90",
+                            BRAND_NAME_CLASS
+                        )}
                     >
                         <BrandLogo
                             logoUrl={logoUrl}
                             siteTitle={siteTitle}
-                            size={32}
-                            className="h-8 w-8 object-contain"
+                            size={BRAND_LOGO_PX}
+                            className={BRAND_LOGO_CLASS}
                         />
-                        <span>{siteTitle}</span>
+                        <span className="truncate">{siteTitle}</span>
                     </Link>
                     <p className="mx-auto mt-2 max-w-[320px] text-xs font-medium leading-relaxed text-[#5a736c]">
                         {siteTagline}

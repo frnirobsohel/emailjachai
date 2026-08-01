@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -10,25 +10,27 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { CreditCard, Shield, Save, AlertCircle, Bitcoin, Loader2 } from "lucide-react"
+import { CreditCard, Shield, Save, AlertCircle, Bitcoin, Loader2, FlaskConical } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
 
-// ─── Types ──────────────────────────────────────────────────────────────────
+export type GatewayProvider = "stripe" | "paypal" | "cryptomus"
 
-export type GatewayProvider = 'stripe' | 'paypal' | 'cryptomus'
-
-export interface ConfigState {
+export type GatewayView = {
     enabled: boolean
-    testMode: boolean
-    publicKey: string
-    secretKey: string
-    webhookSecret: string
-    merchantId?: string
-    paymentKey?: string
+    test_mode: boolean
+    public_key: string
+    merchant_id?: string
+    has_secret_key: boolean
+    has_webhook_secret: boolean
+    has_payment_key: boolean
 }
 
-// ─── Zod Schema ─────────────────────────────────────────────────────────────
+export type PaymentSettingsView = {
+    api_base_url: string
+    webhook_urls: Record<string, string>
+    gateways: Record<GatewayProvider, GatewayView>
+}
 
 const gatewaySchema = z.object({
     enabled: z.boolean(),
@@ -38,160 +40,106 @@ const gatewaySchema = z.object({
     webhookSecret: z.string(),
     merchantId: z.string(),
     paymentKey: z.string(),
-}).superRefine((data, ctx) => {
-    if (!data.enabled) return
-    if (!data.merchantId?.trim() && !data.publicKey?.trim()) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Public key (or Merchant UUID) is required to enable this gateway", path: ["publicKey"] })
-    }
-    if (!data.merchantId?.trim() && !data.secretKey?.trim() && !data.paymentKey?.trim()) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Secret key (or Payment API Key) is required to enable this gateway", path: ["secretKey"] })
-    }
+    apiBaseUrl: z.string(),
 })
 
 type GatewayFormValues = z.infer<typeof gatewaySchema>
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
 const PROVIDERS: { id: GatewayProvider; label: string; icon: React.ReactNode }[] = [
-    { id: 'stripe', label: 'Stripe', icon: <CreditCard className="h-5 w-5 text-indigo-500" /> },
-    { id: 'paypal', label: 'PayPal', icon: <CreditCard className="h-5 w-5 text-blue-500" /> },
-    { id: 'cryptomus', label: 'Cryptomus', icon: <Bitcoin className="h-5 w-5 text-orange-500" /> },
+    { id: "stripe", label: "Stripe", icon: <CreditCard className="h-5 w-5 text-indigo-500" /> },
+    { id: "paypal", label: "PayPal", icon: <CreditCard className="h-5 w-5 text-blue-500" /> },
+    { id: "cryptomus", label: "Cryptomus", icon: <Bitcoin className="h-5 w-5 text-orange-500" /> },
 ]
 
-export const DEFAULT_CONFIGS: Record<GatewayProvider, ConfigState> = {
-    stripe: { enabled: false, testMode: true, publicKey: '', secretKey: '', webhookSecret: '' },
-    paypal: { enabled: false, testMode: true, publicKey: '', secretKey: '', webhookSecret: '' },
-    cryptomus: { enabled: false, testMode: false, publicKey: '', secretKey: '', webhookSecret: '', merchantId: '', paymentKey: '' },
+function formFromGateway(gw: GatewayView, apiBaseUrl: string): GatewayFormValues {
+    return {
+        enabled: gw.enabled,
+        testMode: gw.test_mode,
+        publicKey: gw.public_key ?? "",
+        secretKey: "",
+        webhookSecret: "",
+        merchantId: gw.merchant_id ?? "",
+        paymentKey: "",
+        apiBaseUrl,
+    }
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
-
-export function PaymentClient({ initialConfigs }: { initialConfigs: Record<GatewayProvider, ConfigState> }) {
-    const [provider, setProvider] = useState<GatewayProvider>('stripe')
-    // Keep a full copy of all 3 providers' data so switching tabs doesn't lose unsaved changes
-    const [allConfigs, setAllConfigs] = useState<Record<GatewayProvider, ConfigState>>(initialConfigs)
+export function PaymentClient({ initialData }: { initialData: PaymentSettingsView }) {
+    const [provider, setProvider] = useState<GatewayProvider>("stripe")
+    const [view, setView] = useState<PaymentSettingsView>(initialData)
+    const [isTesting, setIsTesting] = useState(false)
 
     const form = useForm<GatewayFormValues>({
         resolver: zodResolver(gatewaySchema),
-        defaultValues: {
-            enabled: initialConfigs.stripe.enabled,
-            testMode: initialConfigs.stripe.testMode,
-            publicKey: initialConfigs.stripe.publicKey,
-            secretKey: initialConfigs.stripe.secretKey,
-            webhookSecret: initialConfigs.stripe.webhookSecret,
-            merchantId: initialConfigs.stripe.merchantId ?? '',
-            paymentKey: initialConfigs.stripe.paymentKey ?? '',
-        }
+        defaultValues: formFromGateway(initialData.gateways.stripe, initialData.api_base_url),
     })
 
-    const fetchConfigs = async () => {
-        try {
-            const data = await ApiClient.get('/admin/settings');
-            if (data.status === 'success' && Array.isArray(data.data)) {
-                const raw: Record<string, string> = {}
-                for (const row of data.data) raw[row.setting_key] = row.setting_value
+    const activeGw = view.gateways[provider]
+    const isCryptomus = provider === "cryptomus"
+    const isEnabled = form.watch("enabled")
 
-                const next = { ...allConfigs }
-                for (const p of ['stripe', 'paypal', 'cryptomus'] as GatewayProvider[]) {
-                    next[p] = {
-                        enabled: raw[`${p}_enabled`] === '1',
-                        testMode: raw[`${p}_test_mode`] === '1',
-                        publicKey: raw[`${p}_public_key`] ?? '',
-                        secretKey: raw[`${p}_secret_key`] ?? '',
-                        webhookSecret: (p === 'paypal' ? raw[`${p}_webhook_id`] : raw[`${p}_webhook_secret`]) ?? '',
-                        merchantId: raw[`${p}_merchant_id`] ?? '',
-                        paymentKey: raw[`${p}_payment_key`] ?? '',
-                    }
-                }
-                setAllConfigs(next)
-                
-                const active = next[provider]
-                form.reset({
-                    enabled: active.enabled,
-                    testMode: active.testMode,
-                    publicKey: active.publicKey,
-                    secretKey: active.secretKey,
-                    webhookSecret: active.webhookSecret,
-                    merchantId: active.merchantId ?? '',
-                    paymentKey: active.paymentKey ?? '',
-                })
-            }
-        } catch (error) {
-            console.error("Failed to fetch payment settings on mount:", error);
-        }
+    const handleProviderSwitch = (next: GatewayProvider) => {
+        const current = form.getValues()
+        // Discard unsaved secrets when switching; keep non-secret edits only in form for active tab.
+        setProvider(next)
+        form.reset(formFromGateway(view.gateways[next], current.apiBaseUrl || view.api_base_url))
     }
 
-    useEffect(() => {
-        void fetchConfigs();
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only refresh
-    }, []);
+    const validateBeforeSubmit = (values: GatewayFormValues): string | null => {
+        const gw = view.gateways[provider]
+        if (!values.enabled) return null
 
-    // When tab switches: save current form values back, then reset to new provider's data
-    const handleProviderSwitch = (newProvider: GatewayProvider) => {
-        // Persist current form values into allConfigs
-        const current = form.getValues()
-        setAllConfigs(prev => ({
-            ...prev,
-            [provider]: {
-                enabled: current.enabled,
-                testMode: current.testMode,
-                publicKey: current.publicKey ?? '',
-                secretKey: current.secretKey ?? '',
-                webhookSecret: current.webhookSecret ?? '',
-                merchantId: current.merchantId ?? '',
-                paymentKey: current.paymentKey ?? '',
+        if (provider === "cryptomus") {
+            if (!values.merchantId.trim()) return "Merchant UUID is required to enable Cryptomus"
+            if (!values.paymentKey.trim() && !gw.has_payment_key) return "Payment API Key is required to enable Cryptomus"
+            return null
+        }
+
+        if (!values.publicKey.trim()) return "Public key is required to enable this gateway"
+        if (!values.secretKey.trim() && !gw.has_secret_key) return "Secret key is required to enable this gateway"
+        if (!values.webhookSecret.trim() && !gw.has_webhook_secret) {
+            return provider === "paypal" ? "Webhook ID is required to enable PayPal" : "Webhook secret is required to enable Stripe"
+        }
+
+        if (provider === "stripe") {
+            const pub = values.publicKey.trim()
+            const sec = values.secretKey.trim()
+            if (values.testMode) {
+                if (!pub.startsWith("pk_test_")) return "Test Mode requires a pk_test_ public key"
+                if (sec && !sec.startsWith("sk_test_")) return "Test Mode requires an sk_test_ secret key"
+            } else {
+                if (!pub.startsWith("pk_live_")) return "Live mode requires a pk_live_ public key"
+                if (sec && !sec.startsWith("sk_live_")) return "Live mode requires an sk_live_ secret key"
             }
-        }))
-        // Reset form to new provider's saved data
-        const next = allConfigs[newProvider]
-        form.reset({
-            enabled: next.enabled,
-            testMode: next.testMode,
-            publicKey: next.publicKey,
-            secretKey: next.secretKey,
-            webhookSecret: next.webhookSecret,
-            merchantId: next.merchantId ?? '',
-            paymentKey: next.paymentKey ?? '',
-        })
-        setProvider(newProvider)
+        }
+        return null
     }
 
     const onSubmit = async (values: GatewayFormValues) => {
-        // Build the merged config snapshot with current form values applied
-        const merged = {
-            ...allConfigs,
-            [provider]: {
-                enabled: values.enabled,
-                testMode: values.testMode,
-                publicKey: values.publicKey ?? '',
-                secretKey: values.secretKey ?? '',
-                webhookSecret: values.webhookSecret ?? '',
-                merchantId: values.merchantId ?? '',
-                paymentKey: values.paymentKey ?? '',
-            }
+        const errMsg = validateBeforeSubmit(values)
+        if (errMsg) {
+            toast.error(errMsg)
+            return
         }
 
-        const settings: Record<string, string> = {}
-        for (const p of ['stripe', 'paypal', 'cryptomus'] as GatewayProvider[]) {
-            const c = merged[p]
-            settings[`${p}_enabled`] = c.enabled ? '1' : '0'
-            settings[`${p}_test_mode`] = c.testMode ? '1' : '0'
-            settings[`${p}_public_key`] = c.publicKey ?? ''
-            settings[`${p}_secret_key`] = c.secretKey ?? ''
-            if (p === 'paypal') {
-                settings[`${p}_webhook_id`] = c.webhookSecret ?? ''
-            } else {
-                settings[`${p}_webhook_secret`] = c.webhookSecret ?? ''
-            }
-            settings[`${p}_merchant_id`] = c.merchantId ?? ''
-            settings[`${p}_payment_key`] = c.paymentKey ?? ''
+        const payload = {
+            provider,
+            api_base_url: values.apiBaseUrl.trim(),
+            enabled: values.enabled,
+            test_mode: values.testMode,
+            public_key: values.publicKey.trim(),
+            secret_key: values.secretKey.trim(),
+            webhook_secret: values.webhookSecret.trim(),
+            merchant_id: values.merchantId.trim(),
+            payment_key: values.paymentKey.trim(),
         }
 
         try {
-            const res = await ApiClient.post('/admin/settings/update', { settings })
-            if (res.status === 'success') {
-                setAllConfigs(merged)
-                toast.success("Payment settings saved successfully")
+            const res = await ApiClient.post<PaymentSettingsView>("/admin/settings/payment", payload)
+            if (res.status === "success" && res.data) {
+                setView(res.data)
+                form.reset(formFromGateway(res.data.gateways[provider], res.data.api_base_url))
+                toast.success("Payment settings saved")
             } else {
                 toast.error(res.message || "Failed to save settings")
             }
@@ -200,25 +148,40 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
         }
     }
 
+    const testGateway = async () => {
+        setIsTesting(true)
+        const toastId = toast.loading("Testing credentials…")
+        try {
+            const res = await ApiClient.post("/admin/settings/payment/test", { provider })
+            if (res.status === "success") {
+                toast.success(res.message || "Credentials OK", { id: toastId })
+            } else {
+                toast.error(res.message || "Test failed", { id: toastId })
+            }
+        } catch (e: unknown) {
+            toast.error(e instanceof Error ? e.message : "Test failed", { id: toastId })
+        } finally {
+            setIsTesting(false)
+        }
+    }
+
     const getStatusBadge = (p: GatewayProvider) => {
-        const cfg = allConfigs[p]
-        // Reflect unsaved form changes for the active tab
-        const enabled = p === provider ? form.watch('enabled') : cfg.enabled
-        const testMode = p === provider ? form.watch('testMode') : cfg.testMode
+        const cfg = view.gateways[p]
+        const enabled = p === provider ? form.watch("enabled") : cfg.enabled
+        const testMode = p === provider ? form.watch("testMode") : cfg.test_mode
         if (!enabled) return <Badge variant="secondary" className="bg-[#0b1f1c]/5 text-[#5a736c] border-[#0b1f1c]/10">Disabled</Badge>
         if (testMode) return <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Test Mode</Badge>
         return <Badge variant="default" className="bg-emerald-50 text-emerald-700 border-emerald-200">Live</Badge>
     }
 
-    const isCryptomus = provider === 'cryptomus'
-    const isEnabled = form.watch('enabled')
+    const webhookURL = view.webhook_urls?.[provider] ?? ""
 
     return (
         <div className="flex-1 space-y-6">
             <div className="flex items-center justify-between space-y-2">
                 <div>
                     <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Payment Settings</h2>
-                    <p className="mt-1 text-sm text-[#5a736c]">Configure payment gateways and transaction rules.</p>
+                    <p className="mt-1 text-sm text-[#5a736c]">Configure payment gateways. Secrets are never shown after save — leave blank to keep existing.</p>
                 </div>
             </div>
 
@@ -229,39 +192,53 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
                     </div>
                     <div className="space-y-1">
                         <CardTitle className="text-xl text-[#0b1f1c]">Gateway Configuration</CardTitle>
-                        <CardDescription className="text-[#5a736c]">Select and configure your preferred payment providers.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">One provider is saved at a time. Set API Base URL for webhook callbacks.</CardDescription>
                     </div>
                 </CardHeader>
                 <CardContent className="pt-8 space-y-8">
-                    {/* Provider Selection Tabs */}
                     <div className="space-y-4">
                         <Label className="text-sm font-bold text-[#5a736c] uppercase tracking-wider">Select Provider</Label>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4" role="tablist" aria-label="Payment providers">
                             {PROVIDERS.map(({ id, label, icon }) => (
-                                <div
+                                <button
                                     key={id}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={provider === id}
                                     onClick={() => handleProviderSwitch(id)}
                                     className={cn(
-                                        "relative p-4 rounded-xl border-2 cursor-pointer transition-all duration-200",
+                                        "relative p-4 rounded-xl border-2 text-left transition-all duration-200",
                                         provider === id
-                                            ? 'border-[#0f5c52] bg-[#0f5c52]/5 ring-4 ring-[#0f5c52]/10'
-                                            : 'border-[#0b1f1c]/8 bg-white hover:border-[#0f5c52]/30 hover:bg-[#f0f4f2]/40'
+                                            ? "border-[#0f5c52] bg-[#0f5c52]/5 ring-4 ring-[#0f5c52]/10"
+                                            : "border-[#0b1f1c]/8 bg-white hover:border-[#0f5c52]/30 hover:bg-[#f0f4f2]/40"
                                     )}
                                 >
                                     <div className="flex items-center justify-between mb-2">
                                         {icon}
-                                        {provider === id && <div className="h-2 w-2 rounded-full bg-[#0f5c52] animate-pulse" />}
+                                        {provider === id && <div className="h-2 w-2 rounded-full bg-[#0f5c52]" />}
                                     </div>
                                     <div className="font-bold text-[#0b1f1c] text-sm mb-2">{label}</div>
                                     {getStatusBadge(id)}
-                                </div>
+                                </button>
                             ))}
                         </div>
                     </div>
 
-                    {/* Configuration Form */}
                     <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 rounded-2xl border border-[#0b1f1c]/8 bg-[#f0f4f2]/40 space-y-8">
-                        {/* Enable / Test Mode toggles */}
+                        <div className="space-y-2">
+                            <Label htmlFor="apiBaseUrl" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">API Base URL</Label>
+                            <Input
+                                id="apiBaseUrl"
+                                {...form.register("apiBaseUrl")}
+                                placeholder="https://api.example.com or http://localhost:8000"
+                                className="bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none font-mono text-sm"
+                            />
+                            <p className="text-xs text-[#5a736c]">Backend origin for webhook callbacks (Admin setting only — not from .env). Example: https://api.example.com</p>
+                            {webhookURL && (
+                                <p className="text-xs text-[#0f5c52] font-mono break-all">Webhook: {webhookURL}</p>
+                            )}
+                        </div>
+
                         <div className="flex flex-col sm:flex-row gap-6 justify-between border-b border-[#0b1f1c]/8 pb-6">
                             <div className="space-y-1">
                                 <h3 className="text-lg font-bold text-[#0b1f1c] capitalize flex items-center gap-2">
@@ -294,12 +271,11 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
                             </div>
                         </div>
 
-                        {/* Credentials */}
                         <div className="space-y-6">
                             <div className="flex items-center gap-2 mb-4">
                                 <Shield className="h-4 w-4 text-[#0f5c52]" />
                                 <h4 className="text-sm font-bold text-[#0b1f1c] uppercase tracking-wide">
-                                    {isCryptomus ? 'Cryptomus Credentials' : 'API Credentials'}
+                                    {isCryptomus ? "Cryptomus Credentials" : "API Credentials"}
                                 </h4>
                             </div>
 
@@ -310,82 +286,69 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
                                         <Input
                                             id="merchantId"
                                             {...form.register("merchantId")}
-                                            placeholder="Enter your Cryptomus Merchant UUID"
-                                            className={cn("bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none font-mono text-sm", form.formState.errors.publicKey && "border-red-400")}
+                                            placeholder="Cryptomus Merchant UUID"
+                                            className="bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none font-mono text-sm"
                                         />
-                                        {form.formState.errors.publicKey && (
-                                            <p className="text-[10px] text-red-500">{form.formState.errors.publicKey.message}</p>
-                                        )}
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="paymentKey" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">Payment API Key</Label>
+                                        <Label htmlFor="paymentKey" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">
+                                            Payment API Key {activeGw.has_payment_key ? <span className="normal-case text-[#0f5c52]">(saved — leave blank to keep)</span> : null}
+                                        </Label>
                                         <Input
                                             id="paymentKey"
                                             type="password"
+                                            autoComplete="new-password"
                                             {...form.register("paymentKey")}
-                                            placeholder="Enter your Cryptomus Payment Key"
-                                            className={cn("bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none", form.formState.errors.secretKey && "border-red-400")}
-                                        />
-                                        {form.formState.errors.secretKey && (
-                                            <p className="text-[10px] text-red-500">{form.formState.errors.secretKey.message}</p>
-                                        )}
-                                    </div>
-                                    <div className="space-y-2 md:col-span-2">
-                                        <Label htmlFor="webhookSecret" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">Webhook Secret (optional)</Label>
-                                        <Input
-                                            id="webhookSecret"
-                                            type="password"
-                                            {...form.register("webhookSecret")}
-                                            placeholder="Used to verify Cryptomus webhook signatures"
+                                            placeholder={activeGw.has_payment_key ? "••••••••" : "Enter Payment API Key"}
                                             className="bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none"
                                         />
                                     </div>
                                     <div className="md:col-span-2 p-4 bg-orange-50 border border-orange-100 rounded-xl text-sm text-orange-800">
-                                        <p className="font-semibold mb-1">📋 How to get your credentials</p>
+                                        <p className="font-semibold mb-1">How to get credentials</p>
                                         <ol className="list-decimal list-inside space-y-1 text-orange-700">
-                                            <li>Log in to your <span className="font-mono font-semibold">app.cryptomus.com</span> account</li>
-                                            <li>Go to <strong>Settings → Merchant</strong> to find your Merchant UUID</li>
-                                            <li>Go to <strong>Settings → API Keys → Payment</strong> to generate a Payment API Key</li>
-                                            <li>Set your webhook URL to: <span className="font-mono font-semibold">{typeof window !== 'undefined' ? window.location.origin.replace('3000', '8000') : ''}/payment/cryptomus/webhook</span></li>
+                                            <li>Log in to app.cryptomus.com → Settings → Merchant for Merchant UUID</li>
+                                            <li>Settings → API Keys → Payment for Payment API Key (also verifies webhooks)</li>
+                                            <li>Set webhook URL to the Cryptomus URL shown above</li>
                                         </ol>
                                     </div>
                                 </div>
                             ) : (
                                 <div className="grid gap-6 md:grid-cols-2">
                                     <div className="space-y-2">
-                                        <Label htmlFor="publicKey" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">Public Key</Label>
+                                        <Label htmlFor="publicKey" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">
+                                            {provider === "paypal" ? "Client ID" : "Public Key"}
+                                        </Label>
                                         <Input
                                             id="publicKey"
                                             {...form.register("publicKey")}
-                                            placeholder={`Enter ${provider} public key`}
+                                            placeholder={`Enter ${provider} ${provider === "paypal" ? "client ID" : "public key"}`}
                                             className={cn("bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none", form.formState.errors.publicKey && isEnabled && "border-red-400")}
                                         />
-                                        {form.formState.errors.publicKey && isEnabled && (
-                                            <p className="text-[10px] text-red-500">{form.formState.errors.publicKey.message}</p>
-                                        )}
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="secretKey" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">Secret Key</Label>
+                                        <Label htmlFor="secretKey" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">
+                                            Secret Key {activeGw.has_secret_key ? <span className="normal-case text-[#0f5c52]">(saved — leave blank to keep)</span> : null}
+                                        </Label>
                                         <Input
                                             id="secretKey"
                                             type="password"
+                                            autoComplete="new-password"
                                             {...form.register("secretKey")}
-                                            placeholder={`Enter ${provider} secret key`}
-                                            className={cn("bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none", form.formState.errors.secretKey && isEnabled && "border-red-400")}
+                                            placeholder={activeGw.has_secret_key ? "••••••••" : `Enter ${provider} secret key`}
+                                            className="bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none"
                                         />
-                                        {form.formState.errors.secretKey && isEnabled && (
-                                            <p className="text-[10px] text-red-500">{form.formState.errors.secretKey.message}</p>
-                                        )}
                                     </div>
                                     <div className="space-y-2 md:col-span-2">
                                         <Label htmlFor="webhookSecret" className="text-sm font-semibold text-[#5a736c] uppercase tracking-tight">
-                                            {provider === 'paypal' ? 'Webhook ID' : 'Webhook Secret'}
+                                            {provider === "paypal" ? "Webhook ID" : "Webhook Secret"}{" "}
+                                            {activeGw.has_webhook_secret ? <span className="normal-case text-[#0f5c52]">(saved — leave blank to keep)</span> : null}
                                         </Label>
                                         <Input
                                             id="webhookSecret"
                                             type="password"
+                                            autoComplete="new-password"
                                             {...form.register("webhookSecret")}
-                                            placeholder={provider === 'paypal' ? 'Enter PayPal Webhook ID' : `Enter ${provider} webhook secret`}
+                                            placeholder={activeGw.has_webhook_secret ? "••••••••" : (provider === "paypal" ? "Enter PayPal Webhook ID" : `Enter ${provider} webhook secret`)}
                                             className="bg-white border-[#0b1f1c]/10 focus-visible:ring-[#0f5c52]/30 py-5 rounded-lg shadow-none"
                                         />
                                     </div>
@@ -393,33 +356,37 @@ export function PaymentClient({ initialConfigs }: { initialConfigs: Record<Gatew
                             )}
                         </div>
 
-                        {/* Save Button */}
                         <div className="pt-4 flex flex-wrap gap-4 items-center border-t border-[#0b1f1c]/8">
                             <Button
                                 type="submit"
                                 disabled={form.formState.isSubmitting}
                                 className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] shadow-none px-6 py-4 rounded-xl flex gap-2 font-bold disabled:opacity-60"
                             >
-                                {form.formState.isSubmitting ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Save className="h-4 w-4" />
-                                )}
-                                {form.formState.isSubmitting ? 'Saving…' : 'Save Configuration'}
+                                {form.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                {form.formState.isSubmitting ? "Saving…" : "Save Configuration"}
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                disabled={isTesting || !isEnabled}
+                                onClick={() => void testGateway()}
+                                className="border-[#0b1f1c]/15 shadow-none px-6 py-4 rounded-xl flex gap-2 font-bold disabled:opacity-60"
+                            >
+                                {isTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
+                                Test Credentials
                             </Button>
                         </div>
                     </form>
 
-                    {/* Security Notice */}
                     <div className="p-4 bg-[#0f5c52]/5 rounded-2xl border border-[#0f5c52]/15 flex gap-4">
                         <div className="p-2 bg-white rounded-xl shadow-none border border-[#0f5c52]/15 h-fit">
                             <AlertCircle className="h-5 w-5 text-[#0f5c52]" />
                         </div>
                         <div className="space-y-1">
-                            <h5 className="text-sm font-bold text-[#0b1f1c]">Security Requirement</h5>
+                            <h5 className="text-sm font-bold text-[#0b1f1c]">Security</h5>
                             <p className="text-xs text-[#5a736c] font-medium leading-relaxed">
-                                Always ensure that API credentials are kept private and never committed to source control.
-                                For Cryptomus, verify webhook signatures on every callback to prevent fraud.
+                                Secrets are encrypted at rest and never returned to the browser. Leave password fields blank to keep the current value.
+                                Cryptomus webhooks are verified with the Payment API Key.
                             </p>
                         </div>
                     </div>

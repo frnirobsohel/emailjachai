@@ -762,49 +762,51 @@ func (s *paymentService) GetTransactionSummary(userID uint) (int64, int64, error
 
 func (s *paymentService) getBaseURL() string {
 	var sDB model.Setting
-	if err := s.settingsRepo.DB().Where("setting_key = 'api_base_url'").First(&sDB).Error; err == nil {
-		url := strings.TrimSpace(sDB.SettingValue)
-		if url != "" {
-			return strings.TrimSuffix(url, "/")
-		}
+	apiBase := ""
+	if err := s.settingsRepo.DB().Where("setting_key = ?", "api_base_url").First(&sDB).Error; err == nil {
+		apiBase = sDB.SettingValue
 	}
-	frontendURL := strings.TrimSpace(os.Getenv("FRONTEND_URL"))
-	if frontendURL != "" {
-		return strings.TrimSuffix(frontendURL, "/")
-	}
-	return "http://localhost:3000"
+	return helper.ResolveAPIBaseURL(apiBase)
 }
 
-func (s *paymentService) getGatewaySettings(prefix string) map[string]string {
+func (s *paymentService) getGatewaySettings(prefix string) (map[string]string, error) {
 	var settings []model.Setting
-	s.settingsRepo.DB().Where("setting_key LIKE ?", prefix+"_%").Find(&settings)
-	
+	if err := s.settingsRepo.DB().Where("setting_key LIKE ?", prefix+"_%").Find(&settings).Error; err != nil {
+		return nil, err
+	}
+
 	sensitiveKeys := map[string]bool{
-		"stripe_secret_key":        true,
-		"stripe_webhook_secret":    true,
-		"paypal_secret_key":        true,
-		"paypal_webhook_id":        true,
-		"cryptomus_payment_key":    true,
-		"cryptomus_secret_key":     true,
-		"cryptomus_webhook_secret": true,
+		"stripe_secret_key":     true,
+		"stripe_webhook_secret": true,
+		"paypal_secret_key":     true,
+		"paypal_webhook_id":     true,
+		"cryptomus_payment_key": true,
 	}
 
 	res := make(map[string]string)
 	for _, sDB := range settings {
 		val := sDB.SettingValue
 		if sensitiveKeys[sDB.SettingKey] && val != "" {
-			dec, err := helper.DecryptSecret(val)
-			if err == nil {
+			if helper.LooksEncryptedSecret(val) {
+				dec, err := helper.DecryptPaymentSecret(val)
+				if err != nil {
+					return nil, fmt.Errorf("%w: %s", ErrPaymentSecretDecrypt, sDB.SettingKey)
+				}
 				val = dec
 			}
+			// else: legacy plaintext secret — use as-is
 		}
 		res[sDB.SettingKey] = val
 	}
-	return res
+	return res, nil
 }
 
 func (s *paymentService) getStripeCredentials() *StripeCredentials {
-	creds := s.getGatewaySettings("stripe")
+	creds, err := s.getGatewaySettings("stripe")
+	if err != nil {
+		logger.Error("Failed to load Stripe credentials", "error", err)
+		return nil
+	}
 	if creds["stripe_enabled"] != "1" {
 		return nil
 	}
@@ -824,7 +826,11 @@ type StripeCredentials struct {
 }
 
 func (s *paymentService) getPayPalCredentials() *PayPalCredentials {
-	creds := s.getGatewaySettings("paypal")
+	creds, err := s.getGatewaySettings("paypal")
+	if err != nil {
+		logger.Error("Failed to load PayPal credentials", "error", err)
+		return nil
+	}
 	if creds["paypal_enabled"] != "1" {
 		return nil
 	}
@@ -875,7 +881,11 @@ func (s *paymentService) getPayPalToken(creds *PayPalCredentials) (string, error
 }
 
 func (s *paymentService) getCryptomusCredentials() *CryptomusCredentials {
-	creds := s.getGatewaySettings("cryptomus")
+	creds, err := s.getGatewaySettings("cryptomus")
+	if err != nil {
+		logger.Error("Failed to load Cryptomus credentials", "error", err)
+		return nil
+	}
 	if creds["cryptomus_enabled"] != "1" {
 		return nil
 	}

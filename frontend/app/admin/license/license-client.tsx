@@ -1,12 +1,16 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { toast } from "react-hot-toast"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { ShieldCheck, ArrowUpCircle, Key, RefreshCcw, CheckCircle, Download, UploadCloud, FileArchive, Database, History, HardDriveDownload, RotateCcw, AlertCircle, Loader2, Trash2, Wrench, AlertTriangle } from "lucide-react"
+import {
+    ShieldCheck, ArrowUpCircle, Key, RefreshCcw, CheckCircle, Download, UploadCloud,
+    FileArchive, Database, History, HardDriveDownload, RotateCcw, AlertCircle, Loader2,
+    Trash2, Wrench, AlertTriangle,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
@@ -16,14 +20,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { ApiClient } from "@/lib/api-client"
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 export type LicenseInfo = {
     version: string
     author?: string
     license_status: string
     license_key: string
     release_date: string
+    release_notes?: string
+    update_applies_code?: boolean
 }
 
 export type BackupFile = {
@@ -34,9 +38,7 @@ export type BackupFile = {
     date: string
 }
 
-type UpdateStatus = "idle" | "dragging" | "uploading" | "installing" | "latest" | "error"
-
-// ─── Zod Schema ─────────────────────────────────────────────────────────────
+type UpdateStatus = "idle" | "dragging" | "uploading" | "done" | "error"
 
 const licenseSchema = z.object({
     license_key: z.string()
@@ -44,16 +46,21 @@ const licenseSchema = z.object({
         .regex(
             /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/i,
             "Invalid format. Expected: XXXX-XXXX-XXXX-XXXX"
-        )
+        ),
 })
 
 type LicenseFormValues = z.infer<typeof licenseSchema>
 
-// ─── Component ───────────────────────────────────────────────────────────────
-
-export function LicenseClient({ initialLicenseInfo, initialBackups }: {
+export function LicenseClient({
+    initialLicenseInfo,
+    initialBackups,
+    initialMaintenanceMode,
+    initialMaintenanceMessage,
+}: {
     initialLicenseInfo: LicenseInfo | null
     initialBackups: BackupFile[]
+    initialMaintenanceMode: boolean
+    initialMaintenanceMessage: string
 }) {
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle")
     const [uploadProgress, setUploadProgress] = useState(0)
@@ -61,33 +68,54 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
     const fileInputRef = useRef<HTMLInputElement>(null)
     const [isBackingUp, setIsBackingUp] = useState(false)
     const [isRestoring, setIsRestoring] = useState(false)
-    const [restoreProgress, setRestoreProgress] = useState(0)
     const [showRestoreConfirm, setShowRestoreConfirm] = useState<{ id: number; name: string } | null>(null)
 
     const [backups, setBackups] = useState<BackupFile[]>(initialBackups)
     const [licenseInfo, setLicenseInfo] = useState<LicenseInfo | null>(initialLicenseInfo)
     const [isEditingLicense, setIsEditingLicense] = useState(false)
-    const isFirstMount = useRef(true)
 
-    // Maintenance Mode States
-    const [maintenanceMode, setMaintenanceMode] = useState(false)
-    const [maintenanceMessage, setMaintenanceMessage] = useState("We are currently optimizing our verification engine. Single/Bulk verification is temporarily paused. Your existing files are safe.")
+    const [maintenanceMode, setMaintenanceMode] = useState(initialMaintenanceMode)
+    const [maintenanceMessage, setMaintenanceMessage] = useState(initialMaintenanceMessage)
     const [isSavingMaintenance, setIsSavingMaintenance] = useState(false)
+
+    const licenseForm = useForm<LicenseFormValues>({
+        resolver: zodResolver(licenseSchema),
+        defaultValues: { license_key: "" },
+    })
+
+    const fetchSystemStatus = async () => {
+        try {
+            const result = await ApiClient.get<LicenseInfo>("/admin/system/status")
+            if (result.status === "success" && result.data) {
+                setLicenseInfo(result.data)
+            }
+        } catch {
+            toast.error("Failed to refresh system status")
+        }
+    }
+
+    const fetchBackups = async () => {
+        try {
+            const result = await ApiClient.get<BackupFile[]>("/admin/system/backups")
+            if (result.status === "success" && result.data) {
+                setBackups(Array.isArray(result.data) ? result.data : [])
+            }
+        } catch {
+            toast.error("Failed to load backup list")
+        }
+    }
 
     const handleSaveMaintenance = async () => {
         setIsSavingMaintenance(true)
         try {
-            const res = await ApiClient.post('/admin/settings/update', {
+            const res = await ApiClient.post("/admin/settings/update", {
                 settings: {
                     maintenance_mode: maintenanceMode ? "1" : "0",
-                    maintenance_message: maintenanceMessage
-                }
+                    maintenance_message: maintenanceMessage,
+                },
             })
-            if (res.status === 'success') {
-                toast.success("Maintenance settings updated successfully!")
-                setTimeout(() => {
-                    window.location.reload()
-                }, 1000)
+            if (res.status === "success") {
+                toast.success("Maintenance settings updated")
             } else {
                 toast.error(res.message || "Failed to update maintenance settings")
             }
@@ -98,71 +126,13 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
         }
     }
 
-    const licenseForm = useForm<LicenseFormValues>({
-        resolver: zodResolver(licenseSchema),
-        defaultValues: { license_key: "" }
-    })
-
-    // ── Data fetchers ──
-
-    const fetchSystemStatus = async () => {
-        try {
-            const result = await ApiClient.get<LicenseInfo>('/admin/system/status')
-            if (result.status === 'success' && result.data) {
-                setLicenseInfo(result.data)
-            }
-        } catch {
-            toast.error("Failed to refresh system status")
-        }
-    }
-
-    const fetchBackups = async () => {
-        try {
-            const result = await ApiClient.get<BackupFile[]>('/admin/system/backups')
-            if (result.status === 'success' && result.data) {
-                setBackups(Array.isArray(result.data) ? result.data : [])
-            }
-        } catch {
-            toast.error("Failed to load backup list")
-        }
-    }
-
-    const fetchMaintenanceSettings = async () => {
-        try {
-            const res = await ApiClient.get<Array<{ setting_key: string; setting_value: string }>>('/admin/settings')
-            if (res.status === 'success' && Array.isArray(res.data)) {
-                const modeSetting = res.data.find(s => s.setting_key === 'maintenance_mode')
-                const msgSetting = res.data.find(s => s.setting_key === 'maintenance_message')
-                if (modeSetting) {
-                    setMaintenanceMode(modeSetting.setting_value === '1' || modeSetting.setting_value === 'true')
-                }
-                if (msgSetting) {
-                    setMaintenanceMessage(msgSetting.setting_value || "")
-                }
-            }
-        } catch (err) {
-            console.error("Failed to load maintenance settings:", err)
-        }
-    }
-
-    useEffect(() => {
-        if (isFirstMount.current) {
-            isFirstMount.current = false;
-        }
-        fetchSystemStatus()
-        fetchBackups()
-        fetchMaintenanceSettings()
-    }, [])
-
-    // ── License key form ──
-
     const onLicenseSubmit = async (values: LicenseFormValues) => {
         try {
-            const res = await ApiClient.post<LicenseInfo>('/admin/system/license', {
-                license_key: values.license_key
+            const res = await ApiClient.post<LicenseInfo>("/admin/system/license", {
+                license_key: values.license_key,
             })
-            if (res.status === 'success' && res.data) {
-                setLicenseInfo(prev => prev ? { ...prev, ...res.data } : res.data!)
+            if (res.status === "success" && res.data) {
+                setLicenseInfo(prev => (prev ? { ...prev, ...res.data } : res.data!))
                 setIsEditingLicense(false)
                 licenseForm.reset()
                 toast.success("License activated successfully")
@@ -174,69 +144,59 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
         }
     }
 
-    // ── File upload (XHR for progress) ──
-
     const handleFileSelect = async (file: File) => {
+        if (!file.name.toLowerCase().endsWith(".zip")) {
+            toast.error("Only .zip packages are supported")
+            return
+        }
         setUploadedFile(file)
         setUpdateStatus("uploading")
-        setUploadProgress(0)
+        setUploadProgress(30)
 
         const formData = new FormData()
         formData.append("file", file)
 
         try {
-            const xhr = new XMLHttpRequest()
-            const uploadUrl = `${ApiClient.getBaseUrl()}/system/update`
-            xhr.open("POST", uploadUrl, true)
-
-            xhr.upload.onprogress = (event) => {
-                if (event.lengthComputable) {
-                    setUploadProgress(Math.round((event.loaded / event.total) * 100))
-                }
-            }
-
-            xhr.onload = () => {
-                if (xhr.status === 200) {
-                    setUpdateStatus("installing")
-                    setTimeout(() => {
-                        setUpdateStatus("latest")
-                        fetchSystemStatus()
-                    }, 2000)
+            setUploadProgress(60)
+            const res = await ApiClient.post<LicenseInfo>("/admin/system/update", formData)
+            setUploadProgress(100)
+            if (res.status === "success") {
+                setUpdateStatus("done")
+                toast.success(res.message || "Release metadata registered")
+                if (res.data) {
+                    setLicenseInfo(prev => ({
+                        ...(prev || {
+                            version: "",
+                            license_status: "",
+                            license_key: "",
+                            release_date: "",
+                        }),
+                        version: res.data!.version || prev?.version || "",
+                        release_date: res.data!.release_date || prev?.release_date || "",
+                        release_notes: res.data!.release_notes ?? prev?.release_notes,
+                        update_applies_code: false,
+                    }))
                 } else {
-                    let errMsg = "Upload failed"
-                    try {
-                        const parsed = JSON.parse(xhr.responseText)
-                        errMsg = parsed.message || errMsg
-                    } catch {
-                        // ignore malformed error response
-                    }
-                    toast.error(errMsg)
-                    setUpdateStatus("error")
+                    void fetchSystemStatus()
                 }
-            }
-
-            xhr.onerror = () => {
-                toast.error("Upload failed. Please check your connection.")
+            } else {
+                toast.error(res.message || "Upload failed")
                 setUpdateStatus("error")
             }
-
-            xhr.send(formData)
         } catch (error: unknown) {
-            toast.error(error instanceof Error ? error.message : "Failed to upload update package")
+            toast.error(error instanceof Error ? error.message : "Failed to upload package")
             setUpdateStatus("error")
         }
     }
-
-    // ── Backup operations ──
 
     const generateBackup = async (type: string) => {
         setIsBackingUp(true)
         const toastId = toast.loading(`Creating ${type} backup...`)
         try {
-            const result = await ApiClient.post('/admin/system/backups', { type })
-            if (result.status === 'success') {
-                toast.success(`${type} backup created successfully`, { id: toastId })
-                fetchBackups()
+            const result = await ApiClient.post("/admin/system/backups", { type }, { timeout: 300_000 })
+            if (result.status === "success") {
+                toast.success(`${type} backup created`, { id: toastId })
+                void fetchBackups()
             } else {
                 toast.error(result.message || "Backup failed", { id: toastId })
             }
@@ -250,8 +210,8 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
     const deleteBackup = async (name: string) => {
         const toastId = toast.loading("Deleting backup...")
         try {
-            const result = await ApiClient.delete(`/admin/system/backups?name=${name}`)
-            if (result.status === 'success') {
+            const result = await ApiClient.delete(`/admin/system/backups?name=${encodeURIComponent(name)}`)
+            if (result.status === "success") {
                 setBackups(prev => prev.filter(b => b.name !== name))
                 toast.success("Backup deleted", { id: toastId })
             } else {
@@ -262,28 +222,28 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
         }
     }
 
-    // ── Restore ──
+    const downloadBackup = (name: string) => {
+        const url = `${ApiClient.getBaseUrl()}/admin/system/backups/download?name=${encodeURIComponent(name)}`
+        window.open(url, "_blank", "noopener,noreferrer")
+    }
 
     const startRestore = async () => {
         if (!showRestoreConfirm) return
         const target = showRestoreConfirm
         setShowRestoreConfirm(null)
         setIsRestoring(true)
-        setRestoreProgress(10)
-
         try {
-            const res = await ApiClient.post('/admin/system/backups/restore', { name: target.name })
-            if (res.status === 'success') {
-                setRestoreProgress(100)
-                toast.success("Database restored successfully!")
-                fetchSystemStatus()
+            const res = await ApiClient.post("/admin/system/backups/restore", { name: target.name }, { timeout: 300_000 })
+            if (res.status === "success") {
+                toast.success("Database restored successfully")
+                void fetchSystemStatus()
             } else {
                 toast.error(res.message || "Failed to restore database")
             }
         } catch (err: unknown) {
             toast.error(err instanceof Error ? err.message : "Connection error during restore")
         } finally {
-            setTimeout(() => setIsRestoring(false), 1000)
+            setIsRestoring(false)
         }
     }
 
@@ -297,22 +257,19 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
         e.preventDefault()
         if (updateStatus === "idle") setUpdateStatus("dragging")
     }
-
     const handleDragLeave = () => {
         if (updateStatus === "dragging") setUpdateStatus("idle")
     }
-
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault()
         const files = e.dataTransfer.files
-        if (files && files.length > 0) handleFileSelect(files[0])
+        if (files?.length) void handleFileSelect(files[0])
     }
 
     const backupList = Array.isArray(backups) ? backups : []
 
     return (
         <div className="flex-1 space-y-6 pb-10 relative">
-            {/* Restoration Overlay */}
             {isRestoring && (
                 <div className="absolute inset-0 z-50 bg-[#0b1f1c]/60 backdrop-blur-sm rounded-xl flex items-center justify-center p-6">
                     <Card className="w-full max-w-md shadow-2xl border-[#0f5c52]/30">
@@ -321,19 +278,14 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                                 <RefreshCcw className="h-8 w-8 text-[#0f5c52] animate-spin" />
                             </div>
                             <div className="space-y-2">
-                                <h3 className="text-xl font-bold text-[#0b1f1c]">System Restoration in Progress</h3>
-                                <p className="text-sm text-[#5a736c]">Restoring files and database from backup. Please wait and do not refresh the page.</p>
-                            </div>
-                            <div className="space-y-2">
-                                <Progress value={restoreProgress} className="h-2" indicatorClassName="bg-[#0f5c52]" />
-                                <p className="text-xs font-bold text-[#0f5c52] uppercase tracking-widest">{restoreProgress}% Complete</p>
+                                <h3 className="text-xl font-bold text-[#0b1f1c]">Database restore in progress</h3>
+                                <p className="text-sm text-[#5a736c]">Please wait — do not refresh the page.</p>
                             </div>
                         </CardContent>
                     </Card>
                 </div>
             )}
 
-            {/* Restore Confirm Modal */}
             {showRestoreConfirm && (
                 <div className="absolute inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] rounded-xl flex items-center justify-center p-6">
                     <Card className="w-full max-w-sm shadow-xl border-amber-100">
@@ -344,13 +296,13 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                         </CardHeader>
                         <CardContent className="pt-6 space-y-4 text-center">
                             <p className="text-sm text-slate-600 leading-relaxed">
-                                Are you sure you want to restore <span className="font-bold text-[#0b1f1c]">{showRestoreConfirm.name}</span>?
+                                Restore <span className="font-bold text-[#0b1f1c]">{showRestoreConfirm.name}</span>?
                                 <br /><br />
-                                <span className="text-red-500 font-semibold italic text-xs">Warning: Current data will be overwritten!</span>
+                                <span className="text-red-500 font-semibold text-xs">Current database data will be overwritten.</span>
                             </p>
                             <div className="flex gap-3 justify-center">
                                 <Button variant="outline" size="sm" onClick={() => setShowRestoreConfirm(null)}>Cancel</Button>
-                                <Button className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none" size="sm" onClick={startRestore}>Yes, Restore Now</Button>
+                                <Button className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none" size="sm" onClick={() => void startRestore()}>Yes, Restore</Button>
                             </div>
                         </CardContent>
                     </Card>
@@ -360,34 +312,27 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Update and Licence</h2>
-                    <p className="mt-1 text-sm text-[#5a736c]">Manage system versions, licenses, and data security.</p>
+                    <p className="mt-1 text-sm text-[#5a736c]">Manage release metadata, licenses, maintenance, and backups.</p>
                 </div>
             </div>
 
-            {/* Maintenance Live Preview Banner */}
             {maintenanceMode && (
-                <div className="w-full bg-amber-50/80 border-l-4 border-amber-500 p-4 rounded-r-xl shadow-sm flex items-start gap-3 border border-amber-100/50 animate-pulse">
+                <div className="w-full bg-amber-50/80 border-l-4 border-amber-500 p-4 rounded-r-xl shadow-sm flex items-start gap-3 border border-amber-100/50">
                     <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
                     <div className="flex-1">
-                        <h4 className="text-sm font-bold text-amber-900 flex items-center gap-1.5">
-                            System Maintenance Mode Active
-                        </h4>
+                        <h4 className="text-sm font-bold text-amber-900">System Maintenance Mode Active</h4>
                         <p className="text-xs text-amber-700 mt-1">{maintenanceMessage}</p>
                     </div>
-                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-[10px] font-bold text-amber-800 uppercase tracking-wider">
-                        Live Banner Preview
-                    </span>
                 </div>
             )}
 
             <div className="grid gap-6 md:grid-cols-2">
-                {/* License Card */}
                 <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden h-full">
                     <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                         <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
                             <ShieldCheck className="h-5 w-5 text-emerald-500" /> Licence Information
                         </CardTitle>
-                        <CardDescription className="text-[#5a736c]">Manage your application license and subscription status.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">Manage your application license key.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6 pt-6">
                         <div className="flex justify-between items-center p-4 rounded-xl bg-[#f0f4f2]/60 border border-[#0b1f1c]/8">
@@ -397,7 +342,7 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                                     <CheckCircle className="h-4 w-4" /> {licenseInfo?.license_status || "Checking..."}
                                 </p>
                             </div>
-                            <Button size="sm" variant="outline" className="bg-white hover:bg-[#f0f4f2]/60" onClick={fetchSystemStatus}>
+                            <Button size="sm" variant="outline" className="bg-white hover:bg-[#f0f4f2]/60" onClick={() => void fetchSystemStatus()}>
                                 <RefreshCcw className="h-3.5 w-3.5 mr-1.5 text-[#5a736c]" /> Refresh
                             </Button>
                         </div>
@@ -410,31 +355,13 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                                         <Input
                                             {...licenseForm.register("license_key")}
                                             placeholder="XXXX-XXXX-XXXX-XXXX"
-                                            className={cn(
-                                                "flex-1 font-mono uppercase",
-                                                licenseForm.formState.errors.license_key && "border-red-400"
-                                            )}
+                                            className={cn("flex-1 font-mono uppercase", licenseForm.formState.errors.license_key && "border-red-400")}
                                             disabled={licenseForm.formState.isSubmitting}
                                         />
-                                        <Button
-                                            type="submit"
-                                            disabled={licenseForm.formState.isSubmitting}
-                                            className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none shrink-0"
-                                        >
-                                            {licenseForm.formState.isSubmitting
-                                                ? <Loader2 className="h-4 w-4 animate-spin" />
-                                                : "Save"}
+                                        <Button type="submit" disabled={licenseForm.formState.isSubmitting} className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none shrink-0">
+                                            {licenseForm.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
                                         </Button>
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            onClick={() => {
-                                                setIsEditingLicense(false)
-                                                licenseForm.reset()
-                                            }}
-                                            disabled={licenseForm.formState.isSubmitting}
-                                            className="bg-white shrink-0"
-                                        >
+                                        <Button type="button" variant="outline" onClick={() => { setIsEditingLicense(false); licenseForm.reset() }} disabled={licenseForm.formState.isSubmitting} className="bg-white shrink-0">
                                             Cancel
                                         </Button>
                                     </div>
@@ -444,24 +371,13 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                                             {licenseForm.formState.errors.license_key.message}
                                         </p>
                                     )}
-                                    <p className="text-[10px] text-[#6b857c]">
-                                        Format: 16 alphanumeric characters separated by dashes (e.g. A1B2-C3D4-E5F6-G7H8)
-                                    </p>
                                 </form>
                             ) : (
                                 <div className="flex gap-2">
                                     <div className="flex-1 px-4 py-2.5 rounded-lg border border-[#0b1f1c]/10 bg-[#f0f4f2]/60 font-mono text-sm text-[#0b1f1c] flex items-center shadow-inner">
                                         {licenseInfo?.license_key ? licenseInfo.license_key : "XXXX-XXXX-XXXX-XXXX"}
                                     </div>
-                                    <Button
-                                        size="icon"
-                                        variant="outline"
-                                        className="h-10 w-10 shrink-0 bg-white"
-                                        onClick={() => {
-                                            setIsEditingLicense(true)
-                                            licenseForm.reset()
-                                        }}
-                                    >
+                                    <Button size="icon" variant="outline" className="h-10 w-10 shrink-0 bg-white" onClick={() => { setIsEditingLicense(true); licenseForm.reset() }}>
                                         <Key className="h-4 w-4 text-[#0f5c52]" />
                                     </Button>
                                 </div>
@@ -470,13 +386,14 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                     </CardContent>
                 </Card>
 
-                {/* Software Update Card */}
                 <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden h-full flex flex-col">
                     <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                         <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
-                            <ArrowUpCircle className="h-5 w-5 text-[#0f5c52]" /> Software Update
+                            <ArrowUpCircle className="h-5 w-5 text-[#0f5c52]" /> Release Metadata
                         </CardTitle>
-                        <CardDescription className="text-[#5a736c]">Upload update packages to upgrade your system.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">
+                            Upload a .zip with manifest.json to register version notes. This does not replace application code.
+                        </CardDescription>
                     </CardHeader>
                     <CardContent className="flex-1 pt-6 flex flex-col justify-center">
                         {updateStatus === "idle" || updateStatus === "dragging" ? (
@@ -492,19 +409,13 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                                         : "border-[#0b1f1c]/10 hover:border-[#0f5c52]/40 hover:bg-[#f0f4f2]/40"
                                 )}
                             >
-                                <input
-                                    type="file"
-                                    ref={fileInputRef}
-                                    onChange={(e) => e.target.files && handleFileSelect(e.target.files[0])}
-                                    className="hidden"
-                                    accept=".zip,.pkg"
-                                />
+                                <input type="file" ref={fileInputRef} onChange={(e) => e.target.files && void handleFileSelect(e.target.files[0])} className="hidden" accept=".zip" />
                                 <div className="h-12 w-12 rounded-full bg-[#0f5c52]/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-200">
                                     <UploadCloud className="h-6 w-6 text-[#0f5c52]" />
                                 </div>
-                                <h3 className="text-sm font-semibold text-[#0b1f1c] mb-1">Drop update file here</h3>
-                                <p className="text-xs text-[#5a736c]">or click to browse from your computer</p>
-                                <p className="text-[10px] text-[#6b857c] mt-4 uppercase font-bold tracking-tighter">Supported: .ZIP, .PKG</p>
+                                <h3 className="text-sm font-semibold text-[#0b1f1c] mb-1">Drop release package here</h3>
+                                <p className="text-xs text-[#5a736c]">Must include manifest.json (version, release_date)</p>
+                                <p className="text-[10px] text-[#6b857c] mt-4 uppercase font-bold tracking-tighter">Supported: .ZIP only</p>
                             </div>
                         ) : (
                             <div className="space-y-4 py-4">
@@ -516,48 +427,28 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-sm font-semibold text-[#0b1f1c] truncate">{uploadedFile?.name}</p>
-                                                <p className="text-xs text-[#5a736c]">Uploading package...</p>
+                                                <p className="text-xs text-[#5a736c]">Registering release metadata…</p>
                                             </div>
                                         </div>
                                         <Progress value={uploadProgress} className="h-2" indicatorClassName="bg-[#0f5c52]" />
-                                        <div className="flex justify-between text-[10px] font-bold uppercase text-[#6b857c] tracking-wider">
-                                            <span>{uploadProgress}% Complete</span>
-                                            <span>Uploading...</span>
-                                        </div>
                                     </div>
                                 )}
-
-                                {updateStatus === "installing" && (
-                                    <div className="p-6 rounded-xl bg-amber-50 border border-amber-100 flex flex-col items-center text-center gap-3 animate-pulse">
-                                        <RefreshCcw className="h-8 w-8 text-amber-500 animate-spin" />
-                                        <div>
-                                            <p className="text-sm font-bold text-amber-900">Installing Update</p>
-                                            <p className="text-xs text-amber-700">Please do not close this window or refresh the page.</p>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {updateStatus === "latest" && (
+                                {updateStatus === "done" && (
                                     <div className="p-6 rounded-xl bg-emerald-50 border border-emerald-100 flex flex-col items-center text-center gap-3">
-                                        <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center">
-                                            <CheckCircle className="h-6 w-6 text-emerald-600" />
-                                        </div>
+                                        <CheckCircle className="h-6 w-6 text-emerald-600" />
                                         <div>
-                                            <p className="text-sm font-bold text-emerald-900">System Updated Successfully</p>
-                                            <p className="text-xs text-emerald-700">Your application is now running the latest version.</p>
+                                            <p className="text-sm font-bold text-emerald-900">Release metadata registered</p>
+                                            <p className="text-xs text-emerald-700">Version strings updated. Deploy code separately if needed.</p>
                                         </div>
                                         <Button size="sm" variant="outline" className="mt-2 bg-white" onClick={resetUpdate}>Done</Button>
                                     </div>
                                 )}
-
                                 {updateStatus === "error" && (
                                     <div className="p-6 rounded-xl bg-rose-50 border border-rose-100 flex flex-col items-center text-center gap-3">
-                                        <div className="h-12 w-12 rounded-full bg-rose-100 flex items-center justify-center">
-                                            <AlertCircle className="h-6 w-6 text-rose-600" />
-                                        </div>
+                                        <AlertCircle className="h-6 w-6 text-rose-600" />
                                         <div>
-                                            <p className="text-sm font-bold text-rose-900">Upload Failed</p>
-                                            <p className="text-xs text-rose-700">Please try again or check the server logs.</p>
+                                            <p className="text-sm font-bold text-rose-900">Upload failed</p>
+                                            <p className="text-xs text-rose-700">Check the zip contains a valid manifest.json.</p>
                                         </div>
                                         <Button size="sm" variant="outline" className="mt-2 bg-white" onClick={resetUpdate}>Try Again</Button>
                                     </div>
@@ -565,21 +456,20 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                             </div>
                         )}
                         <div className="flex items-center justify-between text-[10px] text-[#6b857c] pt-4 uppercase font-bold tracking-widest">
-                            <span>Author: {licenseInfo?.author || "Sohel Akter"}</span>
-                            <span>Version: {licenseInfo?.version !== undefined ? licenseInfo.version : ""}</span>
+                            <span>Author: {licenseInfo?.author || "—"}</span>
+                            <span>Version: {licenseInfo?.version || "—"}</span>
                         </div>
                     </CardContent>
                 </Card>
             </div>
 
-            {/* System Maintenance (Horizontal Card) */}
             <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                 <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8 flex flex-row items-center justify-between space-y-0">
                     <div>
                         <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
                             <Wrench className="h-5 w-5 text-amber-500" /> System Maintenance Control
                         </CardTitle>
-                        <CardDescription className="text-[#5a736c]">Configure global maintenance mode to perform safe database or server upgrades.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">Block new user/API verification work while admins keep access.</CardDescription>
                     </div>
                     <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-[#0b1f1c]/8 shadow-none shrink-0">
                         <div className="text-right">
@@ -588,106 +478,64 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                                 {maintenanceMode ? "New validations blocked" : "System fully operational"}
                             </p>
                         </div>
-                        <Switch
-                            checked={maintenanceMode}
-                            onCheckedChange={(checked) => {
-                                setMaintenanceMode(checked)
-                                if (checked) {
-                                    toast.success("Maintenance Mode enabled in preview")
-                                } else {
-                                    toast("Maintenance Mode disabled in preview", { icon: "⚙️" })
-                                }
-                            }}
-                        />
+                        <Switch checked={maintenanceMode} onCheckedChange={setMaintenanceMode} />
                     </div>
                 </CardHeader>
                 <CardContent className="pt-6">
                     <div className="grid gap-6 md:grid-cols-12 items-start">
-                        {/* Message Input & Draining Info (7 cols) */}
                         <div className="md:col-span-7 space-y-4">
                             <div className="space-y-2">
-                                <Label className="text-xs font-bold text-[#5a736c] uppercase tracking-wider">
-                                    Notification Banner Message
-                                </Label>
+                                <Label className="text-xs font-bold text-[#5a736c] uppercase tracking-wider">Notification Banner Message</Label>
                                 <Textarea
                                     value={maintenanceMessage}
-                                    onChange={(e) => setMaintenanceMessage(e.target.value)}
+                                    onChange={(e) => setMaintenanceMessage(e.target.value.slice(0, 2000))}
                                     placeholder="Enter maintenance banner message for users..."
                                     className="min-h-[90px] resize-none text-xs focus-visible:ring-amber-500"
                                     disabled={!maintenanceMode}
                                 />
                             </div>
-                            <div className="rounded-lg bg-amber-50/50 border border-amber-100/50 p-3.5 text-xs text-amber-800 leading-relaxed flex gap-2">
-                                <span className="text-base shrink-0">💡</span>
-                                <div>
-                                    <strong className="font-semibold">Graceful Queue Draining:</strong> While active, already running bulk jobs will continue to process until finished. Only new uploads, verifications, and API validations are blocked. User area and Reseller area will be blocked from performing new operations.
-                                </div>
+                            <div className="rounded-lg bg-amber-50/50 border border-amber-100/50 p-3.5 text-xs text-amber-800 leading-relaxed">
+                                <strong className="font-semibold">Graceful drain:</strong> Running bulk jobs continue; new uploads and API validations are blocked for non-admin users.
                             </div>
                         </div>
-
-                        {/* Banner Preview & Save Action (5 cols) */}
                         <div className="md:col-span-5 space-y-4 flex flex-col justify-between min-h-[175px]">
                             <div className="space-y-2">
-                                <Label className="text-xs font-bold text-[#5a736c] uppercase tracking-wider">
-                                    Real-time Banner Preview
-                                </Label>
+                                <Label className="text-xs font-bold text-[#5a736c] uppercase tracking-wider">Banner Preview</Label>
                                 <div className={cn(
-                                    "p-4 rounded-xl border text-xs transition-all duration-300 min-h-[90px] flex items-center justify-center",
-                                    maintenanceMode 
-                                        ? "bg-amber-50/80 border-amber-200 text-amber-900 shadow-inner" 
-                                        : "bg-[#f0f4f2]/60 border-[#0b1f1c]/10 text-[#6b857c] italic"
+                                    "p-4 rounded-xl border text-xs min-h-[90px] flex items-center justify-center",
+                                    maintenanceMode ? "bg-amber-50/80 border-amber-200 text-amber-900" : "bg-[#f0f4f2]/60 border-[#0b1f1c]/10 text-[#6b857c] italic"
                                 )}>
                                     {maintenanceMode ? (
                                         <div className="flex gap-2 items-start">
                                             <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
                                             <p className="leading-relaxed">{maintenanceMessage}</p>
                                         </div>
-                                    ) : (
-                                        "Toggle Maintenance Status to see preview"
-                                    )}
+                                    ) : "Toggle maintenance to preview"}
                                 </div>
                             </div>
-
-                            <Button
-                                className="w-full bg-amber-600 hover:bg-amber-700 text-white font-medium shadow-none transition-colors duration-200"
-                                size="sm"
-                                disabled={isSavingMaintenance}
-                                onClick={handleSaveMaintenance}
-                            >
-                                {isSavingMaintenance ? (
-                                    <>
-                                        <Loader2 className="h-4 w-4 animate-spin mr-2" /> Saving settings...
-                                    </>
-                                ) : (
-                                    "Save Maintenance Settings"
-                                )}
+                            <Button className="w-full bg-amber-600 hover:bg-amber-700 text-white font-medium shadow-none" size="sm" disabled={isSavingMaintenance} onClick={() => void handleSaveMaintenance()}>
+                                {isSavingMaintenance ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Saving…</> : "Save Maintenance Settings"}
                             </Button>
                         </div>
                     </div>
                 </CardContent>
             </Card>
 
-            {/* System Backup Card */}
             <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                 <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8 flex flex-row items-center justify-between space-y-0">
                     <div>
                         <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
                             <Database className="h-5 w-5 text-[#0f5c52]" /> System Backup & Recovery
                         </CardTitle>
-                        <CardDescription className="text-[#5a736c]">Generate and download full system, database, or user details backups.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">Database, configured storage paths, or user export. Restore is SQL-only.</CardDescription>
                     </div>
-                    <div className="flex gap-2">
-                        <Button
-                            onClick={() => generateBackup("Full System")}
-                            disabled={isBackingUp}
-                            size="sm"
-                            className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none"
-                        >
+                    <div className="flex gap-2 flex-wrap justify-end">
+                        <Button onClick={() => void generateBackup("Storage Data")} disabled={isBackingUp} size="sm" className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none">
                             {isBackingUp ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : <HardDriveDownload className="h-3.5 w-3.5 mr-2" />}
-                            Full Backup
+                            Storage Data
                         </Button>
-                        <Button onClick={() => generateBackup("Database")} disabled={isBackingUp} size="sm" variant="outline" className="bg-white">DB Only</Button>
-                        <Button onClick={() => generateBackup("User Details")} disabled={isBackingUp} size="sm" variant="outline" className="bg-white">User Details</Button>
+                        <Button onClick={() => void generateBackup("Database")} disabled={isBackingUp} size="sm" variant="outline" className="bg-white">DB Only</Button>
+                        <Button onClick={() => void generateBackup("User Details")} disabled={isBackingUp} size="sm" variant="outline" className="bg-white">User Details</Button>
                     </div>
                 </CardHeader>
                 <CardContent className="pt-6">
@@ -697,41 +545,31 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                         </div>
                         <div className="grid gap-3">
                             {backupList.length === 0 ? (
-                                <p className="text-sm text-[#6b857c] text-center py-6">No backups yet. Create your first backup above.</p>
+                                <p className="text-sm text-[#6b857c] text-center py-6">No backups yet.</p>
                             ) : backupList.map((backup) => (
-                                <div key={backup.id} className="flex items-center justify-between p-3 rounded-lg border border-[#0b1f1c]/8 bg-white hover:bg-[#f0f4f2]/40 transition-colors group">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-9 w-9 rounded-lg bg-[#f0f4f2]/60 flex items-center justify-center group-hover:bg-[#0f5c52]/10 transition-colors">
-                                            {backup.type === "Full System" ? <UploadCloud className="h-4 w-4 text-[#6b857c] group-hover:text-[#0f5c52]" /> :
-                                             backup.type === "Database" ? <Database className="h-4 w-4 text-[#6b857c] group-hover:text-[#0f5c52]" /> :
-                                             <FileArchive className="h-4 w-4 text-[#6b857c] group-hover:text-[#0f5c52]" />}
+                                <div key={backup.name} className="flex items-center justify-between p-3 rounded-lg border border-[#0b1f1c]/8 bg-white hover:bg-[#f0f4f2]/40 transition-colors group">
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <div className="h-9 w-9 rounded-lg bg-[#f0f4f2]/60 flex items-center justify-center shrink-0">
+                                            {backup.type === "Database" ? <Database className="h-4 w-4 text-[#6b857c]" /> : <FileArchive className="h-4 w-4 text-[#6b857c]" />}
                                         </div>
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <p className="text-sm font-semibold text-[#0b1f1c]">{backup.name}</p>
-                                                <span className="px-1.5 py-0.5 rounded-full bg-[#0b1f1c]/5 text-[9px] font-bold text-[#5a736c] uppercase tracking-tighter">
-                                                    {backup.type}
-                                                </span>
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <p className="text-sm font-semibold text-[#0b1f1c] truncate">{backup.name}</p>
+                                                <span className="px-1.5 py-0.5 rounded-full bg-[#0b1f1c]/5 text-[9px] font-bold text-[#5a736c] uppercase">{backup.type}</span>
                                             </div>
                                             <p className="text-[10px] text-[#6b857c]">{backup.date} • {backup.size}</p>
                                         </div>
                                     </div>
-                                    <div className="flex gap-2">
-                                        <Button
-                                            size="icon" variant="ghost" title="Restore"
-                                            className="h-8 w-8 text-[#6b857c] hover:text-[#0f5c52]"
-                                            onClick={() => setShowRestoreConfirm({ id: backup.id, name: backup.name })}
-                                        >
-                                            <RotateCcw className="h-4 w-4" />
-                                        </Button>
-                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-[#6b857c] hover:text-[#0f5c52]">
+                                    <div className="flex gap-1 shrink-0">
+                                        {backup.type === "Database" && (
+                                            <Button size="icon" variant="ghost" title="Restore" className="h-8 w-8 text-[#6b857c] hover:text-[#0f5c52]" onClick={() => setShowRestoreConfirm({ id: backup.id, name: backup.name })}>
+                                                <RotateCcw className="h-4 w-4" />
+                                            </Button>
+                                        )}
+                                        <Button size="icon" variant="ghost" title="Download" className="h-8 w-8 text-[#6b857c] hover:text-[#0f5c52]" onClick={() => downloadBackup(backup.name)}>
                                             <Download className="h-4 w-4" />
                                         </Button>
-                                        <Button
-                                            size="icon" variant="ghost"
-                                            className="h-8 w-8 text-[#6b857c] hover:text-rose-500"
-                                            onClick={() => deleteBackup(backup.name)}
-                                        >
+                                        <Button size="icon" variant="ghost" title="Delete" className="h-8 w-8 text-[#6b857c] hover:text-rose-500" onClick={() => void deleteBackup(backup.name)}>
                                             <Trash2 className="h-4 w-4" />
                                         </Button>
                                     </div>
@@ -742,32 +580,25 @@ export function LicenseClient({ initialLicenseInfo, initialBackups }: {
                 </CardContent>
             </Card>
 
-            {/* Version Changelog */}
             <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                 <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                     <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
-                        <History className="h-5 w-5 text-[#6b857c]" /> Version Changelog
+                        <History className="h-5 w-5 text-[#6b857c]" /> Current Release
                     </CardTitle>
-                    <CardDescription className="text-[#5a736c]">Recent release notes and patch history.</CardDescription>
+                    <CardDescription className="text-[#5a736c]">From registered release metadata (not a full changelog history).</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6 pb-2">
                     <div className="relative border-l-2 border-[#0b1f1c]/8 ml-2 space-y-6 pb-2">
                         <div className="relative pl-6">
-                            <span className="absolute -left-[9px] top-1 h-4 w-4 rounded-full bg-[#0f5c52] border-2 border-white shadow-none flex items-center justify-center ring-2 ring-[#0f5c52]/15" />
+                            <span className="absolute -left-[9px] top-1 h-4 w-4 rounded-full bg-[#0f5c52] border-2 border-white" />
                             <div className="flex flex-wrap items-center gap-2 mb-1">
-                                <span className="font-bold text-[#0b1f1c] text-sm">{licenseInfo?.version !== undefined ? licenseInfo.version : ""}</span>
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#0f5c52] text-white tracking-wide">Latest</span>
-                                <span className="text-xs text-[#6b857c]">{licenseInfo?.release_date || "Feb 20, 2024"}</span>
+                                <span className="font-bold text-[#0b1f1c] text-sm">{licenseInfo?.version || "—"}</span>
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#0f5c52] text-white tracking-wide">Current</span>
+                                <span className="text-xs text-[#6b857c]">{licenseInfo?.release_date || "—"}</span>
                             </div>
-                            <p className="text-sm text-[#5a736c]">New bulk verification engine, 40% faster throughput.</p>
-                        </div>
-                        <div className="relative pl-6">
-                            <span className="absolute -left-[9px] top-1 h-4 w-4 rounded-full bg-[#0b1f1c]/20 border-2 border-white shadow-none ring-2 ring-[#0b1f1c]/5" />
-                            <div className="flex flex-wrap items-center gap-2 mb-1">
-                                <span className="font-bold text-[#0b1f1c] text-sm">v2.3.8</span>
-                                <span className="text-xs text-[#6b857c]">Jan 30, 2024</span>
-                            </div>
-                            <p className="text-sm text-[#5a736c]">Security patch: hardened API key validation.</p>
+                            <p className="text-sm text-[#5a736c]">
+                                {licenseInfo?.release_notes?.trim() || "No release notes registered yet. Upload a package with manifest description."}
+                            </p>
                         </div>
                     </div>
                 </CardContent>

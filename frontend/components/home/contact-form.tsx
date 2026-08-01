@@ -2,8 +2,13 @@
 
 import { useState } from "react"
 import { Loader2 } from "lucide-react"
+import { ApiClient } from "@/lib/api-client"
 
-export function ContactForm() {
+interface ContactFormProps {
+    supportConfigured?: boolean
+}
+
+export function ContactForm({ supportConfigured = true }: ContactFormProps) {
     const [name, setName] = useState("")
     const [email, setEmail] = useState("")
     const [subject, setSubject] = useState("")
@@ -24,16 +29,27 @@ export function ContactForm() {
         setSubmitStatus(null)
 
         try {
-            await new Promise((resolve) => setTimeout(resolve, 1000))
-            setSubmitStatus("success")
-            setStatusMessage("Thank you! Your message has been sent successfully.")
-            setName("")
-            setEmail("")
-            setSubject("")
-            setMessage("")
-        } catch {
+            const result = await ApiClient.post("/contact", {
+                name: name.trim(),
+                email: email.trim(),
+                subject: subject.trim(),
+                message: message.trim(),
+            })
+
+            if (result.status === "success") {
+                setSubmitStatus("success")
+                setStatusMessage("Thank you! Your message has been sent successfully.")
+                setName("")
+                setEmail("")
+                setSubject("")
+                setMessage("")
+            } else {
+                setSubmitStatus("error")
+                setStatusMessage(result.message || "Failed to send message. Please try again later.")
+            }
+        } catch (error: unknown) {
             setSubmitStatus("error")
-            setStatusMessage("Failed to send message. Please try again later.")
+            setStatusMessage(error instanceof Error ? error.message : "Failed to send message. Please try again later.")
         } finally {
             setIsLoading(false)
         }
@@ -41,6 +57,14 @@ export function ContactForm() {
 
     const fieldClass =
         "w-full border border-[#0b1f1c]/12 bg-white px-3 py-2.5 text-sm text-[#0b1f1c] placeholder:text-[#8aa099] focus:border-[#0f5c52] focus:outline-none"
+
+    if (!supportConfigured) {
+        return (
+            <div className="border border-[#0b1f1c]/10 bg-white p-6 text-sm text-[#4a635c] sm:p-8">
+                Contact form is temporarily unavailable. Please try again later.
+            </div>
+        )
+    }
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4 border border-[#0b1f1c]/10 bg-white p-6 sm:p-8">
@@ -53,6 +77,7 @@ export function ContactForm() {
                         id="contact-name"
                         type="text"
                         required
+                        maxLength={100}
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         placeholder="Your name"
@@ -67,6 +92,7 @@ export function ContactForm() {
                         id="contact-email"
                         type="email"
                         required
+                        maxLength={254}
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="you@example.com"
@@ -81,6 +107,7 @@ export function ContactForm() {
                 <input
                     id="contact-subject"
                     type="text"
+                    maxLength={200}
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
                     placeholder="How can we help?"
@@ -95,6 +122,7 @@ export function ContactForm() {
                     id="contact-message"
                     required
                     rows={4}
+                    maxLength={5000}
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     placeholder="Tell us more..."

@@ -126,18 +126,15 @@ func (h *AdminHandler) TogglePackagePublic(c *gin.Context) {
 		PackageID uint `json:"package_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Invalid package payload", "ERR_PACKAGE_PAYLOAD")
 		return
 	}
 
-	var pkg model.Package
-	if err := config.DB.First(&pkg, input.PackageID).Error; err != nil {
-		helper.SendError(c, http.StatusNotFound, "Package not found", "")
+	pkg, err := h.packageService.TogglePackagePublic(input.PackageID)
+	if err != nil {
+		mapPackageError(c, err)
 		return
 	}
 
-	pkg.IsPublic = !pkg.IsPublic
-	config.DB.Save(&pkg)
-
-	helper.SendSuccess(c, "Package visibility updated", pkg)
+	helper.SendSuccess(c, "Package visibility updated", normalizePackage(*pkg))
 }

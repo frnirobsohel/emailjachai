@@ -22,11 +22,11 @@ const httpUrl = z
         if (!v) return true
         try {
             const u = new URL(v)
-            return u.protocol === "http:" || u.protocol === "https:"
+            return u.protocol === "https:"
         } catch {
             return false
         }
-    }, "Must be a valid http(s) URL")
+    }, "Must be a valid https URL")
 
 const brandSettingsSchema = z.object({
     site_title: z.string().trim().min(1, "Site title is required").max(100, "Site title must be at most 100 characters"),
@@ -42,7 +42,8 @@ const brandSettingsSchema = z.object({
     help_center_url: httpUrl.optional().or(z.literal("")),
     twitter_url: httpUrl.optional().or(z.literal("")),
     linkedin_url: httpUrl.optional().or(z.literal("")),
-    github_url: httpUrl.optional().or(z.literal("")),
+    youtube_url: httpUrl.optional().or(z.literal("")),
+    facebook_url: httpUrl.optional().or(z.literal("")),
 })
 
 type BrandSettingsValues = z.infer<typeof brandSettingsSchema>
@@ -57,7 +58,8 @@ function mapBrandValues(data: Record<string, string>): BrandSettingsValues {
         help_center_url: data.help_center_url || "",
         twitter_url: data.twitter_url || "",
         linkedin_url: data.linkedin_url || "",
-        github_url: data.github_url || "",
+        youtube_url: data.youtube_url || "",
+        facebook_url: data.facebook_url || "",
     }
 }
 
@@ -110,7 +112,8 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                     help_center_url: values.help_center_url || "",
                     twitter_url: values.twitter_url || "",
                     linkedin_url: values.linkedin_url || "",
-                    github_url: values.github_url || "",
+                    youtube_url: values.youtube_url || "",
+                    facebook_url: values.facebook_url || "",
                 })
                 toast.success("Brand settings updated successfully.")
                 form.reset(values)
@@ -179,7 +182,7 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                                 {...form.register("logo_url")}
                             />
                             {form.formState.errors.logo_url && <p className="text-[10px] text-red-500">{form.formState.errors.logo_url.message}</p>}
-                            <p className="text-[10px] text-[#6b857c]">Direct link to your brand logo image.</p>
+                            <p className="text-[10px] text-[#6b857c]">HTTPS direct link to your brand logo image.</p>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="favicon-url" className="text-sm font-medium">Favicon URL</Label>
@@ -190,7 +193,7 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                                 {...form.register("favicon_url")}
                             />
                             {form.formState.errors.favicon_url && <p className="text-[10px] text-red-500">{form.formState.errors.favicon_url.message}</p>}
-                            <p className="text-[10px] text-[#6b857c]">Direct link to your website favicon.</p>
+                            <p className="text-[10px] text-[#6b857c]">HTTPS direct link to your website favicon.</p>
                         </div>
                     </CardContent>
                 </Card>
@@ -223,6 +226,7 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                                 {...form.register("support_email")}
                             />
                             {form.formState.errors.support_email && <p className="text-[10px] text-red-500">{form.formState.errors.support_email.message}</p>}
+                            <p className="text-[10px] text-[#6b857c]">Home page contact form messages are delivered to this address.</p>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="help-center-url" className="text-sm font-medium">Help Center URL</Label>
@@ -267,14 +271,24 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                             {form.formState.errors.linkedin_url && <p className="text-[10px] text-red-500">{form.formState.errors.linkedin_url.message}</p>}
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="github-url" className="text-sm font-medium">GitHub URL</Label>
+                            <Label htmlFor="youtube-url" className="text-sm font-medium">YouTube URL</Label>
                             <Input
-                                id="github-url"
-                                placeholder="https://github.com/yourbrand"
-                                className={cn(form.formState.errors.github_url && "border-red-500")}
-                                {...form.register("github_url")}
+                                id="youtube-url"
+                                placeholder="https://youtube.com/@yourbrand"
+                                className={cn(form.formState.errors.youtube_url && "border-red-500")}
+                                {...form.register("youtube_url")}
                             />
-                            {form.formState.errors.github_url && <p className="text-[10px] text-red-500">{form.formState.errors.github_url.message}</p>}
+                            {form.formState.errors.youtube_url && <p className="text-[10px] text-red-500">{form.formState.errors.youtube_url.message}</p>}
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="facebook-url" className="text-sm font-medium">Facebook URL</Label>
+                            <Input
+                                id="facebook-url"
+                                placeholder="https://facebook.com/yourbrand"
+                                className={cn(form.formState.errors.facebook_url && "border-red-500")}
+                                {...form.register("facebook_url")}
+                            />
+                            {form.formState.errors.facebook_url && <p className="text-[10px] text-red-500">{form.formState.errors.facebook_url.message}</p>}
                         </div>
                     </CardContent>
                 </Card>

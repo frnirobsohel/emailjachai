@@ -69,7 +69,9 @@ export default async function Home() {
   let logoUrl = "/logo.svg"
   let twitterUrl = ""
   let linkedinUrl = ""
-  let githubUrl = ""
+  let youtubeUrl = ""
+  let facebookUrl = ""
+  let supportConfigured = false
 
   let packages: PackageRow[] = []
 
@@ -80,7 +82,9 @@ export default async function Home() {
     logoUrl = settings.logo_url || settings.favicon_url || "/logo.svg"
     twitterUrl = settings.twitter_url || ""
     linkedinUrl = settings.linkedin_url || ""
-    githubUrl = settings.github_url || ""
+    youtubeUrl = settings.youtube_url || ""
+    facebookUrl = settings.facebook_url || ""
+    supportConfigured = Boolean(settings.support_email?.trim())
   }
 
   try {
@@ -162,7 +166,7 @@ export default async function Home() {
 
             <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-2 lg:gap-14">
               <FAQAccordion />
-              <ContactForm />
+              <ContactForm supportConfigured={supportConfigured} />
             </div>
           </div>
         </section>
@@ -201,7 +205,8 @@ export default async function Home() {
         logoUrl={logoUrl}
         twitterUrl={twitterUrl}
         linkedinUrl={linkedinUrl}
-        githubUrl={githubUrl}
+        youtubeUrl={youtubeUrl}
+        facebookUrl={facebookUrl}
       />
     </div>
   )

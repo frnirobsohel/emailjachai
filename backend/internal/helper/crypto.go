@@ -95,9 +95,39 @@ func AES256CTRDecrypt(cipherBytes []byte, key []byte, iv []byte) ([]byte, error)
 
 // EncryptSecret encrypts a plaintext string using AES-256-GCM with the JWT_SECRET as the key.
 func EncryptSecret(plain string) (string, error) {
-	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	return encryptWithSecretEnv(plain, "JWT_SECRET")
+}
+
+// DecryptSecret decrypts gcm:base64(ciphertext):hex(nonce) OR base64(ciphertext):hex(iv) using JWT_SECRET.
+func DecryptSecret(stored string) (string, error) {
+	return decryptWithSecretEnv(stored, "JWT_SECRET")
+}
+
+// EncryptSmtpSecret prefers SMTP_SECRET, then falls back to JWT_SECRET.
+func EncryptSmtpSecret(plain string) (string, error) {
+	if strings.TrimSpace(os.Getenv("SMTP_SECRET")) != "" {
+		return encryptWithSecretEnv(plain, "SMTP_SECRET")
+	}
+	return encryptWithSecretEnv(plain, "JWT_SECRET")
+}
+
+// DecryptSmtpSecret tries SMTP_SECRET first, then JWT_SECRET (legacy rows).
+func DecryptSmtpSecret(stored string) (string, error) {
+	if stored == "" {
+		return "", nil
+	}
+	if strings.TrimSpace(os.Getenv("SMTP_SECRET")) != "" {
+		if plain, err := decryptWithSecretEnv(stored, "SMTP_SECRET"); err == nil {
+			return plain, nil
+		}
+	}
+	return decryptWithSecretEnv(stored, "JWT_SECRET")
+}
+
+func encryptWithSecretEnv(plain, envKey string) (string, error) {
+	secret := strings.TrimSpace(os.Getenv(envKey))
 	if secret == "" {
-		return "", errors.New("JWT_SECRET is required")
+		return "", errors.New(envKey + " is required")
 	}
 	key := sha256.Sum256([]byte(secret))
 
@@ -109,15 +139,14 @@ func EncryptSecret(plain string) (string, error) {
 	return "gcm:" + SafeBase64Encode(ciphertext) + ":" + hex.EncodeToString(nonce), nil
 }
 
-// DecryptSecret decrypts gcm:base64(ciphertext):hex(nonce) OR base64(ciphertext):hex(iv) using JWT_SECRET.
-func DecryptSecret(stored string) (string, error) {
+func decryptWithSecretEnv(stored, envKey string) (string, error) {
 	if stored == "" {
 		return "", nil
 	}
 
-	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	secret := strings.TrimSpace(os.Getenv(envKey))
 	if secret == "" {
-		return "", errors.New("JWT_SECRET is required")
+		return "", errors.New(envKey + " is required")
 	}
 	key := sha256.Sum256([]byte(secret))
 

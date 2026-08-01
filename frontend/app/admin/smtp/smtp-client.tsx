@@ -16,12 +16,27 @@ import { toast } from "react-hot-toast"
 import { cn } from "@/lib/utils"
 
 export const smtpSettingsSchema = z.object({
-    host: z.string().optional().or(z.literal("")),
-    port: z.string().optional().or(z.literal("")),
-    encryption: z.enum(['none', 'ssl', 'tls']).optional(),
-    username: z.string().optional().or(z.literal("")),
-    password: z.string().optional().or(z.literal("")),
-    daily_limit: z.string().optional().or(z.literal("")),
+    host: z
+        .string()
+        .max(255, "Host is too long")
+        .refine((v) => v === "" || /^[a-zA-Z0-9._:-]+$/.test(v), "Invalid host"),
+    port: z
+        .string()
+        .refine((v) => {
+            if (!v) return true
+            const n = Number(v)
+            return Number.isInteger(n) && n >= 1 && n <= 65535
+        }, "Port must be between 1 and 65535"),
+    encryption: z.enum(["none", "ssl", "tls"]).optional(),
+    username: z.string().max(255, "Username is too long").optional().or(z.literal("")),
+    password: z.string().max(500).optional().or(z.literal("")),
+    daily_limit: z
+        .string()
+        .refine((v) => {
+            if (!v) return true
+            const n = Number(v)
+            return Number.isInteger(n) && n >= 1 && n <= 1_000_000
+        }, "Daily limit must be between 1 and 1,000,000"),
     is_active: z.boolean().optional(),
 })
 
@@ -169,9 +184,15 @@ export function SmtpClient({
     };
 
     useEffect(() => {
-        void fetchSmtpData();
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only refresh
-    }, []);
+        const hasSSRData =
+            Boolean(initialSettings.host?.trim()) ||
+            Boolean(initialSettings.username?.trim()) ||
+            initialHasStoredPassword
+        if (!hasSSRData) {
+            void fetchSmtpData()
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only refresh when SSR empty
+    }, [])
 
     useEffect(() => {
         templateForm.reset({
@@ -221,19 +242,25 @@ export function SmtpClient({
     }
 
     const handleTestConnection = async () => {
-        const toastId = toast.loading("Testing SMTP connection...");
+        const toastId = toast.loading("Testing SMTP connection...")
         try {
-            const values = smtpForm.getValues();
-            const result = await ApiClient.post('/admin/smtp/test', values);
-            if (result.status === 'success') {
-                setIsConnectionVerified(true);
-                smtpForm.setValue('is_active', true);
-                toast.success("Connection successful.", { id: toastId });
+            const values = smtpForm.getValues()
+            const result = await ApiClient.post<{ is_active?: boolean; has_password?: boolean }>("/admin/smtp/test", values)
+            if (result.status === "success") {
+                isProgrammaticUpdate.current = true
+                setIsConnectionVerified(true)
+                setHasStoredPassword(true)
+                smtpForm.setValue("is_active", true)
+                smtpForm.setValue("password", "")
+                setTimeout(() => {
+                    isProgrammaticUpdate.current = false
+                }, 100)
+                toast.success("Connection successful. SMTP activated.", { id: toastId })
             } else {
-                toast.error(result.message || "Connection failed.", { id: toastId });
+                toast.error(result.message || "Connection failed.", { id: toastId })
             }
         } catch (error: unknown) {
-            toast.error(error instanceof Error ? error.message : "Server error occurred.", { id: toastId });
+            toast.error(error instanceof Error ? error.message : "Server error occurred.", { id: toastId })
         }
     }
 
@@ -307,15 +334,15 @@ export function SmtpClient({
                         <div className="grid gap-4 sm:grid-cols-2">
                             <div className="space-y-2">
                                 <label htmlFor="daily_limit" className="text-sm font-medium">Daily Send Limit</label>
-                                <Input id="daily_limit" type="number" {...smtpForm.register("daily_limit")} />
+                                <Input id="daily_limit" type="number" placeholder="5000" {...smtpForm.register("daily_limit")} />
                             </div>
                             <div className="space-y-2">
                                 <label htmlFor="host" className="text-sm font-medium">Host</label>
-                                <Input id="host" {...smtpForm.register("host")} />
+                                <Input id="host" placeholder="smtp.gmail.com" {...smtpForm.register("host")} />
                             </div>
                             <div className="space-y-2">
                                 <label htmlFor="port" className="text-sm font-medium">Port</label>
-                                <Input id="port" {...smtpForm.register("port")} />
+                                <Input id="port" placeholder="587" {...smtpForm.register("port")} />
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Encryption</label>
@@ -331,11 +358,11 @@ export function SmtpClient({
                             </div>
                             <div className="space-y-2">
                                 <label htmlFor="username" className="text-sm font-medium">Username</label>
-                                <Input id="username" autoComplete="off" {...smtpForm.register("username")} />
+                                <Input id="username" autoComplete="off" placeholder="noreply@yourdomain.com" {...smtpForm.register("username")} />
                             </div>
                             <div className="space-y-2">
                                 <label htmlFor="password" className="text-sm font-medium">Password</label>
-                                <Input id="password" type="password" autoComplete="new-password" {...smtpForm.register("password")} />
+                                <Input id="password" type="password" autoComplete="new-password" placeholder={hasStoredPassword ? "••••••••" : "App password or SMTP password"} {...smtpForm.register("password")} />
                                 <p className="text-xs text-[#5a736c]">
                                     {hasStoredPassword ? 'Leave blank to keep the existing SMTP password.' : 'Enter the SMTP password to store it securely.'}
                                 </p>
@@ -413,6 +440,7 @@ export function SmtpClient({
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">Subject</label>
                                     <Input
+                                        placeholder="e.g. Welcome to {{name}}"
                                         className={cn(templateForm.formState.errors.subject && "border-red-500")}
                                         {...templateForm.register("subject")}
                                     />
@@ -423,6 +451,7 @@ export function SmtpClient({
                                 <label className="text-sm font-medium">Body</label>
                                 <Textarea
                                     rows={12}
+                                    placeholder={"Hi {{name}},\n\nYour message here...\n\nRegards,\nTeam"}
                                     className={cn("font-mono text-xs", templateForm.formState.errors.body && "border-red-500")}
                                     {...templateForm.register("body")}
                                 />

@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"strings"
+	"time"
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
@@ -16,6 +17,7 @@ import (
 
 type EmailService interface {
 	SendTemplateEmail(to string, templateKey string, placeholders map[string]string) error
+	SendRawEmail(to, subject, body, replyTo string) error
 }
 
 type emailService struct {
@@ -39,7 +41,7 @@ func (s *emailService) SendTemplateEmail(to string, templateKey string, placehol
 	}
 
 	if strings.TrimSpace(smtpConfig.Host) == "" || strings.TrimSpace(smtpConfig.Username) == "" {
-		logger.Warn("SMTP credentials are mathematically incomplete, skipping email")
+		logger.Warn("SMTP credentials are incomplete, skipping email")
 		return nil
 	}
 
@@ -101,19 +103,56 @@ func (s *emailService) SendTemplateEmail(to string, templateKey string, placehol
 		body = strings.ReplaceAll(body, placeholder, v)
 	}
 
-	// HTML conversion: simple replace \n with <br> for plain text to basic HTML
 	bodyHtml := strings.ReplaceAll(body, "\n", "<br>")
 
-	// Decrypt password
-	password, err := helper.DecryptSecret(smtpConfig.Password)
+	if err := s.deliver(to, subject, bodyHtml, ""); err != nil {
+		return err
+	}
+
+	logger.Info("Email sent successfully", "to", to, "template", templateKey)
+	return nil
+}
+
+func (s *emailService) SendRawEmail(to, subject, body, replyTo string) error {
+	bodyHtml := strings.ReplaceAll(body, "\n", "<br>")
+	if err := s.deliver(to, subject, bodyHtml, replyTo); err != nil {
+		return err
+	}
+	logger.Info("Raw email sent successfully", "to", to)
+	return nil
+}
+
+func (s *emailService) deliver(to, subject, bodyHtml, replyTo string) error {
+	smtpConfig, err := s.systemRepo.GetSmtpSettings()
+	if err != nil {
+		logger.Warn("Failed to load SMTP config, skipping email", "error", err)
+		return fmt.Errorf("smtp not configured")
+	}
+
+	if !smtpConfig.IsActive {
+		logger.Info("SMTP is disabled globally, skipping email")
+		return fmt.Errorf("smtp is disabled")
+	}
+
+	if strings.TrimSpace(smtpConfig.Host) == "" || strings.TrimSpace(smtpConfig.Username) == "" {
+		logger.Warn("SMTP credentials are incomplete, skipping email")
+		return fmt.Errorf("smtp credentials incomplete")
+	}
+
+	if err := s.reserveDailySendSlot(smtpConfig.DailyLimit); err != nil {
+		logger.Warn("SMTP daily limit reached", "limit", smtpConfig.DailyLimit, "error", err)
+		return err
+	}
+
+	password, err := helper.DecryptSmtpSecret(smtpConfig.Password)
 	if err != nil {
 		logger.Error("Failed to decrypt SMTP password", "error", err)
+		s.releaseDailySendSlot()
 		return err
 	}
 
 	m := gomail.NewMessage()
-	
-	// Fetch brand name (site_title) from settings
+
 	var appNameSetting []model.Setting
 	appName := "System"
 	if err := config.DB.Where("setting_key = ?", "site_title").Find(&appNameSetting).Error; err == nil && len(appNameSetting) > 0 {
@@ -123,6 +162,9 @@ func (s *emailService) SendTemplateEmail(to string, templateKey string, placehol
 	m.SetHeader("From", m.FormatAddress(smtpConfig.Username, appName))
 	m.SetHeader("To", to)
 	m.SetHeader("Subject", subject)
+	if replyTo = strings.TrimSpace(replyTo); replyTo != "" {
+		m.SetHeader("Reply-To", replyTo)
+	}
 	m.SetBody("text/html", bodyHtml)
 
 	port := smtpConfig.Port
@@ -131,19 +173,57 @@ func (s *emailService) SendTemplateEmail(to string, templateKey string, placehol
 	}
 
 	d := gomail.NewDialer(smtpConfig.Host, port, smtpConfig.Username, password)
-	if strings.ToLower(smtpConfig.Encryption) == "ssl" {
+	enc := strings.ToLower(strings.TrimSpace(smtpConfig.Encryption))
+	if enc == "ssl" {
 		d.SSL = true
 	}
-	d.TLSConfig = &tls.Config{
-		ServerName:         smtpConfig.Host,
-		InsecureSkipVerify: false,
+	if enc != "none" {
+		d.TLSConfig = &tls.Config{
+			ServerName:         smtpConfig.Host,
+			InsecureSkipVerify: false,
+			MinVersion:         tls.VersionTLS12,
+		}
 	}
 
 	if err := d.DialAndSend(m); err != nil {
 		logger.Error("Failed to send email", "to", to, "error", err)
+		s.releaseDailySendSlot()
 		return err
 	}
-
-	logger.Info("Email sent successfully", "to", to, "template", templateKey)
 	return nil
+}
+
+func smtpDailyKey() string {
+	return "smtp_daily_sent:" + time.Now().UTC().Format("2006-01-02")
+}
+
+func (s *emailService) reserveDailySendSlot(limit int) error {
+	if limit <= 0 {
+		limit = 5000
+	}
+	if config.Redis == nil {
+		logger.Warn("Redis unavailable; SMTP daily limit not enforced")
+		return nil
+	}
+	key := smtpDailyKey()
+	count, err := config.Redis.Incr(config.Ctx, key).Result()
+	if err != nil {
+		logger.Warn("Failed to increment SMTP daily counter", "error", err)
+		return nil
+	}
+	if count == 1 {
+		_ = config.Redis.Expire(config.Ctx, key, 48*time.Hour).Err()
+	}
+	if int(count) > limit {
+		_, _ = config.Redis.Decr(config.Ctx, key).Result()
+		return fmt.Errorf("daily smtp send limit reached (%d)", limit)
+	}
+	return nil
+}
+
+func (s *emailService) releaseDailySendSlot() {
+	if config.Redis == nil {
+		return
+	}
+	_, _ = config.Redis.Decr(config.Ctx, smtpDailyKey()).Result()
 }

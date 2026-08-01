@@ -62,8 +62,15 @@ class ApiClientService {
     }
 
     public async post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<ApiResponse<T>> {
-        const response = await this.instance.post<ApiResponse<T>>(url, data, config);
-        return response.data;
+        const isFormData = typeof FormData !== 'undefined' && data instanceof FormData
+        const response = await this.instance.post<ApiResponse<T>>(url, data, {
+            ...config,
+            timeout: config?.timeout ?? (isFormData ? 120_000 : 15_000),
+            headers: isFormData
+                ? { ...config?.headers, 'Content-Type': undefined }
+                : config?.headers,
+        })
+        return response.data
     }
 
     public async put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<ApiResponse<T>> {

@@ -14,6 +14,7 @@ type SettingsRepo interface {
 	GetByKeys(keys []string) ([]model.Setting, error)
 	GetAll() ([]model.Setting, error)
 	Update(key string, value string) error
+	UpdateMany(updates map[string]string) error
 	GetByPrefix(prefix string) ([]model.Setting, error)
 	DB() *gorm.DB
 }
@@ -56,10 +57,10 @@ func (r *settingsRepo) GetByKeys(keys []string) ([]model.Setting, error) {
 	return settings, err
 }
 
-func (r *settingsRepo) Update(key string, value string) error {
+func (r *settingsRepo) upsert(db *gorm.DB, key string, value string) error {
 	// Unscoped + clear deleted_at so soft-deleted rows don't block unique upsert
 	// while remaining invisible to normal GetByKeys queries.
-	return r.db.Unscoped().Clauses(clause.OnConflict{
+	return db.Unscoped().Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "setting_key"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"setting_value": value,
@@ -67,4 +68,22 @@ func (r *settingsRepo) Update(key string, value string) error {
 			"updated_at":    time.Now(),
 		}),
 	}).Create(&model.Setting{SettingKey: key, SettingValue: value}).Error
+}
+
+func (r *settingsRepo) Update(key string, value string) error {
+	return r.upsert(r.db, key, value)
+}
+
+func (r *settingsRepo) UpdateMany(updates map[string]string) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		for key, value := range updates {
+			if err := r.upsert(tx, key, value); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

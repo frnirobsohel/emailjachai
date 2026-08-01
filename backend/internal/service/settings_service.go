@@ -24,6 +24,15 @@ var (
 	ErrSettingsTitleRequired = errors.New("site title is required")
 )
 
+// paymentEncryptKeys are encrypted at rest on write (JWT_SECRET).
+var paymentEncryptKeys = map[string]bool{
+	"stripe_secret_key":     true,
+	"stripe_webhook_secret": true,
+	"paypal_secret_key":     true,
+	"paypal_webhook_id":     true,
+	"cryptomus_payment_key": true,
+}
+
 // BrandSettingKeys are the only keys brand-build may read/write.
 var BrandSettingKeys = []string{
 	"site_title",
@@ -34,7 +43,8 @@ var BrandSettingKeys = []string{
 	"help_center_url",
 	"twitter_url",
 	"linkedin_url",
-	"github_url",
+	"youtube_url",
+	"facebook_url",
 }
 
 var brandKeySet = func() map[string]bool {
@@ -50,19 +60,20 @@ var WritableSettingKeys = map[string]bool{
 	// brand
 	"site_title": true, "site_tagline": true, "logo_url": true, "favicon_url": true,
 	"primary_color": true, "nav_style": true, "support_email": true, "help_center_url": true,
-	"twitter_url": true, "linkedin_url": true, "github_url": true,
+	"twitter_url": true, "linkedin_url": true, "youtube_url": true, "facebook_url": true,
 	// job control
 	"chunk_size": true, "task_timeout": true, "task_timeout_minutes": true,
 	"max_emails_per_job": true, "max_active_jobs_per_user": true,
 	// maintenance / license page
 	"maintenance_mode": true, "maintenance_message": true,
-	// payment gateways
+	// payment gateways (+ api_base_url for webhook callbacks)
+	"api_base_url": true,
 	"stripe_enabled": true, "stripe_test_mode": true, "stripe_public_key": true,
-	"stripe_secret_key": true, "stripe_webhook_secret": true, "stripe_merchant_id": true, "stripe_payment_key": true,
+	"stripe_secret_key": true, "stripe_webhook_secret": true,
 	"paypal_enabled": true, "paypal_test_mode": true, "paypal_public_key": true,
-	"paypal_secret_key": true, "paypal_webhook_id": true, "paypal_merchant_id": true, "paypal_payment_key": true,
-	"cryptomus_enabled": true, "cryptomus_test_mode": true, "cryptomus_public_key": true,
-	"cryptomus_secret_key": true, "cryptomus_webhook_secret": true, "cryptomus_merchant_id": true, "cryptomus_payment_key": true,
+	"paypal_secret_key": true, "paypal_webhook_id": true,
+	"cryptomus_enabled": true, "cryptomus_test_mode": true,
+	"cryptomus_merchant_id": true, "cryptomus_payment_key": true,
 }
 
 // SensitiveSettingKeys are redacted on GetAllSettings responses.
@@ -72,9 +83,6 @@ var SensitiveSettingKeys = map[string]bool{
 	"paypal_secret_key":        true,
 	"paypal_webhook_id":        true,
 	"cryptomus_payment_key":    true,
-	"cryptomus_secret_key":     true,
-	"cryptomus_webhook_secret": true,
-	"paypal_webhook_secret":    true,
 	"worker_api_key_encrypted": true,
 	"worker_api_key_hash":      true,
 	"license_key":              true,
@@ -82,7 +90,7 @@ var SensitiveSettingKeys = map[string]bool{
 
 var urlSettingKeys = map[string]bool{
 	"logo_url": true, "favicon_url": true, "help_center_url": true,
-	"twitter_url": true, "linkedin_url": true, "github_url": true,
+	"twitter_url": true, "linkedin_url": true, "youtube_url": true, "facebook_url": true,
 }
 
 const (
@@ -99,6 +107,9 @@ type SettingsService interface {
 	GetBrandSettings() (map[string]string, error)
 	UpdateSettings(updates map[string]string, adminID uint) error
 	UpdateBrandSettings(updates map[string]string, adminID uint) error
+	GetPaymentSettings() (*PaymentSettingsView, error)
+	UpdatePaymentSettings(input PaymentGatewayUpdate, adminID uint) error
+	TestPaymentGateway(provider string) (string, error)
 }
 
 type settingsService struct {
@@ -166,7 +177,29 @@ func (s *settingsService) UpdateSettings(updates map[string]string, adminID uint
 	if err := validateSettingsValues(filtered); err != nil {
 		return err
 	}
+	// If any payment enable/credential keys are in this batch, enforce completeness.
+	if touchesPaymentKeys(filtered) {
+		merged, err := s.mergePaymentSettings(filtered)
+		if err != nil {
+			return err
+		}
+		if err := validatePaymentGatewayEnable(merged); err != nil {
+			return err
+		}
+		if err := validateStripeKeyMode(merged); err != nil {
+			return err
+		}
+	}
 	return s.persist(filtered, adminID, "System settings updated")
+}
+
+func touchesPaymentKeys(updates map[string]string) bool {
+	for k := range updates {
+		if strings.HasPrefix(k, "stripe_") || strings.HasPrefix(k, "paypal_") || strings.HasPrefix(k, "cryptomus_") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *settingsService) persist(updates map[string]string, adminID uint, logMsg string) error {
@@ -180,14 +213,15 @@ func (s *settingsService) persist(updates map[string]string, adminID uint, logMs
 		"max_active_jobs_per_user": {0, 10000, 0},
 	}
 
+	prepared := make(map[string]string, len(updates)+1)
+	changedKeys := make([]string, 0, len(updates))
+
 	for k, v := range updates {
-		if SensitiveSettingKeys[k] && (k == "stripe_secret_key" || k == "stripe_webhook_secret" ||
-			k == "paypal_secret_key" || k == "paypal_webhook_id" ||
-			k == "cryptomus_payment_key" || k == "cryptomus_secret_key" || k == "cryptomus_webhook_secret") {
+		if paymentEncryptKeys[k] {
 			if v == "********" || strings.TrimSpace(v) == "" {
 				continue
 			}
-			enc, err := helper.EncryptSecret(v)
+			enc, err := helper.EncryptPaymentSecret(v)
 			if err != nil {
 				return err
 			}
@@ -208,18 +242,23 @@ func (s *settingsService) persist(updates map[string]string, adminID uint, logMs
 			v = strconv.Itoa(val)
 		}
 
-		if err := s.repo.Update(k, v); err != nil {
-			return err
-		}
+		prepared[k] = v
+		changedKeys = append(changedKeys, k)
 
 		if k == "task_timeout" {
-			if err := s.repo.Update("task_timeout_minutes", v); err != nil {
-				return err
-			}
+			prepared["task_timeout_minutes"] = v
 		}
 	}
 
-	s.logActivity("INFO", "Admin", logMsg, adminID)
+	if err := s.repo.UpdateMany(prepared); err != nil {
+		return err
+	}
+
+	detail := logMsg
+	if len(changedKeys) > 0 {
+		detail = fmt.Sprintf("%s (%s)", logMsg, strings.Join(changedKeys, ", "))
+	}
+	s.logActivity("INFO", "Admin", detail, adminID)
 	return nil
 }
 
@@ -258,6 +297,12 @@ func validateSettingsValues(updates map[string]string) error {
 			if utf8.RuneCountInString(v) > maxGenericLen {
 				return fmt.Errorf("%w: maintenance_message", ErrSettingsInvalidLength)
 			}
+		case "api_base_url":
+			if v != "" {
+				if utf8.RuneCountInString(v) > maxURLLen || !IsValidAPIBaseURL(v) {
+					return ErrPaymentAPIBaseURLInvalid
+				}
+			}
 		}
 
 		if urlSettingKeys[k] && v != "" {
@@ -269,13 +314,14 @@ func validateSettingsValues(updates map[string]string) error {
 	return nil
 }
 
-// IsValidHTTPURL accepts http(s) URLs with a non-empty host (ports, paths, query OK).
+// IsValidHTTPURL accepts https URLs with a non-empty host (ports, paths, query OK).
+// http is rejected so saved logo/favicon URLs match production CSP img-src https:.
 func IsValidHTTPURL(raw string) bool {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return false
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
+	if u.Scheme != "https" {
 		return false
 	}
 	if u.Host == "" || u.Hostname() == "" {
@@ -308,10 +354,11 @@ func isValidEmail(v string) bool {
 }
 
 // MaskSensitiveSettings redacts secret values in-place for API responses.
+// Empty string (not ********) so clients never bind a fake secret into password inputs.
 func MaskSensitiveSettings(settings []model.Setting) {
 	for i := range settings {
 		if SensitiveSettingKeys[settings[i].SettingKey] && settings[i].SettingValue != "" {
-			settings[i].SettingValue = "********"
+			settings[i].SettingValue = ""
 		}
 	}
 }

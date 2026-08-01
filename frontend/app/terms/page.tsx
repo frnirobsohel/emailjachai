@@ -22,7 +22,8 @@ export default async function TermsPage() {
             logoUrl={logoUrl}
             twitterUrl={settings?.twitter_url}
             linkedinUrl={settings?.linkedin_url}
-            githubUrl={settings?.github_url}
+            youtubeUrl={settings?.youtube_url}
+            facebookUrl={settings?.facebook_url}
             title="Terms of Service"
             updatedAt="July 31, 2026"
             intro={`These Terms of Service ("Terms") govern your access to and use of ${siteTitle} (the "Service"). By creating an account or using the Service, you agree to these Terms.`}

@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ShieldAlert, ShieldCheck, Activity, Ban, RefreshCcw, Search, Eye, EyeOff, Terminal, Shield } from "lucide-react"
+import { ShieldAlert, ShieldCheck, Activity, Ban, RefreshCcw, Search, Terminal, Shield } from "lucide-react"
 import { useSecurityStore, type SecurityHydrateData } from "@/stores/security-store"
 import { useSecurityWebSocket } from "@/hooks/use-security-web-socket"
 
@@ -36,14 +36,13 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
     const currentDailyLimit = store.hasInitialized ? store.dailyLimit : (initialData?.stats?.daily_limit || store.dailyLimit)
     const currentLogs = store.hasInitialized ? store.logs : (initialData?.logs || store.logs)
     const currentBlocked = store.hasInitialized ? store.blocked : (initialData?.blocked || store.blocked)
-    const currentPackages = store.hasInitialized ? store.packages : (initialData?.packages || store.packages)
 
     return (
         <div className="flex-1 space-y-6">
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Public Verifier</h2>
-                    <p className="text-sm text-[#5a736c] mt-1">Manage public verifier security, fraud detection, and frontend packages.</p>
+                    <p className="text-sm text-[#5a736c] mt-1">Manage public verifier security and fraud detection.</p>
                 </div>
                 <div className="flex items-center gap-4">
                     <span className="text-sm font-medium text-slate-700">Public Verifier</span>
@@ -232,36 +231,6 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
                         {activeTab === 'stream' ? `${currentLogs.length} ENTRIES` : `${currentBlocked.length} BLOCKS RECORDED`}
                     </span>
                 </div>
-            </Card>
-
-            {/* Package Visibility Manager */}
-            <Card className="bg-white/90 dark:bg-slate-900/50 border-[#0b1f1c]/10 dark:border-slate-800 shadow-none overflow-hidden backdrop-blur-sm">
-                <CardHeader className="bg-[#f0f4f2]/60 dark:bg-slate-950/40 border-b border-[#0b1f1c]/8 dark:border-slate-800">
-                    <CardTitle className="text-lg font-semibold text-[#0b1f1c] dark:text-white">Frontend Pricing Packages</CardTitle>
-                    <CardDescription className="text-slate-500 dark:text-slate-400">Select which packages should be visible on the public landing page.</CardDescription>
-                </CardHeader>
-                <CardContent className="pt-6">
-                    <div className="grid gap-4 md:grid-cols-3">
-                        {currentPackages.map((pkg) => (
-                            <div key={pkg.id} className="border border-slate-200 dark:border-slate-800 rounded-lg p-4 flex items-center justify-between hover:border-[#0f5c52]/30 dark:hover:border-[#1a8a78]/40 transition-colors bg-white dark:bg-slate-950">
-                                <div>
-                                    <h4 className="font-medium text-slate-900 dark:text-white">{pkg.name}</h4>
-                                    <p className="text-sm text-slate-500 dark:text-slate-400">{pkg.price}</p>
-                                </div>
-                                <div className="flex flex-col items-center gap-2">
-                                    <Switch 
-                                        checked={pkg.is_public ?? true} 
-                                        onCheckedChange={() => store.togglePackage(pkg.id)}
-                                    />
-                                    <span className="text-[10px] font-medium text-slate-550 dark:text-slate-400 flex items-center gap-1">
-                                        {pkg.is_public ?? true ? <Eye className="h-3 w-3 text-[#0f5c52]" /> : <EyeOff className="h-3 w-3" />}
-                                        {pkg.is_public ?? true ? "Visible" : "Hidden"}
-                                    </span>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </CardContent>
             </Card>
 
             <style jsx global>{`

@@ -14,6 +14,7 @@ const PUBLIC_PROXY_ROUTES = new Set([
   'jobs/verify-public',
   'jobs/verify-public/status',
   'packages/list',        // Public pricing page — no auth needed
+  'contact',              // Home contact form → support_email
 ]);
 
 /**
@@ -95,7 +96,7 @@ async function proxyRequest(request: NextRequest, { params }: { params: Promise<
         } as RequestInit);
 
         if (
-            (slug === "admin/settings/update" || slug === "admin/settings/brand") &&
+            (slug === "admin/settings/update" || slug === "admin/settings/brand" || slug === "admin/settings/payment") &&
             request.method === "POST" &&
             response.ok
         ) {

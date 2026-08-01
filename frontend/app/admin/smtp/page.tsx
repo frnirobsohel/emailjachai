@@ -15,7 +15,7 @@ export default async function SmtpSettingsPage() {
         username: "",
         password: "",
         daily_limit: "5000",
-        is_active: true
+        is_active: false
     };
     const initialTemplates: Record<TemplatesKey, Template> = { ...DEFAULT_TEMPLATES };
     let initialHasStoredPassword = false;

@@ -20,7 +20,7 @@ func mapSettingsError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrSettingsUnknownKey):
 		helper.SendError(c, http.StatusBadRequest, "One or more setting keys are not allowed.", "ERR_SETTINGS_KEY")
 	case errors.Is(err, service.ErrSettingsInvalidURL):
-		helper.SendError(c, http.StatusBadRequest, "Invalid URL. Use a full http(s) URL.", "ERR_INVALID_URL")
+		helper.SendError(c, http.StatusBadRequest, "Invalid URL. Use a full https URL.", "ERR_INVALID_URL")
 	case errors.Is(err, service.ErrSettingsInvalidEmail):
 		helper.SendError(c, http.StatusBadRequest, "Invalid email address format.", "ERR_INVALID_EMAIL")
 	case errors.Is(err, service.ErrSettingsInvalidColor):
@@ -31,6 +31,22 @@ func mapSettingsError(c *gin.Context, err error) {
 		helper.SendError(c, http.StatusBadRequest, "One or more values exceed the maximum length.", "ERR_SETTINGS_LENGTH")
 	case errors.Is(err, service.ErrSettingsTitleRequired):
 		helper.SendError(c, http.StatusBadRequest, "Site title is required.", "ERR_TITLE_REQUIRED")
+	case errors.Is(err, service.ErrPaymentProviderInvalid):
+		helper.SendError(c, http.StatusBadRequest, "Invalid payment provider.", "ERR_PAYMENT_PROVIDER")
+	case errors.Is(err, service.ErrPaymentStripeIncomplete):
+		helper.SendError(c, http.StatusBadRequest, "Stripe requires public key, secret key, and webhook secret when enabled.", "ERR_PAYMENT_INCOMPLETE")
+	case errors.Is(err, service.ErrPaymentPayPalIncomplete):
+		helper.SendError(c, http.StatusBadRequest, "PayPal requires client ID, secret, and webhook ID when enabled.", "ERR_PAYMENT_INCOMPLETE")
+	case errors.Is(err, service.ErrPaymentCryptoIncomplete):
+		helper.SendError(c, http.StatusBadRequest, "Cryptomus requires merchant UUID and payment API key when enabled.", "ERR_PAYMENT_INCOMPLETE")
+	case errors.Is(err, service.ErrPaymentStripeKeyMode):
+		helper.SendError(c, http.StatusBadRequest, "Stripe keys must match Test Mode (pk_test_/sk_test_) or Live (pk_live_/sk_live_).", "ERR_PAYMENT_KEY_MODE")
+	case errors.Is(err, service.ErrPaymentAPIBaseURLInvalid):
+		helper.SendError(c, http.StatusBadRequest, "API base URL must be https (or http://localhost for local).", "ERR_PAYMENT_API_URL")
+	case errors.Is(err, service.ErrPaymentSecretDecrypt):
+		helper.SendError(c, http.StatusInternalServerError, "Stored payment secret could not be decrypted. Re-enter credentials.", "ERR_PAYMENT_DECRYPT")
+	case errors.Is(err, service.ErrPaymentGatewayDisabled):
+		helper.SendError(c, http.StatusBadRequest, "Enable the gateway before testing.", "ERR_PAYMENT_DISABLED")
 	default:
 		helper.SendError(c, http.StatusInternalServerError, "Failed to update settings. Please try again.", "ERR_SETTINGS_UPDATE")
 	}
@@ -86,7 +102,16 @@ func (h *AdminHandler) GetBrandSettings(c *gin.Context) {
 
 // UpdateBrandSettings updates only brand allowlisted keys.
 func (h *AdminHandler) UpdateBrandSettings(c *gin.Context) {
-	adminID, _ := c.Get("userID")
+	adminIDVal, ok := c.Get("userID")
+	if !ok {
+		helper.SendError(c, http.StatusUnauthorized, "Unauthorized", "ERR_UNAUTHORIZED")
+		return
+	}
+	adminID, ok := adminIDVal.(uint)
+	if !ok {
+		helper.SendError(c, http.StatusUnauthorized, "Unauthorized", "ERR_UNAUTHORIZED")
+		return
+	}
 
 	settingsMap, err := parseSettingsBody(c)
 	if err != nil {
@@ -98,19 +123,32 @@ func (h *AdminHandler) UpdateBrandSettings(c *gin.Context) {
 		return
 	}
 
-	if err := h.settingsService.UpdateBrandSettings(settingsMap, adminID.(uint)); err != nil {
+	if err := h.settingsService.UpdateBrandSettings(settingsMap, adminID); err != nil {
 		mapSettingsError(c, err)
 		return
 	}
 
-	logAction(adminID.(uint), "INFO", "Admin", "Brand settings updated")
+	keys := make([]string, 0, len(settingsMap))
+	for k := range settingsMap {
+		keys = append(keys, k)
+	}
+	logAction(adminID, "INFO", "Admin", "Brand settings updated: "+strings.Join(keys, ", "))
 	config.ClearPublicSettingsCache()
 	helper.SendSuccess(c, "Brand settings updated successfully", nil)
 }
 
 // UpdateSettings updates or creates multiple settings at once (global writable allowlist).
 func (h *AdminHandler) UpdateSettings(c *gin.Context) {
-	adminID, _ := c.Get("userID")
+	adminIDVal, ok := c.Get("userID")
+	if !ok {
+		helper.SendError(c, http.StatusUnauthorized, "Unauthorized", "ERR_UNAUTHORIZED")
+		return
+	}
+	adminID, ok := adminIDVal.(uint)
+	if !ok {
+		helper.SendError(c, http.StatusUnauthorized, "Unauthorized", "ERR_UNAUTHORIZED")
+		return
+	}
 
 	settingsMap, err := parseSettingsBody(c)
 	if err != nil {
@@ -122,12 +160,12 @@ func (h *AdminHandler) UpdateSettings(c *gin.Context) {
 		return
 	}
 
-	if err := h.settingsService.UpdateSettings(settingsMap, adminID.(uint)); err != nil {
+	if err := h.settingsService.UpdateSettings(settingsMap, adminID); err != nil {
 		mapSettingsError(c, err)
 		return
 	}
 
-	logAction(adminID.(uint), "INFO", "Admin", "System settings updated")
+	logAction(adminID, "INFO", "Admin", "System settings updated")
 	config.ClearPublicSettingsCache()
 	helper.SendSuccess(c, "Settings updated successfully", nil)
 }
@@ -157,7 +195,8 @@ func (h *AdminHandler) GetPublicSettings(c *gin.Context) {
 		"help_center_url",
 		"twitter_url",
 		"linkedin_url",
-		"github_url",
+		"youtube_url",
+		"facebook_url",
 		"cryptomus_enabled",
 		"stripe_enabled",
 		"paypal_enabled",

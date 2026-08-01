@@ -14,6 +14,7 @@ type PackageRepo interface {
 	Update(pkg *model.Package) error
 	Delete(id uint) error
 	CountFreePackages(excludeID uint) (int64, error)
+	DB() *gorm.DB
 }
 
 type packageRepo struct {
@@ -22,6 +23,10 @@ type packageRepo struct {
 
 func NewPackageRepo() PackageRepo {
 	return &packageRepo{db: config.DB}
+}
+
+func (r *packageRepo) DB() *gorm.DB {
+	return r.db
 }
 
 func (r *packageRepo) Create(pkg *model.Package) error {

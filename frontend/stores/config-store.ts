@@ -23,7 +23,8 @@ export interface PublicSettings {
     help_center_url?: string;
     twitter_url?: string;
     linkedin_url?: string;
-    github_url?: string;
+    youtube_url?: string;
+    facebook_url?: string;
     cryptomus_enabled?: string;
     stripe_enabled?: string;
     paypal_enabled?: string;

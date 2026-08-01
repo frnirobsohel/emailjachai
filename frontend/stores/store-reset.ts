@@ -41,7 +41,6 @@ export function resetAllStores() {
     useSecurityStore.setState({
         logs: [],
         blocked: [],
-        packages: [],
         stats: {
             total_verified: 0,
             unique_ips: 0,

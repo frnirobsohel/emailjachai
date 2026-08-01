@@ -20,13 +20,6 @@ interface BlockedEntry {
   reason?: string
 }
 
-interface SecurityPackage {
-  id: number
-  name?: string
-  price?: string | number
-  is_public?: boolean
-}
-
 interface SecurityStats {
   total_verified: number
   unique_ips: number
@@ -45,15 +38,13 @@ interface SecurityHydrateData {
   stats?: SecurityDashboardStats
   logs?: SecurityLog[]
   blocked?: BlockedEntry[]
-  packages?: SecurityPackage[]
 }
 
-export type { SecurityLog, BlockedEntry, SecurityPackage, SecurityHydrateData, SecurityStats }
+export type { SecurityLog, BlockedEntry, SecurityHydrateData, SecurityStats }
 
 interface SecurityState {
   logs: SecurityLog[]
   blocked: BlockedEntry[]
-  packages: SecurityPackage[]
   stats: SecurityStats
   dailyLimit: string
   isVerificationEnabled: boolean
@@ -68,7 +59,6 @@ interface SecurityState {
   updateStats: (stats: Partial<SecurityStats>) => void
   setDailyLimit: (limit: string) => void
   setVerificationEnabled: (enabled: boolean) => void
-  togglePackage: (id: number) => Promise<void>
   unblockClient: (id: number) => Promise<void>
   handleSettingsUpdate: (newLimit?: string, newToggle?: boolean) => Promise<void>
 }
@@ -76,7 +66,6 @@ interface SecurityState {
 export const useSecurityStore = create<SecurityState>((set, get) => ({
   logs: [],
   blocked: [],
-  packages: [],
   stats: {
     total_verified: 0,
     unique_ips: 0,
@@ -97,7 +86,6 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
       }),
       ...(data.logs && { logs: data.logs }),
       ...(data.blocked && { blocked: data.blocked }),
-      ...(data.packages && { packages: data.packages }),
       hasInitialized: true
     })
   },
@@ -106,7 +94,6 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
     if (!force && get().hasInitialized) return;
 
     try {
-      // Load stats & settings
       const dashRes = await ApiClient.get<SecurityDashboardStats>('/admin/public-verifier/dashboard')
       if (dashRes.status === 'success' && dashRes.data) {
         set({ 
@@ -116,17 +103,11 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
         })
       }
 
-      // Load logs
       const logsRes = await ApiClient.get<SecurityLog[]>('/admin/public-verifier/verify-logs')
       if (logsRes.status === 'success') set({ logs: logsRes.data || [] })
 
-      // Load blocklist
       const blockRes = await ApiClient.get<BlockedEntry[]>('/admin/public-verifier/blocklist')
       if (blockRes.status === 'success') set({ blocked: blockRes.data || [] })
-
-      // Load packages
-      const pkgRes = await ApiClient.get<SecurityPackage[]>('/admin/packages')
-      if (pkgRes.status === 'success') set({ packages: pkgRes.data || [] })
 
       set({ hasInitialized: true })
     } catch (err) {
@@ -171,22 +152,6 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
   
   setVerificationEnabled: (enabled) => set({ isVerificationEnabled: enabled }),
 
-  togglePackage: async (id) => {
-    try {
-      const res = await ApiClient.post<Record<string, unknown>>('/admin/packages/toggle-public', { package_id: id })
-      if (res.status === 'success') {
-        set((state) => ({
-          packages: state.packages.map(p => p.id === id ? { ...p, is_public: !p.is_public } : p)
-        }))
-        toast.success("Package visibility updated")
-      } else {
-        toast.error(res.message || "Failed to update package visibility")
-      }
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to update package visibility")
-    }
-  },
-
   handleSettingsUpdate: async (newLimit?: string, newToggle?: boolean) => {
     try {
       await ApiClient.post('/admin/public-verifier/settings', {
@@ -205,7 +170,6 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
       if (res.status === 'success') {
         toast.success("Unblocked successfully")
         get().removeBlocked(id)
-        // Optionally update stats (-1 blocked)
         set(state => ({
           stats: { ...state.stats, currently_blocked: Math.max(0, state.stats.currently_blocked - 1) }
         }))
@@ -215,3 +179,4 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
     }
   }
 }))
+
