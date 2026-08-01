@@ -7,7 +7,6 @@ import { useSettings } from "@/lib/settings-context"
 import { useHydrated } from "@/hooks/use-hydrated"
 import { ChevronRight, ChevronLeft, X } from "lucide-react"
 import { BrandLogo } from "@/components/home/brand-logo"
-import { BRAND_LOGO_CLASS, BRAND_LOGO_PX, BRAND_NAME_CLASS } from "@/components/home/brand-mark"
 
 import { useUIStore } from "@/stores/ui-state"
 import { useUserStore } from "@/stores/user-state"
@@ -145,8 +144,8 @@ export function Sidebar({ className, defaultCollapsed = false }: SidebarProps) {
                         <BrandLogo
                             logoUrl={logoUrl}
                             siteTitle={siteTitle}
-                            size={BRAND_LOGO_PX}
-                            className={BRAND_LOGO_CLASS}
+                            size={24}
+                            className="h-6 w-6 object-contain"
                         />
                     </div>
 
@@ -170,7 +169,7 @@ export function Sidebar({ className, defaultCollapsed = false }: SidebarProps) {
                         isCollapsed ? "hidden" : "w-auto opacity-100 pr-4"
                     )}
                 >
-                    <span className={cn(BRAND_NAME_CLASS, "text-[#0b1f1c]")}>
+                    <span className="truncate text-lg font-semibold tracking-tight text-[#0b1f1c]">
                         {siteTitle}
                     </span>
 

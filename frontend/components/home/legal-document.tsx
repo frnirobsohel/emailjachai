@@ -1,8 +1,6 @@
 import Link from "next/link"
 import { BrandLogo } from "@/components/home/brand-logo"
-import { BRAND_LOGO_CLASS, BRAND_LOGO_PX, BRAND_NAME_CLASS } from "@/components/home/brand-mark"
 import { Footer } from "@/components/home/footer"
-import { cn } from "@/lib/utils"
 
 interface LegalSection {
     title: string
@@ -40,9 +38,9 @@ export function LegalDocument({
                 <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
                     <Link
                         href="/"
-                        className={cn("flex min-w-0 items-center gap-2.5 text-[#0b1f1c]", BRAND_NAME_CLASS)}
+                        className="flex min-w-0 items-center gap-2 text-sm font-semibold tracking-tight text-[#0b1f1c] sm:gap-2.5 sm:text-base"
                     >
-                        <BrandLogo logoUrl={logoUrl} siteTitle={siteTitle} size={BRAND_LOGO_PX} className={BRAND_LOGO_CLASS} />
+                        <BrandLogo logoUrl={logoUrl} siteTitle={siteTitle} size={28} className="h-7 w-7 object-contain" />
                         <span className="truncate">{siteTitle}</span>
                     </Link>
                     <Link

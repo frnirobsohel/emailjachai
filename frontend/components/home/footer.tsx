@@ -1,7 +1,5 @@
 import Link from "next/link"
 import { BrandLogo } from "@/components/home/brand-logo"
-import { BRAND_LOGO_CLASS, BRAND_LOGO_PX, BRAND_NAME_CLASS } from "@/components/home/brand-mark"
-import { cn } from "@/lib/utils"
 
 interface FooterProps {
     siteTitle: string
@@ -64,10 +62,10 @@ export function Footer({
                     <div className="md:col-span-2">
                         <Link
                             href="/"
-                            className={cn("mb-4 flex items-center gap-2.5 text-white", BRAND_NAME_CLASS)}
+                            className="mb-4 flex items-center gap-2.5 text-lg font-semibold text-white"
                         >
-                            <BrandLogo logoUrl={logoUrl} siteTitle={siteTitle} size={BRAND_LOGO_PX} className={BRAND_LOGO_CLASS} />
-                            <span className="truncate">{siteTitle}</span>
+                            <BrandLogo logoUrl={logoUrl} siteTitle={siteTitle} size={24} className="h-6 w-6 object-contain" />
+                            {siteTitle}
                         </Link>
                         <p className="mb-5 max-w-sm text-sm leading-relaxed text-[#8aa099]">
                             Email verification built for clean lists and lasting sender reputation.
