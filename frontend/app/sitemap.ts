@@ -1,65 +1,19 @@
-import { MetadataRoute } from 'next'
-import { headers } from 'next/headers'
-import { getPublicSettings } from '@/lib/services/settings'
+import { MetadataRoute } from "next"
+import { getPublicSettings } from "@/lib/services/settings"
+import { resolveSiteBaseUrl } from "@/lib/site-url"
+import { publicSitemapEntries } from "@/lib/seo"
+
+/** Stable lastModified so crawlers are not told every URL changed on each hit. */
+const SITE_LAST_MODIFIED = new Date("2026-01-01T00:00:00.000Z")
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  let baseUrl = ""
-  try {
-    const reqHeaders = await headers()
-    const host = reqHeaders.get("x-forwarded-host") || reqHeaders.get("host")
-    const proto = reqHeaders.get("x-forwarded-proto") || "https"
-    if (host) {
-      baseUrl = `${proto}://${host}`
-    }
-  } catch {
-    // fallback
-  }
-
   const settings = await getPublicSettings()
-  if (settings?.site_base_url?.trim()) {
-    baseUrl = settings.site_base_url.replace(/\/$/, '')
-  }
+  const baseUrl = await resolveSiteBaseUrl(settings)
 
-  if (!baseUrl) {
-    baseUrl = "https://emailjachai.pro"
-  }
-  
-  return [
-    {
-      url: baseUrl,
-      lastModified: new Date(),
-      changeFrequency: 'daily',
-      priority: 1.0,
-    },
-    {
-      url: `${baseUrl}/login`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.8,
-    },
-    {
-      url: `${baseUrl}/register`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.8,
-    },
-    {
-      url: `${baseUrl}/forgot-password`,
-      lastModified: new Date(),
-      changeFrequency: 'monthly',
-      priority: 0.5,
-    },
-    {
-      url: `${baseUrl}/privacy`,
-      lastModified: new Date(),
-      changeFrequency: 'monthly',
-      priority: 0.4,
-    },
-    {
-      url: `${baseUrl}/terms`,
-      lastModified: new Date(),
-      changeFrequency: 'monthly',
-      priority: 0.4,
-    },
-  ]
+  return publicSitemapEntries(baseUrl).map((entry, index) => ({
+    url: entry.url,
+    lastModified: SITE_LAST_MODIFIED,
+    changeFrequency: index === 0 ? "weekly" : "monthly",
+    priority: index === 0 ? 1.0 : 0.4,
+  }))
 }

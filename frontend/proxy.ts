@@ -5,6 +5,9 @@ import { verifyUser } from '@/lib/auth'
 export async function proxy(request: NextRequest) {
     const { pathname } = request.nextUrl
 
+    const requestHeaders = new Headers(request.headers)
+    requestHeaders.set('x-pathname', pathname)
+
     const token = request.cookies.get('auth_token')?.value
     const user = token ? await verifyUser(token) : null
 
@@ -31,13 +34,22 @@ export async function proxy(request: NextRequest) {
         return NextResponse.redirect(new URL('/dashboard', request.url))
     }
 
-    return NextResponse.next()
+    return NextResponse.next({
+        request: { headers: requestHeaders },
+    })
 }
 
-// Export default and alias as middleware for maximum compatibility across Next.js versions
-export { proxy as middleware }
-export default proxy
-
 export const config = {
-    matcher: ['/dashboard/:path*', '/admin/:path*', '/login', '/register'],
+    matcher: [
+        '/dashboard/:path*',
+        '/admin/:path*',
+        '/login',
+        '/register',
+        // Public marketing routes need x-pathname for brand head-script gating.
+        '/',
+        '/privacy',
+        '/terms',
+        '/robots.txt',
+        '/sitemap.xml',
+    ],
 }

@@ -16,13 +16,13 @@ import * as z from "zod"
 import { toast } from "react-hot-toast"
 import { cn } from "@/lib/utils"
 import { useConfigStore } from "@/stores/config-store"
+import {
+    MAX_CODE_LEN,
+    MAX_SCRIPTS,
+    type HeadScriptItem,
+} from "@/lib/head-scripts"
 
-export interface HeadScriptItem {
-    id: string
-    name: string
-    code: string
-    enabled: boolean
-}
+export type { HeadScriptItem }
 
 const httpUrl = z
     .string()
@@ -53,11 +53,15 @@ const brandSettingsSchema = z.object({
     linkedin_url: httpUrl.optional().or(z.literal("")),
     youtube_url: httpUrl.optional().or(z.literal("")),
     facebook_url: httpUrl.optional().or(z.literal("")),
-    primary_color: z.string().max(20).optional().or(z.literal("")),
-    nav_style: z.string().optional().or(z.literal("")),
-    google_site_verification: z.string().optional().or(z.literal("")),
+    google_site_verification: z.string().max(200).optional().or(z.literal("")),
     site_base_url: httpUrl.optional().or(z.literal("")),
-    custom_robots_txt: z.string().optional().or(z.literal("")),
+    primary_color: z
+        .string()
+        .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Must be a hex color like #0f5c52")
+        .optional()
+        .or(z.literal("")),
+    nav_style: z.enum(["dark", "light"]).optional().or(z.literal("")),
+    custom_robots_txt: z.string().max(10000, "robots.txt must be at most 10,000 characters").optional().or(z.literal("")),
     use_custom_robots: z.boolean().optional(),
 })
 
@@ -75,10 +79,10 @@ function mapBrandValues(data: Record<string, string>): BrandSettingsValues {
         linkedin_url: data.linkedin_url || "",
         youtube_url: data.youtube_url || "",
         facebook_url: data.facebook_url || "",
-        primary_color: data.primary_color || "#0f5c52",
-        nav_style: data.nav_style || "dark",
         google_site_verification: data.google_site_verification || "",
         site_base_url: data.site_base_url || "",
+        primary_color: data.primary_color || "#0f5c52",
+        nav_style: data.nav_style === "light" ? "light" : "dark",
         custom_robots_txt: data.custom_robots_txt || "",
         use_custom_robots: data.use_custom_robots === "1" || data.use_custom_robots === "true",
     }
@@ -169,12 +173,20 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
             toast.error("Please enter script HTML/JavaScript code.")
             return
         }
+        if (scriptCode.length > MAX_CODE_LEN) {
+            toast.error(`Script code must be at most ${MAX_CODE_LEN.toLocaleString()} characters.`)
+            return
+        }
+        if (!editingScriptId && headScripts.length >= MAX_SCRIPTS) {
+            toast.error(`You can add at most ${MAX_SCRIPTS} head scripts.`)
+            return
+        }
 
         if (editingScriptId) {
             setHeadScripts((prev) =>
                 prev.map((s) => (s.id === editingScriptId ? { ...s, name: scriptName.trim(), code: scriptCode } : s))
             )
-            toast.success("Script updated.")
+            toast.success("Script updated. Click Save Settings to persist.")
         } else {
             const newScript: HeadScriptItem = {
                 id: Date.now().toString(),
@@ -183,7 +195,7 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                 enabled: true,
             }
             setHeadScripts((prev) => [...prev, newScript])
-            toast.success("Script added.")
+            toast.success("Script added. Click Save Settings to persist.")
         }
 
         setScriptName("")
@@ -198,7 +210,7 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
 
     const handleDeleteScript = (id: string) => {
         setHeadScripts((prev) => prev.filter((s) => s.id !== id))
-        toast.success("Script removed.")
+        toast.success("Script removed. Click Save Settings to persist.")
     }
 
     const handleEditScript = (script: HeadScriptItem) => {
@@ -215,8 +227,23 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
 
     const handleSaveSubmit = async (values: BrandSettingsValues) => {
         try {
+            // Explicit allowlisted brand keys only (matches backend BrandSettingKeys).
             const payload = {
-                ...values,
+                site_title: values.site_title,
+                site_tagline: values.site_tagline || "",
+                logo_url: values.logo_url || "",
+                favicon_url: values.favicon_url || "",
+                primary_color: values.primary_color || "#0f5c52",
+                nav_style: values.nav_style || "dark",
+                support_email: values.support_email || "",
+                help_center_url: values.help_center_url || "",
+                twitter_url: values.twitter_url || "",
+                linkedin_url: values.linkedin_url || "",
+                youtube_url: values.youtube_url || "",
+                facebook_url: values.facebook_url || "",
+                google_site_verification: values.google_site_verification || "",
+                site_base_url: values.site_base_url || "",
+                custom_robots_txt: values.custom_robots_txt || "",
                 use_custom_robots: values.use_custom_robots ? "1" : "0",
                 head_scripts_json: JSON.stringify(headScripts),
             }
@@ -227,23 +254,7 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                 const prev = useConfigStore.getState().settings || {}
                 useConfigStore.getState().setSettings({
                     ...prev,
-                    site_title: values.site_title,
-                    site_tagline: values.site_tagline || "",
-                    logo_url: values.logo_url || "",
-                    favicon_url: values.favicon_url || "",
-                    support_email: values.support_email || "",
-                    help_center_url: values.help_center_url || "",
-                    twitter_url: values.twitter_url || "",
-                    linkedin_url: values.linkedin_url || "",
-                    youtube_url: values.youtube_url || "",
-                    facebook_url: values.facebook_url || "",
-                    primary_color: values.primary_color || "#0f5c52",
-                    nav_style: values.nav_style || "dark",
-                    google_site_verification: values.google_site_verification || "",
-                    site_base_url: values.site_base_url || "",
-                    custom_robots_txt: values.custom_robots_txt || "",
-                    use_custom_robots: values.use_custom_robots ? "1" : "0",
-                    head_scripts_json: JSON.stringify(headScripts),
+                    ...payload,
                 })
                 toast.success("Brand settings updated successfully.")
                 form.reset(values)
@@ -325,6 +336,39 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                             />
                             {form.formState.errors.favicon_url && <p className="text-[10px] text-red-500">{form.formState.errors.favicon_url.message}</p>}
                             <p className="text-[10px] text-[#6b857c]">HTTPS direct link to your website favicon.</p>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="site-base-url" className="text-sm font-medium">Site Base URL</Label>
+                            <Input
+                                id="site-base-url"
+                                placeholder="https://yourdomain.com"
+                                className={cn(form.formState.errors.site_base_url && "border-red-500")}
+                                {...form.register("site_base_url")}
+                            />
+                            {form.formState.errors.site_base_url && (
+                                <p className="text-[10px] text-red-500">{form.formState.errors.site_base_url.message}</p>
+                            )}
+                            <p className="text-[10px] text-[#6b857c]">
+                                Canonical https origin for sitemap.xml and robots.txt (no trailing slash).
+                            </p>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="google-site-verification" className="text-sm font-medium flex items-center gap-1.5">
+                                <Search className="h-3.5 w-3.5 text-[#0f5c52]" />
+                                Google Site Verification
+                            </Label>
+                            <Input
+                                id="google-site-verification"
+                                placeholder="google-site-verification token"
+                                className={cn(form.formState.errors.google_site_verification && "border-red-500")}
+                                {...form.register("google_site_verification")}
+                            />
+                            {form.formState.errors.google_site_verification && (
+                                <p className="text-[10px] text-red-500">{form.formState.errors.google_site_verification.message}</p>
+                            )}
+                            <p className="text-[10px] text-[#6b857c]">
+                                Search Console content token only (not the full meta tag).
+                            </p>
                         </div>
                     </CardContent>
                 </Card>
@@ -472,7 +516,7 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                             Custom Head Scripts (Facebook Pixel, Analytics, Tracking)
                         </CardTitle>
                         <CardDescription className="text-[#5a736c]">
-                            Add any custom &lt;script&gt; or &lt;meta&gt; tags to inject into the &lt;head&gt; of all pages automatically.
+                            Inject &lt;script&gt; / &lt;meta&gt; tags on public pages only (not /admin or /dashboard). Toggle and edits apply after you click Save Settings.
                         </CardDescription>
                     </div>
                     {!isAddingScript && (
@@ -666,12 +710,12 @@ export function BrandBuildClient({ initialData }: { initialData: Record<string, 
                             <Textarea
                                 id="custom-robots-txt"
                                 rows={8}
-                                placeholder={`User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /dashboard/\n\nSitemap: https://emailjachai.pro/sitemap.xml`}
+                                placeholder={`User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /dashboard/\n\nSitemap: https://yourdomain.com/sitemap.xml`}
                                 {...form.register("custom_robots_txt")}
                                 className="font-mono text-xs bg-[#0b1f1c] text-[#7ee787] border-0 focus-visible:ring-1 focus-visible:ring-[#0f5c52]"
                             />
                             <p className="text-[10px] text-[#6b857c]">
-                                Note: These custom rules will override standard default robots.txt crawling instructions.
+                                Custom rules are served as raw robots.txt (multi User-agent blocks, Crawl-delay, comments all preserved). Keep Disallow for /admin/ and /dashboard/. Max 10,000 characters.
                             </p>
                         </div>
                     ) : (

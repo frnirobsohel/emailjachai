@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/mail"
@@ -22,6 +23,8 @@ var (
 	ErrSettingsInvalidNav    = errors.New("invalid nav style")
 	ErrSettingsInvalidLength = errors.New("setting value exceeds maximum length")
 	ErrSettingsTitleRequired = errors.New("site title is required")
+	ErrSettingsInvalidJSON   = errors.New("invalid JSON setting value")
+	ErrSettingsInvalidFlag   = errors.New("invalid boolean flag value")
 )
 
 // paymentEncryptKeys are encrypted at rest on write (JWT_SECRET).
@@ -39,6 +42,8 @@ var BrandSettingKeys = []string{
 	"site_tagline",
 	"logo_url",
 	"favicon_url",
+	"primary_color",
+	"nav_style",
 	"support_email",
 	"help_center_url",
 	"twitter_url",
@@ -102,12 +107,24 @@ var urlSettingKeys = map[string]bool{
 }
 
 const (
-	maxSiteTitleLen   = 100
-	maxSiteTaglineLen = 200
-	maxURLLen         = 2048
-	maxEmailLen       = 254
-	maxGenericLen     = 2000
+	maxSiteTitleLen       = 100
+	maxSiteTaglineLen     = 200
+	maxURLLen             = 2048
+	maxEmailLen           = 254
+	maxGenericLen         = 2000
+	maxCustomRobotsLen    = 10000
+	maxHeadScriptsJSONLen = 50000
+	maxHeadScriptsCount   = 20
+	maxHeadScriptCodeLen  = 20000
+	maxHeadScriptNameLen  = 100
 )
+
+type headScriptItemDTO struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Code    string `json:"code"`
+	Enabled bool   `json:"enabled"`
+}
 
 type SettingsService interface {
 	GetAllSettings() ([]model.Setting, error)
@@ -311,6 +328,26 @@ func validateSettingsValues(updates map[string]string) error {
 					return ErrPaymentAPIBaseURLInvalid
 				}
 			}
+		case "use_custom_robots":
+			normalized, err := normalizeBoolFlag(v)
+			if err != nil {
+				return fmt.Errorf("%w: use_custom_robots", ErrSettingsInvalidFlag)
+			}
+			updates[k] = normalized
+		case "custom_robots_txt":
+			if utf8.RuneCountInString(v) > maxCustomRobotsLen {
+				return fmt.Errorf("%w: custom_robots_txt", ErrSettingsInvalidLength)
+			}
+		case "head_scripts_json":
+			normalized, err := validateHeadScriptsJSON(v)
+			if err != nil {
+				return err
+			}
+			updates[k] = normalized
+		case "google_site_verification":
+			if utf8.RuneCountInString(v) > 200 {
+				return fmt.Errorf("%w: google_site_verification", ErrSettingsInvalidLength)
+			}
 		}
 
 		if urlSettingKeys[k] && v != "" {
@@ -320,6 +357,68 @@ func validateSettingsValues(updates map[string]string) error {
 		}
 	}
 	return nil
+}
+
+func normalizeBoolFlag(v string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return "1", nil
+	case "0", "false", "no", "off", "":
+		return "0", nil
+	default:
+		return "", ErrSettingsInvalidFlag
+	}
+}
+
+func validateHeadScriptsJSON(raw string) (string, error) {
+	if raw == "" {
+		return "[]", nil
+	}
+	if len(raw) > maxHeadScriptsJSONLen {
+		return "", fmt.Errorf("%w: head_scripts_json", ErrSettingsInvalidLength)
+	}
+
+	var items []headScriptItemDTO
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return "", fmt.Errorf("%w: head_scripts_json", ErrSettingsInvalidJSON)
+	}
+	if len(items) > maxHeadScriptsCount {
+		return "", fmt.Errorf("%w: head_scripts_json (max %d items)", ErrSettingsInvalidLength, maxHeadScriptsCount)
+	}
+
+	cleaned := make([]headScriptItemDTO, 0, len(items))
+	for i, item := range items {
+		id := strings.TrimSpace(item.ID)
+		name := strings.TrimSpace(item.Name)
+		code := strings.TrimSpace(item.Code)
+		if id == "" {
+			id = fmt.Sprintf("script-%d", i+1)
+		}
+		if name == "" {
+			return "", fmt.Errorf("%w: head_scripts_json name required", ErrSettingsInvalidJSON)
+		}
+		if utf8.RuneCountInString(name) > maxHeadScriptNameLen {
+			return "", fmt.Errorf("%w: head_scripts_json name", ErrSettingsInvalidLength)
+		}
+		if utf8.RuneCountInString(code) > maxHeadScriptCodeLen {
+			return "", fmt.Errorf("%w: head_scripts_json code", ErrSettingsInvalidLength)
+		}
+		cleaned = append(cleaned, headScriptItemDTO{
+			ID:      id,
+			Name:    name,
+			Code:    code,
+			Enabled: item.Enabled,
+		})
+	}
+
+	out, err := json.Marshal(cleaned)
+	if err != nil {
+		return "", fmt.Errorf("%w: head_scripts_json", ErrSettingsInvalidJSON)
+	}
+	if len(out) > maxHeadScriptsJSONLen {
+		return "", fmt.Errorf("%w: head_scripts_json", ErrSettingsInvalidLength)
+	}
+	return string(out), nil
 }
 
 // IsValidHTTPURL accepts https URLs with a non-empty host (ports, paths, query OK).

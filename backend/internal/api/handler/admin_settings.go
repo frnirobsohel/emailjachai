@@ -31,6 +31,10 @@ func mapSettingsError(c *gin.Context, err error) {
 		helper.SendError(c, http.StatusBadRequest, "One or more values exceed the maximum length.", "ERR_SETTINGS_LENGTH")
 	case errors.Is(err, service.ErrSettingsTitleRequired):
 		helper.SendError(c, http.StatusBadRequest, "Site title is required.", "ERR_TITLE_REQUIRED")
+	case errors.Is(err, service.ErrSettingsInvalidJSON):
+		helper.SendError(c, http.StatusBadRequest, "Invalid head scripts JSON payload.", "ERR_SETTINGS_JSON")
+	case errors.Is(err, service.ErrSettingsInvalidFlag):
+		helper.SendError(c, http.StatusBadRequest, "Invalid boolean flag value.", "ERR_SETTINGS_FLAG")
 	case errors.Is(err, service.ErrPaymentProviderInvalid):
 		helper.SendError(c, http.StatusBadRequest, "Invalid payment provider.", "ERR_PAYMENT_PROVIDER")
 	case errors.Is(err, service.ErrPaymentStripeIncomplete):

@@ -8,8 +8,8 @@ import { Features } from "@/components/home/features"
 import { Pricing, type PackageRow } from "@/components/home/pricing"
 import { FutureVision } from "@/components/home/future-vision"
 import { Footer } from "@/components/home/footer"
-import { headers } from "next/headers"
 import { getPublicSettings } from "@/lib/services/settings"
+import { resolveSiteBaseUrl } from "@/lib/site-url"
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1'
 
@@ -17,34 +17,17 @@ export async function generateMetadata(): Promise<Metadata> {
   let title = "EmailJachai Pro"
   let tagline = "Professional Email Verification Platform"
 
-  let baseUrl = ""
-  try {
-    const reqHeaders = await headers()
-    const host = reqHeaders.get("x-forwarded-host") || reqHeaders.get("host")
-    const proto = reqHeaders.get("x-forwarded-proto") || "https"
-    if (host) {
-      baseUrl = `${proto}://${host}`
-    }
-  } catch {
-    // fallback if headers() not available
-  }
-
   const settings = await getPublicSettings()
   if (settings) {
     title = settings.site_title || title
     tagline = settings.site_tagline || tagline
-    if (settings.site_base_url?.trim()) {
-      baseUrl = settings.site_base_url.replace(/\/$/, '')
-    }
   }
 
-  if (!baseUrl) {
-    baseUrl = "https://emailjachai.pro"
-  }
-
-  const previewImage = `${baseUrl}/dashboard-preview.png`
+  const baseUrl = await resolveSiteBaseUrl(settings)
+  const previewImage = baseUrl ? `${baseUrl}/dashboard-preview.png` : "/dashboard-preview.png"
 
   return {
+    ...(baseUrl ? { metadataBase: new URL(baseUrl) } : {}),
     title: `${title} — ${tagline}`,
     description: tagline,
     keywords: ["email verification", "email verifier", "bounce rate reduction", "smtp check", "mx record lookup", "email list cleaning", "disposable email checker"],
@@ -52,7 +35,7 @@ export async function generateMetadata(): Promise<Metadata> {
       title: `${title} — ${tagline}`,
       description: tagline,
       type: "website",
-      url: baseUrl,
+      ...(baseUrl ? { url: baseUrl } : {}),
       siteName: title,
       images: [
         {

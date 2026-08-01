@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { headers } from "next/headers";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -18,6 +19,8 @@ import Providers from "@/providers";
 import { AppShell } from "@/components/layout/app-shell";
 import { SettingsProvider } from "@/lib/settings-context";
 import { getPublicSettings } from "@/lib/services/settings";
+import { BrandHeadScripts } from "@/components/brand-head-scripts";
+import { Toaster } from "react-hot-toast";
 
 export async function generateMetadata(): Promise<Metadata> {
   let title = "EmailJachai Pro";
@@ -59,43 +62,22 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-import { Toaster } from "react-hot-toast";
-
-interface HeadScriptItem {
-  id: string;
-  name: string;
-  code: string;
-  enabled: boolean;
-}
-
 export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   const settings = await getPublicSettings() || {};
-
-  let activeScripts: HeadScriptItem[] = [];
-  if (settings.head_scripts_json) {
-    try {
-      const parsed = JSON.parse(settings.head_scripts_json);
-      if (Array.isArray(parsed)) {
-        activeScripts = parsed.filter((s: HeadScriptItem) => s.enabled && s.code?.trim());
-      }
-    } catch {
-      // ignore JSON parse error
-    }
-  }
+  const reqHeaders = await headers();
+  const pathname = reqHeaders.get("x-pathname") || "";
 
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {activeScripts.map((script) => (
-          <script
-            key={script.id}
-            dangerouslySetInnerHTML={{ __html: script.code }}
-          />
-        ))}
+        <BrandHeadScripts
+          headScriptsJson={settings.head_scripts_json}
+          pathname={pathname}
+        />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
