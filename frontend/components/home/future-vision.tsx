@@ -13,7 +13,7 @@ const visionItems = [
     },
     {
         title: "Upcoming Features",
-        body: "In future updates we will add and integrate tools to build a full marketing ecosystem—bulk email sending, email warmup, cold email outreach, databases, CRM, and more—so verification sits at the center of your growth stack.",
+        body: "In future updates we will add and integrate tools to build a full marketing ecosystem—bulk email sending, email warmup, cold email outreach, databases, CRM, and more.",
     },
     {
         title: "Community-Driven Innovation",
