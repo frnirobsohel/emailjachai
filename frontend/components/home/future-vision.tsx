@@ -12,6 +12,10 @@ const visionItems = [
         body: "Own your infrastructure. Buy once, get lifetime updates, deploy on your own server, and run unlimited verification—with no recurring subscription fees.",
     },
     {
+        title: "Upcoming Features",
+        body: "Day by day, we are evolving beyond verification into a complete marketing powerhouse—campaign email sending, inbox warmup, bulk email discovery, database building, and more tools designed to grow your outreach with confidence.",
+    },
+    {
         title: "Community-Driven Innovation",
         body: "Feature requests and ideas from our users shape the roadmap. The most requested, highest-value proposals get prioritized in future updates.",
     },
