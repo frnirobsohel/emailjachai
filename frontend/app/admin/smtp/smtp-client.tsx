@@ -116,6 +116,11 @@ export function SmtpClient({
     const [hasStoredPassword, setHasStoredPassword] = useState(initialHasStoredPassword)
     const [isConnectionVerified, setIsConnectionVerified] = useState(initialIsConnectionVerified)
     const isProgrammaticUpdate = useRef(false)
+    // Keep latest templates/selectedTpl for draft flush without stale closures.
+    const templatesRef = useRef(templates)
+    const selectedTplRef = useRef(selectedTpl)
+    templatesRef.current = templates
+    selectedTplRef.current = selectedTpl
 
     const smtpForm = useForm<z.infer<typeof smtpSettingsSchema>>({
         resolver: zodResolver(smtpSettingsSchema),
@@ -133,11 +138,51 @@ export function SmtpClient({
     const templateForm = useForm<z.infer<typeof templateSchema>>({
         resolver: zodResolver(templateSchema),
         defaultValues: {
-            subject: templates[selectedTpl]?.subject || "",
-            body: templates[selectedTpl]?.body || "",
-            is_active: templates[selectedTpl]?.is_active ?? true
+            subject: initialTemplates.register?.subject || "",
+            body: initialTemplates.register?.body || "",
+            is_active: initialTemplates.register?.is_active ?? true
         }
     })
+
+    /** Persist current template form fields into local map (does not hit API). */
+    const flushTemplateDraft = () => {
+        const values = templateForm.getValues()
+        const key = selectedTplRef.current
+        setTemplates((prev) => ({
+            ...prev,
+            [key]: {
+                subject: values.subject ?? prev[key]?.subject ?? "",
+                body: values.body ?? prev[key]?.body ?? "",
+                is_active: values.is_active ?? prev[key]?.is_active ?? true,
+            },
+        }))
+    }
+
+    const loadTemplateIntoForm = (key: TemplatesKey, source?: Record<TemplatesKey, Template>) => {
+        const map = source ?? templatesRef.current
+        const tpl = map[key] || DEFAULT_TEMPLATES[key]
+        templateForm.reset({
+            subject: tpl?.subject || "",
+            body: tpl?.body || "",
+            is_active: tpl?.is_active ?? true,
+        })
+    }
+
+    const handleSelectTemplate = (key: TemplatesKey) => {
+        const values = templateForm.getValues()
+        const current = selectedTplRef.current
+        const nextTemplates: Record<TemplatesKey, Template> = {
+            ...templatesRef.current,
+            [current]: {
+                subject: values.subject ?? "",
+                body: values.body ?? "",
+                is_active: values.is_active ?? true,
+            },
+        }
+        setTemplates(nextTemplates)
+        setSelectedTpl(key)
+        loadTemplateIntoForm(key, nextTemplates)
+    }
 
     const fetchSmtpData = async () => {
         try {
@@ -164,7 +209,8 @@ export function SmtpClient({
             if (tplData.status === 'success' && tplData.data) {
                 const rows = tplData.data as ApiTemplateRow[];
                 if (Array.isArray(rows)) {
-                    const nextTemplates = { ...DEFAULT_TEMPLATES };
+                    // Start from current drafts so a refetch never blanks in-progress edits.
+                    const nextTemplates = { ...templatesRef.current };
                     for (const row of rows) {
                         const key = row.template_name as TemplatesKey;
                         if (nextTemplates[key]) {
@@ -176,6 +222,7 @@ export function SmtpClient({
                         }
                     }
                     setTemplates(nextTemplates);
+                    loadTemplateIntoForm(selectedTplRef.current, nextTemplates);
                 }
             }
         } catch (error) {
@@ -193,14 +240,6 @@ export function SmtpClient({
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only refresh when SSR empty
     }, [])
-
-    useEffect(() => {
-        templateForm.reset({
-            subject: templates[selectedTpl]?.subject || "",
-            body: templates[selectedTpl]?.body || "",
-            is_active: templates[selectedTpl]?.is_active ?? true
-        })
-    }, [selectedTpl, templates, templateForm])
 
     // Clean up forms when fields change
     useEffect(() => {
@@ -220,6 +259,9 @@ export function SmtpClient({
 
     const handleSaveSettings = async (values: z.infer<typeof smtpSettingsSchema>) => {
         try {
+            // Keep any unsaved template draft in local state before SMTP save.
+            flushTemplateDraft()
+
             const payload = { ...values };
             if (!(payload.host && payload.host.trim() !== '' && payload.username && payload.username.trim() !== '' && (payload.password?.trim() !== '' || hasStoredPassword))) {
                 payload.is_active = false;
@@ -232,7 +274,7 @@ export function SmtpClient({
                 setHasStoredPassword(hasStoredPassword || (payload.password?.trim() !== ""));
                 smtpForm.setValue('password', "");
                 setTimeout(() => { isProgrammaticUpdate.current = false; }, 100);
-                toast.success("SMTP settings saved successfully.");
+                toast.success("SMTP settings saved. Email templates were left unchanged.");
             } else {
                 toast.error(result.message || "Failed to save settings.");
             }
@@ -244,6 +286,7 @@ export function SmtpClient({
     const handleTestConnection = async () => {
         const toastId = toast.loading("Testing SMTP connection...")
         try {
+            flushTemplateDraft()
             const values = smtpForm.getValues()
             const result = await ApiClient.post<{ is_active?: boolean; has_password?: boolean }>("/admin/smtp/test", values)
             if (result.status === "success") {
@@ -407,10 +450,13 @@ export function SmtpClient({
                                     checked={Boolean(templateForm.watch('is_active') !== false)}
                                     onCheckedChange={(checked) => {
                                         templateForm.setValue('is_active', checked);
+                                        // Update local draft only — DB changes on Save Template.
                                         setTemplates(prev => ({
                                             ...prev,
                                             [selectedTpl]: {
                                                 ...prev[selectedTpl],
+                                                subject: templateForm.getValues('subject') || prev[selectedTpl]?.subject || "",
+                                                body: templateForm.getValues('body') || prev[selectedTpl]?.body || "",
                                                 is_active: checked
                                             }
                                         }));
@@ -419,7 +465,7 @@ export function SmtpClient({
                             </div>
                         </CardTitle>
                         <CardDescription className="text-[#5a736c]">
-                            Use placeholders like {'{{name}}'}, {'{{verification_link}}'}, {'{{credits}}'}.
+                            Independent from SMTP credentials — edit and click Save Template to persist. Use placeholders like {'{{name}}'}, {'{{verification_link}}'}, {'{{credits}}'}.
                         </CardDescription>
                     </CardHeader>
                     <form onSubmit={templateForm.handleSubmit(handleSaveTemplate)}>
@@ -430,7 +476,7 @@ export function SmtpClient({
                                     <label className="text-sm font-medium">Select Template</label>
                                     <SimpleSelect
                                         value={selectedTpl}
-                                        onChange={(e) => setSelectedTpl(e.target.value as TemplatesKey)}
+                                        onChange={(e) => handleSelectTemplate(e.target.value as TemplatesKey)}
                                         options={(Object.keys(DEFAULT_TEMPLATES) as TemplatesKey[]).map(key => ({
                                             label: eventLabels[key],
                                             value: key

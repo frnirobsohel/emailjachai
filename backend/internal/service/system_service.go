@@ -78,7 +78,61 @@ func (s *systemService) SaveSmtpSettings(inputCfg *model.SmtpConfig, passwordInp
 }
 
 func (s *systemService) GetTemplates() ([]model.EmailTemplate, error) {
+	templates, err := s.systemRepo.GetTemplates()
+	if err != nil {
+		return nil, err
+	}
+
+	existing := make(map[string]bool, len(templates))
+	for _, t := range templates {
+		existing[t.TemplateName] = true
+	}
+
+	// Seed missing built-in templates so SMTP credential saves never leave the UI empty.
+	for key, def := range defaultEmailTemplates {
+		if existing[key] {
+			continue
+		}
+		_ = s.systemRepo.SaveTemplate(&model.EmailTemplate{
+			TemplateName: key,
+			Subject:      def.Subject,
+			Body:         def.Body,
+			IsActive:     true,
+		})
+	}
+
 	return s.systemRepo.GetTemplates()
+}
+
+var defaultEmailTemplates = map[string]struct{ Subject, Body string }{
+	"register": {
+		Subject: "Welcome to Email Verification SaaS",
+		Body:    "Hi {{name}},\n\nThanks for registering. Verify your email by clicking this link: {{verification_link}}\n\nRegards,\nTeam",
+	},
+	"forgot": {
+		Subject: "Password reset instructions",
+		Body:    "Hi {{name}},\n\nReset your password using this link: {{reset_link}}\n\nRegards,\nTeam",
+	},
+	"buy_credits": {
+		Subject: "Credit purchase confirmation",
+		Body:    "Hi {{name}},\n\nWe received your purchase of {{credits}} credits. Order: {{order_id}}\n\nThanks!",
+	},
+	"job_completed": {
+		Subject: "Your verification job is complete",
+		Body:    "Hi {{name}},\n\nJob {{job_id}} has completed. Download results here: {{download_link}}\n\nRegards,\nTeam",
+	},
+	"transaction": {
+		Subject: "Transaction notification",
+		Body:    "Hi {{name}},\n\nYour transaction {{txn_id}} has been processed. Amount: {{amount}}\n\nRegards,\nTeam",
+	},
+	"credit_assigned": {
+		Subject: "Credits Assigned",
+		Body:    "Hi {{name}},\n\nAdmin has assigned {{credits}} credits to your account.\n\nRegards,\nTeam",
+	},
+	"account_banned": {
+		Subject: "Account Suspended",
+		Body:    "Hi {{name}},\n\nYour account has been suspended by the administrator.\n\nRegards,\nTeam",
+	},
 }
 
 func (s *systemService) SaveTemplate(template *model.EmailTemplate) error {
