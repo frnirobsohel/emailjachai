@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUser } from '@/lib/auth';
 import { cookies } from 'next/headers';
+import { applyClientIpHeaders } from '@/lib/client-ip';
 
 const API_BASE_URL = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 export const runtime = 'nodejs';
@@ -25,12 +26,7 @@ export async function POST(request: NextRequest) {
     }
     headers.set('Authorization', `Bearer ${apiKey}`);
     headers.set('X-Request-ID', request.headers.get('x-request-id') || `upload_${Date.now()}`);
-
-    // Forward the client's actual IP address to the backend
-    const clientIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '';
-    if (clientIp) {
-        headers.set('X-Forwarded-For', clientIp);
-    }
+    applyClientIpHeaders(headers, request.headers);
 
     try {
         const response = await fetch(`${API_BASE_URL}/jobs/submit-file`, {

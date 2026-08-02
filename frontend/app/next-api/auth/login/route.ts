@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { authorizeUser } from '@/lib/auth';
+import { applyClientIpHeaders } from '@/lib/client-ip';
+
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
 
 export async function POST(request: Request) {
@@ -14,10 +16,13 @@ export async function POST(request: Request) {
             );
         }
 
+        const headers = new Headers({ 'Content-Type': 'application/json' });
+        applyClientIpHeaders(headers, request.headers);
+
         // Call Go Backend for authentication
         const response = await fetch(`${API_BASE_URL}/auth/login`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ email, password }),
             cache: 'no-store'
         });

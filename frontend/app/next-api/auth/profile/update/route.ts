@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { verifyUser } from '@/lib/auth';
 import { cookies } from 'next/headers';
+import { applyClientIpHeaders } from '@/lib/client-ip';
 
 const PHP_API_URL = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
@@ -20,14 +21,17 @@ export async function POST(request: Request) {
 
         const body = await request.json();
 
+        const headers = new Headers({
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        });
+        applyClientIpHeaders(headers, request.headers);
+
         // Forward request to PHP Backend
         const response = await fetch(`${PHP_API_URL}/auth/profile/update`, {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
+            headers,
             body: JSON.stringify(body),
             cache: 'no-store'
         });

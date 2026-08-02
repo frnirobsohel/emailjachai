@@ -80,7 +80,9 @@ func main() {
 	// 5. Initialize Gin Router (gin.New() instead of gin.Default() to avoid duplicate logging)
 	router := gin.New()
 
-	// Configure trusted proxies to prevent ClientIP spoofing in production
+	// Configure trusted proxies so Gin ClientIP() honors X-Forwarded-For / X-Real-IP.
+	// Dokploy/Docker: traffic is Frontend container → Backend, so RemoteAddr is always
+	// the same private hop unless we trust internal CIDRs (or an explicit allowlist).
 	trustedProxiesEnv := os.Getenv("TRUSTED_PROXIES")
 	if trustedProxiesEnv != "" {
 		proxies := strings.Split(trustedProxiesEnv, ",")
@@ -89,11 +91,23 @@ func main() {
 		}
 		if err := router.SetTrustedProxies(proxies); err != nil {
 			logger.Error("Failed to set trusted proxies", "error", err)
+		} else {
+			logger.Info("Trusted proxies configured from TRUSTED_PROXIES", "count", len(proxies))
 		}
 	} else {
-		// Secure by default: do not trust any proxy header unless configured
-		if err := router.SetTrustedProxies(nil); err != nil {
-			logger.Error("Failed to disable trusted proxies", "error", err)
+		// Default: trust loopback + RFC1918 private networks (Docker / Dokploy / Traefik).
+		// Keep the API private behind the proxy; do not expose it publicly with this default.
+		defaultProxies := []string{
+			"127.0.0.1",
+			"::1",
+			"10.0.0.0/8",
+			"172.16.0.0/12",
+			"192.168.0.0/16",
+		}
+		if err := router.SetTrustedProxies(defaultProxies); err != nil {
+			logger.Error("Failed to set default trusted proxies", "error", err)
+		} else {
+			logger.Info("Trusted proxies defaulted to private networks for ClientIP")
 		}
 	}
 
@@ -105,6 +119,7 @@ func main() {
 		} else {
 			router.TrustedPlatform = trustedPlatform
 		}
+		logger.Info("Trusted platform enabled", "platform", router.TrustedPlatform)
 	}
 
 	router.Use(middleware.Logger()) // Custom Zap logger middleware

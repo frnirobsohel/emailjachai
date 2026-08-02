@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { applyClientIpHeaders } from '@/lib/client-ip';
 
 const PHP_API_URL = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
@@ -14,10 +15,12 @@ export async function POST(request: Request) {
             );
         }
 
-        // Call PHP Backend for registration
+        const headers = new Headers({ 'Content-Type': 'application/json' });
+        applyClientIpHeaders(headers, request.headers);
+
         const response = await fetch(`${PHP_API_URL}/auth/register`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ firstName, lastName, email, password }),
             cache: 'no-store'
         });

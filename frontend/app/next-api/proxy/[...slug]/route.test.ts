@@ -71,6 +71,7 @@ describe('Proxy API Route', () => {
         
         const fetchHeaders = fetchOptions?.headers as Headers;
         expect(fetchHeaders.get('X-Forwarded-For')).toBe('203.0.113.195');
+        expect(fetchHeaders.get('X-Real-IP')).toBe('203.0.113.195');
         expect(fetchHeaders.get('cookie')).toBe('device_id=12345');
         expect(fetchHeaders.get('user-agent')).toBe('Mozilla/5.0');
         // Personalized remaining quota must never be force-cached

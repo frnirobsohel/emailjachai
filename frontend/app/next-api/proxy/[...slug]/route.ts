@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyUser } from '@/lib/auth';
 import { cookies } from 'next/headers';
 import { revalidateTag } from 'next/cache';
+import { applyClientIpHeaders } from '@/lib/client-ip';
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
 // M2 Fix: packages/list added — backend serves it without auth (pricing page for guests)
@@ -44,11 +45,8 @@ async function proxyRequest(request: NextRequest, { params }: { params: Promise<
         }
     });
 
-    // Forward the client's actual IP address to the backend
-    const clientIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '';
-    if (clientIp) {
-        headers.set('X-Forwarded-For', clientIp);
-    }
+    // Always resolve + forward real client IP (Dokploy/CDN → Next → Go)
+    applyClientIpHeaders(headers, request.headers);
 
     let apiKey: string | null = null;
     if (!isPublicRoute) {
