@@ -1,13 +1,28 @@
 import type { Metadata } from "next"
 import { LegalDocument } from "@/components/home/legal-document"
 import { getPublicSettings } from "@/lib/services/settings"
+import {
+    buildShareMetadata,
+    getPublicBrandMeta,
+} from "@/lib/public-metadata"
 
 export async function generateMetadata(): Promise<Metadata> {
-    const settings = await getPublicSettings()
-    const siteTitle = settings?.site_title || "EmailJachai Pro"
+    const { title: siteTitle, baseUrl } = await getPublicBrandMeta()
+    const pageTitle = "Privacy Policy"
+    const description = `Privacy Policy for ${siteTitle}`
+    const share = buildShareMetadata({
+        title: `${pageTitle} | ${siteTitle}`,
+        description,
+        siteName: siteTitle,
+        url: baseUrl ? `${baseUrl}/privacy` : undefined,
+        imageAlt: `${siteTitle} Privacy Policy`,
+    })
+
     return {
-        title: "Privacy Policy",
-        description: `Privacy Policy for ${siteTitle}`,
+        title: pageTitle,
+        description,
+        ...share,
+        robots: { index: true, follow: true },
     }
 }
 

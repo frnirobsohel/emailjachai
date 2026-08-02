@@ -21,6 +21,7 @@ import { SettingsProvider } from "@/lib/settings-context";
 import { getPublicSettings } from "@/lib/services/settings";
 import { BrandHeadScripts } from "@/components/brand-head-scripts";
 import { Toaster } from "react-hot-toast";
+import { resolveSiteBaseUrl } from "@/lib/site-url";
 
 export async function generateMetadata(): Promise<Metadata> {
   let title = "EmailJachai Pro";
@@ -50,7 +51,10 @@ export async function generateMetadata(): Promise<Metadata> {
           { url: "/icon.svg", type: "image/svg+xml" },
         ];
 
+  const baseUrl = await resolveSiteBaseUrl(settings);
+
   return {
+    ...(baseUrl ? { metadataBase: new URL(baseUrl) } : {}),
     title: { default: title, template: "%s | " + title },
     description: tagline,
     icons: {

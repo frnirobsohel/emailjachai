@@ -9,53 +9,33 @@ import { Pricing, type PackageRow } from "@/components/home/pricing"
 import { FutureVision } from "@/components/home/future-vision"
 import { Footer } from "@/components/home/footer"
 import { getPublicSettings } from "@/lib/services/settings"
-import { resolveSiteBaseUrl } from "@/lib/site-url"
+import {
+  buildShareMetadata,
+  getPublicBrandMeta,
+} from "@/lib/public-metadata"
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1'
 
 export async function generateMetadata(): Promise<Metadata> {
-  let title = "EmailJachai Pro"
-  let tagline = "Professional Email Verification Platform"
-
-  const settings = await getPublicSettings()
-  if (settings) {
-    title = settings.site_title || title
-    tagline = settings.site_tagline || tagline
-  }
-
-  const baseUrl = await resolveSiteBaseUrl(settings)
-  const previewImage = baseUrl ? `${baseUrl}/dashboard-preview.png` : "/dashboard-preview.png"
+  const { title, tagline, baseUrl } = await getPublicBrandMeta()
+  const fullTitle = `${title} — ${tagline}`
+  const share = buildShareMetadata({
+    title: fullTitle,
+    description: tagline,
+    siteName: title,
+    url: baseUrl || undefined,
+    imageAlt: `${title} — ${tagline}`,
+  })
 
   return {
     ...(baseUrl ? { metadataBase: new URL(baseUrl) } : {}),
-    title: `${title} — ${tagline}`,
+    title: fullTitle,
     description: tagline,
     keywords: ["email verification", "email verifier", "bounce rate reduction", "smtp check", "mx record lookup", "email list cleaning", "disposable email checker"],
-    openGraph: {
-      title: `${title} — ${tagline}`,
-      description: tagline,
-      type: "website",
-      ...(baseUrl ? { url: baseUrl } : {}),
-      siteName: title,
-      images: [
-        {
-          url: previewImage,
-          width: 1200,
-          height: 630,
-          alt: `${title} - ${tagline}`,
-        }
-      ]
-    },
-    twitter: {
-      card: "summary_large_image",
-      title: `${title} — ${tagline}`,
-      description: tagline,
-      images: [previewImage],
-    },
+    ...share,
     robots: {
       index: true,
       follow: true,
-      nocache: true,
       googleBot: {
         index: true,
         follow: true,
