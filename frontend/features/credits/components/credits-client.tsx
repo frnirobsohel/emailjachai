@@ -214,58 +214,79 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
             </div>
 
             <div className="grid gap-6 md:grid-cols-3 mt-8">
-                {packages.map((plan) => (
-                    <Card key={plan.id} className={`flex flex-col border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden ${plan.popular ? "ring-2 ring-[#0f5c52] relative" : ""}`}>
-                        {plan.popular && (
-                            <div className="absolute top-0 right-0 bg-[#0f5c52] text-white text-[10px] font-bold px-2 py-1 uppercase tracking-wider rounded-bl-lg">
-                                Most Popular
-                            </div>
-                        )}
-                        <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
-                            <CardTitle className="text-lg font-semibold text-[#0b1f1c]">{plan.name}</CardTitle>
-                            <CardDescription className="text-[#5a736c]">{plan.tagline || "Perfect for growing businesses"}</CardDescription>
-                        </CardHeader>
-                        <CardContent className="flex-1 pt-6">
-                            <div className="flex items-baseline gap-1 mb-1">
-                                <span className="text-3xl font-bold text-[#0b1f1c]">${parseFloat(plan.price).toFixed(0)}</span>
-                                <span className="text-[#5a736c] text-sm">/one-time</span>
-                            </div>
-                            <div className="text-sm font-semibold text-[#0f5c52] mb-6 bg-[#0f5c52]/10 inline-block px-2 py-0.5 rounded">
-                                {parseInt(plan.credits_amount.toString()).toLocaleString()} Credits
-                            </div>
-                            <ul className="space-y-3 text-sm">
-                                {getFeatureList(plan.features).map((feature: string, idx: number) => (
-                                    <li key={idx} className="flex items-start">
-                                        <Check className="mr-2 h-4 w-4 text-[#0f5c52] shrink-0 mt-0.5" />
-                                        <span className="text-[#5a736c]">{feature}</span>
-                                    </li>
-                                ))}
-                                {getFeatureList(plan.features).length === 0 && (
-                                    <>
-                                        <li className="flex items-start">
+                {packages.map((plan) => {
+                    const priceVal = parseFloat(plan.price?.toString() || "0")
+                    const isFree = priceVal === 0 || plan.name.toLowerCase().includes("free")
+
+                    return (
+                        <Card key={plan.id} className={`flex flex-col border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden ${plan.popular ? "ring-2 ring-[#0f5c52] relative" : ""}`}>
+                            {plan.popular && (
+                                <div className="absolute top-0 right-0 bg-[#0f5c52] text-white text-[10px] font-bold px-2 py-1 uppercase tracking-wider rounded-bl-lg">
+                                    Most Popular
+                                </div>
+                            )}
+                            <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                                <CardTitle className="text-lg font-semibold text-[#0b1f1c]">{plan.name}</CardTitle>
+                                <CardDescription className="text-[#5a736c]">{plan.tagline || "Perfect for growing businesses"}</CardDescription>
+                            </CardHeader>
+                            <CardContent className="flex-1 pt-6">
+                                <div className="flex items-baseline gap-1 mb-1">
+                                    <span className="text-3xl font-bold text-[#0b1f1c]">${priceVal.toFixed(0)}</span>
+                                    <span className="text-[#5a736c] text-sm">/one-time</span>
+                                </div>
+                                <div className="text-sm font-semibold text-[#0f5c52] mb-6 bg-[#0f5c52]/10 inline-block px-2 py-0.5 rounded">
+                                    {parseInt(plan.credits_amount.toString()).toLocaleString()} Credits
+                                </div>
+                                <ul className="space-y-3 text-sm">
+                                    {getFeatureList(plan.features).map((feature: string, idx: number) => (
+                                        <li key={idx} className="flex items-start">
                                             <Check className="mr-2 h-4 w-4 text-[#0f5c52] shrink-0 mt-0.5" />
-                                            <span className="text-[#5a736c]">Email Verification</span>
+                                            <span className="text-[#5a736c]">{feature}</span>
                                         </li>
-                                        <li className="flex items-start">
-                                            <Check className="mr-2 h-4 w-4 text-[#0f5c52] shrink-0 mt-0.5" />
-                                            <span className="text-[#5a736c]">Bulk Upload & API Access</span>
-                                        </li>
-                                    </>
+                                    ))}
+                                    {getFeatureList(plan.features).length === 0 && (
+                                        <>
+                                            <li className="flex items-start">
+                                                <Check className="mr-2 h-4 w-4 text-[#0f5c52] shrink-0 mt-0.5" />
+                                                <span className="text-[#5a736c]">Email Verification</span>
+                                            </li>
+                                            <li className="flex items-start">
+                                                <Check className="mr-2 h-4 w-4 text-[#0f5c52] shrink-0 mt-0.5" />
+                                                <span className="text-[#5a736c]">Bulk Upload & API Access</span>
+                                            </li>
+                                        </>
+                                    )}
+                                </ul>
+                            </CardContent>
+                            <CardFooter className="pt-6 border-t border-[#0b1f1c]/8 bg-[#f0f4f2]/30">
+                                {isFree ? (
+                                    <Button
+                                        variant="outline"
+                                        className="w-full border-[#0f5c52]/30 bg-[#0f5c52]/5 hover:bg-[#0f5c52]/10 text-[#0f5c52] shadow-none font-medium text-xs sm:text-sm"
+                                        onClick={() => {
+                                            toast("Included on Account Signup Already", {
+                                                icon: "ℹ️",
+                                                duration: 4000,
+                                            })
+                                        }}
+                                    >
+                                        <Check className="mr-1.5 h-4 w-4 text-[#0f5c52]" />
+                                        Included on Account Signup Already
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        className="w-full border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none"
+                                        onClick={() => setSelectedPkg(plan)}
+                                        disabled={selectedPkg !== null}
+                                    >
+                                        <CreditCard className="mr-2 h-4 w-4" />
+                                        Purchase Credits
+                                    </Button>
                                 )}
-                            </ul>
-                        </CardContent>
-                        <CardFooter className="pt-6 border-t border-[#0b1f1c]/8 bg-[#f0f4f2]/30">
-                            <Button
-                                className="w-full border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none"
-                                onClick={() => setSelectedPkg(plan)}
-                                disabled={selectedPkg !== null}
-                            >
-                                <CreditCard className="mr-2 h-4 w-4" />
-                                Purchase Credits
-                            </Button>
-                        </CardFooter>
-                    </Card>
-                ))}
+                            </CardFooter>
+                        </Card>
+                    )
+                })}
                 {!isLoading && packages.length === 0 && (
                     <Card className="md:col-span-3 border-[#0b1f1c]/10 bg-white/90 shadow-none">
                         <CardContent className="py-10 text-center text-[#5a736c]">
