@@ -10,6 +10,7 @@ import (
 )
 
 type CacheRepository interface {
+	DB() *gorm.DB
 	GetCachedEmailsInBatches(emails []string, b2bRetention, freeValidRetention, freeInvalidRetention int) (map[string]model.EmailCache, error)
 	UpsertEmailCacheBatch(results []model.EmailCache) error
 }
@@ -20,6 +21,10 @@ type cacheRepository struct {
 
 func NewCacheRepository(db *gorm.DB) CacheRepository {
 	return &cacheRepository{db: db}
+}
+
+func (r *cacheRepository) DB() *gorm.DB {
+	return r.db
 }
 
 func (r *cacheRepository) GetCachedEmailsInBatches(emails []string, b2bRetention, freeValidRetention, freeInvalidRetention int) (map[string]model.EmailCache, error) {
@@ -69,14 +74,20 @@ func (r *cacheRepository) UpsertEmailCacheBatch(results []model.EmailCache) erro
 		return nil
 	}
 
-	// GORM Clause for PostgreSQL Upsert (ON CONFLICT DO UPDATE)
+	now := time.Now().UTC()
+	for i := range results {
+		results[i].CreatedAt = now
+		results[i].UpdatedAt = now
+	}
+
+	// Refresh created_at on conflict so retention TTL restarts after re-verify (H2).
 	return r.db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "email"}}, // key
+		Columns: []clause.Column{{Name: "email"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"status", "score", "reason", "is_disposable", "is_free", "is_role",
 			"has_mx", "smtp_connect", "user_exists", "is_catch_all", "is_deliverable",
-			"is_syntax_valid", "is_spam_trap", "is_blacklisted", "mailbox_full", 
-			"processing_time", "updated_at",
+			"is_syntax_valid", "is_spam_trap", "is_blacklisted", "mailbox_full",
+			"processing_time", "created_at", "updated_at",
 		}),
 	}).CreateInBatches(results, 1000).Error
 }

@@ -1,15 +1,15 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useCallback, useRef } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { 
-    Database, 
-    RefreshCcw, 
-    Settings2, 
+import {
+    Database,
+    RefreshCcw,
+    Settings2,
     Search,
     ShieldAlert,
     Zap,
@@ -29,10 +29,19 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { toast } from "react-hot-toast"
 
+const retentionDay = z
+    .string()
+    .min(1, "Required")
+    .regex(/^\d+$/, "Must be a number")
+    .refine((v) => {
+        const n = Number(v)
+        return n >= 1 && n <= 3650
+    }, "Must be between 1 and 3650 days")
+
 const policiesSchema = z.object({
-    b2b_retention: z.string().min(1, "Required").regex(/^\d+$/, "Must be a number"),
-    free_valid_retention: z.string().min(1, "Required").regex(/^\d+$/, "Must be a number"),
-    free_invalid_retention: z.string().min(1, "Required").regex(/^\d+$/, "Must be a number")
+    b2b_retention: retentionDay,
+    free_valid_retention: retentionDay,
+    free_invalid_retention: retentionDay,
 })
 
 const lookupSchema = z.object({
@@ -49,7 +58,7 @@ type CacheStatsData = {
     total_cached: number
     free_cached: number
     b2b_cached: number
-    hit_ratio: string
+    hit_ratio?: string | null
     policies?: CachePolicies
 }
 
@@ -67,13 +76,19 @@ type CacheStatsInitial = Partial<CacheStatsData> & {
 
 export type { CacheStatsInitial }
 
+const DELETE_CONFIRM_PHRASE = "DELETE"
+
 export function CacheControlClient({ initialStats }: { initialStats: CacheStatsInitial | null }) {
-    // Stats State
-    const [stats, setStats] = useState({
+    const [stats, setStats] = useState<{
+        total_cached: number
+        free_cached: number
+        b2b_cached: number
+        hit_ratio: string | null
+    }>({
         total_cached: initialStats?.total_cached || 0,
         free_cached: initialStats?.free_cached || 0,
         b2b_cached: initialStats?.b2b_cached || 0,
-        hit_ratio: initialStats?.hit_ratio || "0%"
+        hit_ratio: initialStats?.hit_ratio ?? null,
     })
 
     const policiesForm = useForm<z.infer<typeof policiesSchema>>({
@@ -89,20 +104,20 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
         resolver: zodResolver(lookupSchema),
         defaultValues: { email: "" }
     })
-    
-    // Operations State
+
     const [lookupResult, setLookupResult] = useState<CacheLookupResult | null>(null)
     const [isSaved, setIsSaved] = useState(false)
     const [isLoadingStats, setIsLoadingStats] = useState(false)
     const [isPurging, setIsPurging] = useState(false)
-    const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
-
-    // Delete Confirmation State
-    const [confirmDelete, setConfirmDelete] = useState(false)
-    const deleteTimerRef = useRef<NodeJS.Timeout | null>(null)
-
-    // Upload State
+    const [lastRefreshed, setLastRefreshed] = useState<Date>(() => new Date())
     const [isUploading, setIsUploading] = useState(false)
+    const [isDragging, setIsDragging] = useState(false)
+    const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+    const [showInvalidateModal, setShowInvalidateModal] = useState(false)
+    const [invalidateConfirm, setInvalidateConfirm] = useState("")
+    const [showPurgeModal, setShowPurgeModal] = useState(false)
+    const [purgeConfirm, setPurgeConfirm] = useState("")
 
     const fetchStats = useCallback(async () => {
         setIsLoadingStats(true)
@@ -113,7 +128,7 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                     total_cached: res.data.total_cached || 0,
                     free_cached: res.data.free_cached || 0,
                     b2b_cached: res.data.b2b_cached || 0,
-                    hit_ratio: res.data.hit_ratio || "0%"
+                    hit_ratio: res.data.hit_ratio ?? null,
                 })
                 if (res.data.policies) {
                     policiesForm.reset({
@@ -123,6 +138,8 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                     })
                 }
                 setLastRefreshed(new Date())
+            } else {
+                toast.error(res.message || "Failed to load cache stats")
             }
         } catch (error: unknown) {
             toast.error(error instanceof Error ? error.message : "Failed to load cache stats")
@@ -130,10 +147,6 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
             setIsLoadingStats(false)
         }
     }, [policiesForm])
-
-    useEffect(() => {
-        setLastRefreshed(new Date())
-    }, [])
 
     const onSavePolicies = async (values: z.infer<typeof policiesSchema>) => {
         setIsSaved(false)
@@ -153,7 +166,8 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
 
     const onLookup = async (values: z.infer<typeof lookupSchema>) => {
         setLookupResult(null)
-        setConfirmDelete(false)
+        setShowInvalidateModal(false)
+        setInvalidateConfirm("")
         try {
             const res = await ApiClient.post<{ found?: boolean; data?: CacheLookupResult }>('/admin/cache/lookup', { email: values.email })
             if (res.status === 'success' && res.data?.found && res.data.data) {
@@ -167,34 +181,25 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
         }
     }
 
-    const handleDeleteClick = () => {
+    const doDeleteCache = async () => {
         if (!lookupResult) return
-
-        if (!confirmDelete) {
-            setConfirmDelete(true)
-            if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current)
-            deleteTimerRef.current = setTimeout(() => {
-                setConfirmDelete(false)
-            }, 3000)
+        if (invalidateConfirm.trim().toUpperCase() !== DELETE_CONFIRM_PHRASE) {
+            toast.error(`Type ${DELETE_CONFIRM_PHRASE} to confirm`)
             return
         }
 
-        doDeleteCache()
-    }
-
-    const doDeleteCache = async () => {
-        if (!lookupResult) return
-        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current)
-        setConfirmDelete(false)
-
         const toastId = toast.loading("Deleting cache...")
         try {
-            const res = await ApiClient.delete('/admin/cache/lookup', { data: { email: lookupResult.email } })
+            const res = await ApiClient.delete<{ deleted?: boolean }>('/admin/cache/lookup', {
+                data: { email: lookupResult.email, confirm: DELETE_CONFIRM_PHRASE },
+            })
             if (res.status === 'success') {
                 toast.success(`Cache for ${lookupResult.email} has been deleted`, { id: toastId })
                 setLookupResult(null)
                 lookupForm.reset()
-                fetchStats()
+                setShowInvalidateModal(false)
+                setInvalidateConfirm("")
+                void fetchStats()
             } else {
                 toast.error(res.message || "Failed to delete cache", { id: toastId })
             }
@@ -204,13 +209,24 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
     }
 
     const handlePurge = async () => {
+        if (purgeConfirm.trim().toUpperCase() !== DELETE_CONFIRM_PHRASE) {
+            toast.error(`Type ${DELETE_CONFIRM_PHRASE} to confirm`)
+            return
+        }
+
         setIsPurging(true)
         const toastId = toast.loading("Purging expired cache...")
         try {
-            const res = await ApiClient.post<{ deleted_count?: number }>('/admin/cache/purge', {})
+            const res = await ApiClient.post<{ deleted_count?: number }>(
+                '/admin/cache/purge',
+                { confirm: DELETE_CONFIRM_PHRASE },
+                { timeout: 120_000 }
+            )
             if (res.status === 'success') {
                 toast.success(`Purged ${res.data?.deleted_count || 0} expired records`, { id: toastId })
-                fetchStats()
+                setShowPurgeModal(false)
+                setPurgeConfirm("")
+                void fetchStats()
             } else {
                 toast.error(res.message || "Failed to purge cache", { id: toastId })
             }
@@ -221,9 +237,12 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
         }
     }
 
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
+    const uploadFile = async (file: File) => {
+        const lower = file.name.toLowerCase()
+        if (!lower.endsWith('.csv') && !lower.endsWith('.txt')) {
+            toast.error("Upload a .csv or .txt file")
+            return
+        }
 
         const formData = new FormData()
         formData.append("file", file)
@@ -231,15 +250,16 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
         setIsUploading(true)
         const toastId = toast.loading("Importing records...")
         try {
-            // Using direct fetch to proxy to handle FormData properly
             const res = await fetch('/next-api/proxy/admin/cache/upload', {
                 method: 'POST',
                 body: formData,
             })
             const data = await res.json()
             if (data.status === 'success' || data.success) {
-                toast.success(`Successfully imported ${data.data?.inserted_count || 0} records`, { id: toastId })
-                fetchStats()
+                const inserted = data.data?.inserted_count || 0
+                const skipped = data.data?.skipped_count || 0
+                toast.success(`Imported ${inserted} records (${skipped} skipped)`, { id: toastId })
+                void fetchStats()
             } else {
                 toast.error(data.message || "Failed to import records", { id: toastId })
             }
@@ -247,8 +267,20 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
             toast.error(error instanceof Error ? error.message : "Upload failed", { id: toastId })
         } finally {
             setIsUploading(false)
-            if (e.target) e.target.value = ''
+            if (fileInputRef.current) fileInputRef.current.value = ''
         }
+    }
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (file) await uploadFile(file)
+    }
+
+    const onDrop = async (e: React.DragEvent) => {
+        e.preventDefault()
+        setIsDragging(false)
+        const file = e.dataTransfer.files?.[0]
+        if (file) await uploadFile(file)
     }
 
     const formatNumber = (num: number) => {
@@ -257,6 +289,13 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
         return num.toString()
     }
 
+    const hitRatioLabel = stats.hit_ratio && String(stats.hit_ratio).trim() !== ""
+        ? String(stats.hit_ratio)
+        : "—"
+
+    const canInvalidate = invalidateConfirm.trim().toUpperCase() === DELETE_CONFIRM_PHRASE
+    const canPurge = purgeConfirm.trim().toUpperCase() === DELETE_CONFIRM_PHRASE
+
     return (
         <div className="flex-1 space-y-6 pb-8">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -264,17 +303,15 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                     <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Cache Management Center</h2>
                     <p className="text-sm text-[#5a736c] flex items-center gap-2">
                         Manage verification cache rules and system resources.
-                        {lastRefreshed && (
-                            <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full ml-3 border border-slate-200">
-                                Last Refreshed: {lastRefreshed.toLocaleTimeString()}
-                            </span>
-                        )}
+                        <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full ml-3 border border-slate-200" suppressHydrationWarning>
+                            Last Refreshed: {lastRefreshed.toLocaleTimeString()}
+                        </span>
                     </p>
                 </div>
                 <Button
                     variant="outline"
                     size="sm"
-                    onClick={fetchStats}
+                    onClick={() => { void fetchStats(); }}
                     disabled={isLoadingStats}
                     className="h-8 gap-2 border-slate-200 text-slate-600"
                 >
@@ -283,7 +320,6 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                 </Button>
             </div>
 
-            {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
                     title="Total Cached Emails"
@@ -295,8 +331,8 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                 />
                 <StatCard
                     title="Cache Hit Ratio"
-                    value={stats.hit_ratio}
-                    subvalue="Saved verifications"
+                    value={hitRatioLabel}
+                    subvalue={hitRatioLabel === "—" ? "Not tracked yet" : "Saved verifications"}
                     icon={Zap}
                     color="text-emerald-600"
                     bg="bg-emerald-50"
@@ -304,7 +340,7 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                 <StatCard
                     title="Free Provider Cache"
                     value={formatNumber(stats.free_cached)}
-                    subvalue="Gmail, Yahoo, Outlook"
+                    subvalue="Gmail, Yahoo, Outlook…"
                     icon={ShieldAlert}
                     color="text-purple-600"
                     bg="bg-purple-50"
@@ -320,52 +356,52 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                {/* Configuration Section */}
                 <div className="space-y-6">
                     <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden">
                         <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                             <CardTitle className="text-lg font-semibold text-[#0b1f1c] flex items-center gap-2">
                                 <Settings2 className="h-5 w-5 text-[#0f5c52]" /> Retention Policies
                             </CardTitle>
-                            <CardDescription>Configure how long emails are cached before re-verification.</CardDescription>
+                            <CardDescription>Configure how long emails are cached before re-verification (1–3650 days).</CardDescription>
                         </CardHeader>
                         <form onSubmit={policiesForm.handleSubmit(onSavePolicies)}>
                             <CardContent className="space-y-5 pt-6">
-                                
                                 <div className="space-y-1.5">
                                     <Label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">B2B / Custom Domains (Days)</Label>
-                                    <Input 
-                                        type="number" 
+                                    <Input
+                                        type="number"
+                                        min={1}
+                                        max={3650}
                                         className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${policiesForm.formState.errors.b2b_retention ? 'border-red-400' : ''}`}
                                         {...policiesForm.register("b2b_retention")}
                                     />
                                     {policiesForm.formState.errors.b2b_retention && <p className="text-xs text-red-500">{policiesForm.formState.errors.b2b_retention.message}</p>}
-                                    <p className="text-[11px] text-slate-500 italic">Valid or Invalid status. Recommended: 30-45 days.</p>
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-1.5">
                                         <Label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Free Valid (Days)</Label>
-                                        <Input 
-                                            type="number" 
+                                        <Input
+                                            type="number"
+                                            min={1}
+                                            max={3650}
                                             className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${policiesForm.formState.errors.free_valid_retention ? 'border-red-400' : ''}`}
                                             {...policiesForm.register("free_valid_retention")}
                                         />
                                         {policiesForm.formState.errors.free_valid_retention && <p className="text-xs text-red-500">{policiesForm.formState.errors.free_valid_retention.message}</p>}
-                                        <p className="text-[11px] text-slate-500 italic">Safe to send. Rec: 365+ days.</p>
                                     </div>
                                     <div className="space-y-1.5">
                                         <Label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Free Invalid (Days)</Label>
-                                        <Input 
-                                            type="number" 
+                                        <Input
+                                            type="number"
+                                            min={1}
+                                            max={3650}
                                             className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${policiesForm.formState.errors.free_invalid_retention ? 'border-red-400' : ''}`}
                                             {...policiesForm.register("free_invalid_retention")}
                                         />
                                         {policiesForm.formState.errors.free_invalid_retention && <p className="text-xs text-red-500">{policiesForm.formState.errors.free_invalid_retention.message}</p>}
-                                        <p className="text-[11px] text-slate-500 italic">Undeliverable. Rec: 30 days.</p>
                                     </div>
                                 </div>
-
                             </CardContent>
                             <CardFooter className="bg-slate-50/50 border-t border-slate-100 p-4">
                                 <Button
@@ -373,26 +409,17 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                                     disabled={policiesForm.formState.isSubmitting || isSaved}
                                     className={cn(
                                         "shadow-md transition-all active:scale-[0.98] h-9 w-full sm:min-w-[180px]",
-                                        isSaved 
-                                            ? "bg-emerald-600 hover:bg-emerald-700 text-white" 
+                                        isSaved
+                                            ? "bg-emerald-600 hover:bg-emerald-700 text-white"
                                             : "border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white"
                                     )}
                                 >
                                     {policiesForm.formState.isSubmitting ? (
-                                        <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                            Saving...
-                                        </>
+                                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</>
                                     ) : isSaved ? (
-                                        <>
-                                            <CheckCircle2 className="mr-2 h-4 w-4" />
-                                            Policies Saved!
-                                        </>
+                                        <><CheckCircle2 className="mr-2 h-4 w-4" /> Policies Saved!</>
                                     ) : (
-                                        <>
-                                            <Save className="mr-2 h-4 w-4" />
-                                            Apply Policies
-                                        </>
+                                        <><Save className="mr-2 h-4 w-4" /> Apply Policies</>
                                     )}
                                 </Button>
                             </CardFooter>
@@ -400,9 +427,8 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                     </Card>
                 </div>
 
-                {/* Operations Section */}
                 <div className="space-y-6">
-                    <Card className="shadow-lg border-blue-50 overflow-hidden ring-1 ring-slate-100">
+                    <Card className="shadow-none border-blue-100 overflow-hidden">
                         <CardHeader className="bg-blue-50/30 border-b border-blue-100/50">
                             <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
                                 <Search className="h-5 w-5 text-blue-600" /> Lookup & Invalidate
@@ -412,8 +438,8 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                         <CardContent className="pt-6 space-y-4">
                             <form onSubmit={lookupForm.handleSubmit(onLookup)} className="flex gap-3 items-start">
                                 <div className="flex-1 space-y-1.5">
-                                    <Input 
-                                        placeholder="Enter email address..." 
+                                    <Input
+                                        placeholder="Enter email address..."
                                         className={`h-10 text-sm bg-white ${lookupForm.formState.errors.email ? 'border-red-400' : 'border-slate-200'}`}
                                         {...lookupForm.register("email")}
                                     />
@@ -425,23 +451,22 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                                 </Button>
                             </form>
                             {lookupResult && (
-                                <div className="mt-4 p-3 bg-slate-50 border border-slate-100 rounded-lg text-sm relative group">
-                                    <Button 
-                                        onClick={handleDeleteClick}
-                                        variant="ghost" 
-                                        size="sm" 
-                                        className={cn(
-                                            "absolute -top-3 -right-3 h-8 rounded-full shadow-sm transition-all",
-                                            confirmDelete 
-                                                ? "bg-rose-600 text-white hover:bg-rose-700 hover:text-white px-3 w-auto opacity-100" 
-                                                : "bg-rose-100 text-rose-600 hover:bg-rose-200 hover:text-rose-700 w-8 px-0 opacity-0 group-hover:opacity-100"
-                                        )}
+                                <div className="mt-4 p-3 bg-slate-50 border border-slate-100 rounded-lg text-sm relative">
+                                    <Button
+                                        type="button"
+                                        onClick={() => {
+                                            setInvalidateConfirm("")
+                                            setShowInvalidateModal(true)
+                                        }}
+                                        variant="ghost"
+                                        size="sm"
+                                        className="absolute -top-3 -right-3 h-8 rounded-full bg-rose-100 text-rose-600 hover:bg-rose-200 px-3"
                                         title="Invalidate this cache"
                                     >
-                                        <Trash2 className={cn("h-4 w-4", confirmDelete && "mr-1")} />
-                                        {confirmDelete && <span className="text-[10px] font-bold uppercase">Confirm Invalidate</span>}
+                                        <Trash2 className="h-4 w-4 mr-1" />
+                                        <span className="text-[10px] font-bold uppercase">Invalidate</span>
                                     </Button>
-                                    <div className="flex justify-between items-center mb-1 pr-6">
+                                    <div className="flex justify-between items-center mb-1 pr-24">
                                         <span className="font-medium text-slate-700">{lookupResult.email}</span>
                                         <span className={cn(
                                             "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase",
@@ -460,71 +485,179 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                         </CardContent>
                     </Card>
 
-                    {/* Storage Maintenance */}
-                    <Card className="shadow-lg border-amber-50 overflow-hidden ring-1 ring-slate-100">
+                    <Card className="shadow-none border-amber-100 overflow-hidden">
                         <CardHeader className="bg-amber-50/30 border-b border-amber-100/50">
                             <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
                                 <Trash2 className="h-5 w-5 text-amber-500" /> Storage Maintenance
                             </CardTitle>
-                            <CardDescription>Clean up database space by permanently deleting expired cache records.</CardDescription>
+                            <CardDescription>Permanently delete cache rows past their retention window.</CardDescription>
                         </CardHeader>
                         <CardContent className="pt-6">
                             <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 mb-4 flex items-start gap-3">
                                 <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
                                 <div className="text-xs text-amber-800 leading-relaxed">
-                                    This will safely remove all cache records that have passed their retention period. It frees up storage space and keeps the database fast.
+                                    Removes expired B2B / free-valid / free-invalid rows. Requires typed confirmation.
                                 </div>
                             </div>
-                            
-                            <Button 
+                            <Button
                                 variant="outline"
-                                onClick={handlePurge}
+                                onClick={() => {
+                                    setPurgeConfirm("")
+                                    setShowPurgeModal(true)
+                                }}
                                 disabled={isPurging}
                                 className="w-full bg-white hover:bg-amber-50 text-amber-700 border-amber-200 font-semibold h-10 px-6 gap-2"
                             >
-                                <Trash2 className={cn("h-4 w-4", isPurging && "animate-bounce")} />
-                                {isPurging ? "Purging..." : "Purge Expired Cache"}
+                                <Trash2 className="h-4 w-4" />
+                                Purge Expired Cache
                             </Button>
                         </CardContent>
                     </Card>
-
                 </div>
             </div>
 
-            {/* Bulk Upload Section */}
-            <div className="mt-6">
-                <Card className="shadow-lg border-emerald-50 overflow-hidden ring-1 ring-slate-100">
-                    <CardHeader className="bg-emerald-50/30 border-b border-emerald-100/50">
-                        <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-                            <UploadCloud className="h-5 w-5 text-emerald-600" /> Bulk Cache Import
-                        </CardTitle>
-                        <CardDescription>Upload verified email lists to directly seed the cache database without spending API credits.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="pt-6">
-                        <div className="space-y-4">
-                            <label className="block border-2 border-dashed border-emerald-200 bg-emerald-50/30 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:bg-emerald-50/50 transition-colors cursor-pointer">
-                                <input type="file" accept=".csv,.txt" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
-                                <div className="h-12 w-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-3">
-                                    <FileText className="h-6 w-6" />
-                                </div>
-                                <h3 className="text-sm font-semibold text-slate-900 mb-1">
-                                    {isUploading ? "Uploading..." : "Click or drag file to this area to upload"}
-                                </h3>
-                                <p className="text-xs text-slate-500 max-w-[250px] mx-auto">
-                                    Upload a .csv file containing verified emails. The system will automatically detect Email, Status, and Score.
-                                </p>
-                            </label>
-                            <div className="flex justify-end gap-3">
-                                <Button variant="outline" className="h-9" disabled={isUploading}>Cancel</Button>
-                                <Button className="h-9 bg-emerald-600 hover:bg-emerald-700 text-white gap-2" disabled={isUploading}>
-                                    <UploadCloud className={cn("h-4 w-4", isUploading && "animate-bounce")} /> 
-                                    {isUploading ? "Processing..." : "Import Data"}
+            <Card className="shadow-none border-emerald-100 overflow-hidden">
+                <CardHeader className="bg-emerald-50/30 border-b border-emerald-100/50">
+                    <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                        <UploadCloud className="h-5 w-5 text-emerald-600" /> Bulk Cache Import
+                    </CardTitle>
+                    <CardDescription>
+                        Upload CSV/TXT with Email + Status columns. Unknown statuses are skipped (max 100,000 rows).
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6">
+                    <div className="space-y-4">
+                        <div
+                            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+                            onDragLeave={() => setIsDragging(false)}
+                            onDrop={(e) => { void onDrop(e) }}
+                            className={cn(
+                                "border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center transition-colors",
+                                isDragging ? "border-emerald-400 bg-emerald-50" : "border-emerald-200 bg-emerald-50/30"
+                            )}
+                        >
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept=".csv,.txt"
+                                className="hidden"
+                                onChange={(e) => { void handleFileChange(e) }}
+                                disabled={isUploading}
+                            />
+                            <div className="h-12 w-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-3">
+                                <FileText className="h-6 w-6" />
+                            </div>
+                            <h3 className="text-sm font-semibold text-slate-900 mb-1">
+                                {isUploading ? "Uploading..." : "Drop a file here, or choose one"}
+                            </h3>
+                            <p className="text-xs text-slate-500 max-w-[280px] mx-auto mb-4">
+                                Status must be valid / invalid / catch_all / unknown. Rows without a recognized status are skipped.
+                            </p>
+                            <div className="flex gap-3">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-9"
+                                    disabled={isUploading}
+                                    onClick={() => {
+                                        if (fileInputRef.current) fileInputRef.current.value = ''
+                                    }}
+                                >
+                                    Clear
+                                </Button>
+                                <Button
+                                    type="button"
+                                    className="h-9 bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+                                    disabled={isUploading}
+                                    onClick={() => fileInputRef.current?.click()}
+                                >
+                                    <UploadCloud className={cn("h-4 w-4", isUploading && "animate-bounce")} />
+                                    {isUploading ? "Processing..." : "Choose File"}
                                 </Button>
                             </div>
                         </div>
-                    </CardContent>
-                </Card>
-            </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {showInvalidateModal && lookupResult && (
+                <ConfirmModal
+                    title="Invalidate Cache Entry"
+                    description={`Type ${DELETE_CONFIRM_PHRASE} to remove ${lookupResult.email} from cache.`}
+                    confirmText={invalidateConfirm}
+                    onConfirmTextChange={setInvalidateConfirm}
+                    canConfirm={canInvalidate}
+                    confirmLabel="Invalidate"
+                    onCancel={() => setShowInvalidateModal(false)}
+                    onConfirm={() => { void doDeleteCache() }}
+                />
+            )}
+
+            {showPurgeModal && (
+                <ConfirmModal
+                    title="Purge Expired Cache"
+                    description={`Type ${DELETE_CONFIRM_PHRASE} to permanently delete expired cache rows.`}
+                    confirmText={purgeConfirm}
+                    onConfirmTextChange={setPurgeConfirm}
+                    canConfirm={canPurge && !isPurging}
+                    confirmLabel={isPurging ? "Purging..." : "Purge"}
+                    onCancel={() => setShowPurgeModal(false)}
+                    onConfirm={() => { void handlePurge() }}
+                />
+            )}
+        </div>
+    )
+}
+
+function ConfirmModal({
+    title,
+    description,
+    confirmText,
+    onConfirmTextChange,
+    canConfirm,
+    confirmLabel,
+    onCancel,
+    onConfirm,
+}: {
+    title: string
+    description: string
+    confirmText: string
+    onConfirmTextChange: (v: string) => void
+    canConfirm: boolean
+    confirmLabel: string
+    onCancel: () => void
+    onConfirm: () => void
+}) {
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <Card className="w-full max-w-md shadow-none border-rose-100 overflow-hidden">
+                <CardHeader className="bg-rose-50/50 border-b border-rose-100/50">
+                    <CardTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                        <AlertCircle className="h-5 w-5 text-rose-600" /> {title}
+                    </CardTitle>
+                    <CardDescription>{description}</CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 space-y-3">
+                    <Input
+                        value={confirmText}
+                        onChange={(e) => onConfirmTextChange(e.target.value)}
+                        placeholder={DELETE_CONFIRM_PHRASE}
+                        className="font-mono text-sm border-red-200 focus-visible:ring-red-300"
+                        autoComplete="off"
+                    />
+                </CardContent>
+                <CardFooter className="flex justify-end gap-3 p-4 bg-slate-50/50 border-t border-slate-100">
+                    <Button type="button" variant="outline" onClick={onCancel} className="px-6 h-9">Cancel</Button>
+                    <Button
+                        type="button"
+                        disabled={!canConfirm}
+                        onClick={onConfirm}
+                        className="bg-rose-600 hover:bg-rose-700 text-white px-6 h-9 font-bold"
+                    >
+                        {confirmLabel}
+                    </Button>
+                </CardFooter>
+            </Card>
         </div>
     )
 }
@@ -538,7 +671,7 @@ function StatCard({ title, value, subvalue, icon: Icon, color, bg }: {
     bg: string
 }) {
     return (
-        <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 hover:shadow-sm transition-shadow duration-300">
+        <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90">
             <CardContent className="p-5">
                 <div className="flex justify-between items-start">
                     <div className="space-y-1">
