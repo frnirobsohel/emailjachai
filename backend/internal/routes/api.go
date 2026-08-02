@@ -102,8 +102,7 @@ func SetupRoutes(router *gin.Engine) {
 		worker := v1.Group("/worker")
 		worker.Use(handler.WorkerAuthMiddleware())
 		{
-			worker.POST("/claim-task", workerHandler.ClaimTask)
-			worker.POST("/complete-task", workerHandler.CompleteTask)
+			// Asynq is the sole task dispatch path; pull claim/complete APIs removed.
 			worker.GET("/domains", workerHandler.GetWorkerDomains)
 			worker.POST("/reset-tasks", workerHandler.ResetWorkerTasks)
 		}

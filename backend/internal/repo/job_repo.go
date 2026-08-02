@@ -5,7 +5,6 @@ import (
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
 	"ejp-backend/pkg/config"
-	"errors"
 	"fmt"
 	"time"
 
@@ -24,7 +23,6 @@ type JobRepository interface {
 	CountActiveJobs(userID uint) (int64, error)
 	CreateBulkJob(userID uint, jobID string, filename string, totalEmails int, invalidSyntaxCount int, queuedCount int, taskRecords []model.JobTask, apiKeyID *uint, maxActiveJobs int) (*model.Job, []model.JobTask, error)
 	RefundBulkJob(userID uint, jobID string, refundCredits int, description string) error
-	ClaimTask(serverName string, taskTimeoutMinutes int) (*model.JobTask, error)
 	GetJobForUser(userID uint, jobID string) (*model.Job, error)
 	GetJobResultsRows(jobInternalID uint) (*sql.Rows, error)
 	CountAllActiveJobs() (int64, error)
@@ -262,47 +260,6 @@ func (r *jobRepository) RefundBulkJob(userID uint, jobID string, refundCredits i
 		}
 		return tx.Create(&refundTxn).Error
 	})
-}
-
-func (r *jobRepository) ClaimTask(serverName string, taskTimeoutMinutes int) (*model.JobTask, error) {
-	var task model.JobTask
-	err := r.db.Transaction(func(tx *gorm.DB) error {
-		// Try queued first
-		// Find oldest queued task
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("status = ?", "queued").
-			Order("updated_at ASC, id ASC").
-			First(&task).Error; err != nil {
-			if !errors.Is(err, gorm.ErrRecordNotFound) {
-				return err
-			}
-		} else {
-			// Update task status and assigned worker
-			return tx.Model(&task).Updates(map[string]interface{}{
-				"status":        "processing",
-				"worker_server": serverName,
-				"updated_at":    time.Now(),
-			}).Error
-		}
-
-		timeoutAt := time.Now().Add(-time.Duration(taskTimeoutMinutes) * time.Minute)
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("status = ? AND updated_at < ?", "processing", timeoutAt).
-			Order("updated_at ASC, id ASC").
-			First(&task).Error; err != nil {
-			return err
-		}
-
-		return tx.Model(&task).Updates(map[string]interface{}{
-			"status":        "processing",
-			"worker_server": serverName,
-			"updated_at":    time.Now(),
-		}).Error
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &task, nil
 }
 
 func (r *jobRepository) GetJobForUser(userID uint, jobID string) (*model.Job, error) {

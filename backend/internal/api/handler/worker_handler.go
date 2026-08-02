@@ -34,56 +34,6 @@ func NewWorkerHandler(workerService service.WorkerService, cacheRepo repo.CacheR
 	}
 }
 
-func (h *WorkerHandler) ClaimTask(c *gin.Context) {
-	var input struct {
-		ServerName string `json:"server_name" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
-		return
-	}
-
-	task, err := h.workerService.ClaimTask(input.ServerName)
-	if err != nil {
-		if err.Error() == "no tasks available" {
-			helper.SendSuccess(c, "No tasks available", nil)
-			return
-		}
-		helper.SendError(c, http.StatusInternalServerError, "Failed to claim task", err.Error())
-		return
-	}
-
-	helper.SendSuccess(c, "Task claimed", task)
-}
-
-func (h *WorkerHandler) CompleteTask(c *gin.Context) {
-	var input struct {
-		TaskID uint   `json:"task_id" binding:"required"`
-		Status string `json:"status" binding:"required"` // completed or failed
-	}
-
-	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
-		return
-	}
-
-	if err := h.workerService.CompleteTask(input.TaskID, input.Status); err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to update task status", err.Error())
-		return
-	}
-
-	if strings.EqualFold(input.Status, "failed") && h.logRepo != nil {
-		_ = h.logRepo.Create(&model.ActivityLog{
-			Level:   "WARN",
-			Source:  "Worker",
-			Event:   "Task Failed",
-			Message: fmt.Sprintf("Worker reported task #%d as failed", input.TaskID),
-		})
-	}
-
-	helper.SendSuccess(c, "Task status updated", nil)
-}
-
 func (h *WorkerHandler) ResetWorkerTasks(c *gin.Context) {
 	var input struct {
 		ServerName string `json:"server_name" binding:"required"`

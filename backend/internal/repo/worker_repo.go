@@ -18,7 +18,6 @@ type WorkerRepo interface {
 	DB() *gorm.DB
 	IsWorkerEnabled(serverName string) bool
 	ReconcileJobStatus(jobID string) error
-	CompleteTask(taskID uint, status string) error
 	ResetWorkerTasks(serverName string) (int64, error)
 	GetWorkerDomains() ([]model.Domain, error)
 	UpdateResultFilePath(jobID string, filePath string) error
@@ -136,48 +135,6 @@ func (r *workerRepo) ReconcileJobStatus(jobID string) error {
 
 		return nil
 	})
-}
-
-func (r *workerRepo) CompleteTask(taskID uint, status string) error {
-	// Let service handle this logic if we want, or do it here.
-	// We'll keep DB in repo and logic in service. 
-	// The problem is CompleteTask has logic. Let's do it here.
-	var task model.JobTask
-	if err := r.db.Where("id = ?", taskID).First(&task).Error; err != nil {
-		return gorm.ErrRecordNotFound
-	}
-
-	expectedCount := int64(task.EndIndex - task.StartIndex + 1)
-	pushedCount := int64(task.PushedCount)
-
-	var job model.Job
-	r.db.Where("job_id = ?", task.JobID).Select("processed_count, total_emails").First(&job)
-	jobFullyProcessed := job.TotalEmails > 0 && int64(job.ProcessedCount) >= int64(job.TotalEmails)
-
-	if status == "completed" && pushedCount < expectedCount && !jobFullyProcessed {
-		r.db.Model(&model.JobTask{}).
-			Where("id = ? AND status = 'processing'", taskID).
-			Updates(map[string]interface{}{
-				"status":        "queued",
-				"worker_server": "",
-				"updated_at":    time.Now(),
-			})
-		return gorm.ErrInvalidData
-	}
-
-	if status == "completed" && pushedCount < expectedCount && jobFullyProcessed {
-		r.db.Model(&model.JobTask{}).Where("id = ?", taskID).Update("pushed_count", expectedCount)
-	}
-
-	result := r.db.Model(&model.JobTask{}).
-		Where("id = ? AND status = 'processing'", taskID).
-		Updates(map[string]interface{}{"status": status, "updated_at": time.Now()})
-	
-	if result.RowsAffected == 0 {
-		return gorm.ErrInvalidTransaction
-	}
-
-	return nil
 }
 
 func (r *workerRepo) ResetWorkerTasks(serverName string) (int64, error) {

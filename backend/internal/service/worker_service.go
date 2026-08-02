@@ -58,11 +58,9 @@ type WorkerBatchPayload struct {
 }
 
 type WorkerService interface {
-	ClaimTask(serverName string) (*model.JobTask, error)
 	ReportTaskResult(payload *WorkerReportPayload) (*model.Job, *model.JobResult, error)
 	ReportTaskResults(payload *WorkerBatchPayload) (*model.Job, []model.JobResult, error)
 	BroadcastJobUpdate(jobID string)
-	CompleteTask(taskID uint, status string) error
 	ResetWorkerTasks(serverName string) (int64, error)
 	GetWorkerDomains() ([]model.Domain, error)
 	UpdateResultFilePath(jobID string, filePath string) error
@@ -92,33 +90,6 @@ func (s *workerService) IsWorkerEnabled(serverName string) bool {
 
 func (s *workerService) ReconcileJobStatus(jobID string) error {
 	return s.workerRepo.ReconcileJobStatus(jobID)
-}
-
-func (s *workerService) ClaimTask(serverName string) (*model.JobTask, error) {
-	// Safety: only allow enabled worker servers to claim tasks
-	if !s.IsWorkerEnabled(serverName) {
-		return nil, fmt.Errorf("worker server '%s' is not enabled or not registered", serverName)
-	}
-
-	taskTimeoutMinutes := 60
-	if timeoutSetting, err := s.settingsRepo.GetByKey("task_timeout"); err == nil {
-		if v, convErr := helper.SafeAtoi(timeoutSetting.SettingValue); convErr == nil && v > 0 {
-			taskTimeoutMinutes = v
-		}
-	} else if timeoutSetting, err := s.settingsRepo.GetByKey("task_timeout_minutes"); err == nil {
-		// Legacy twin key — Job Control writes task_timeout; keep fallback for old DBs
-		if v, convErr := helper.SafeAtoi(timeoutSetting.SettingValue); convErr == nil && v > 0 {
-			taskTimeoutMinutes = v
-		}
-	}
-	if taskTimeoutMinutes < 1 {
-		taskTimeoutMinutes = 1
-	}
-	if taskTimeoutMinutes > 1440 {
-		taskTimeoutMinutes = 1440
-	}
-
-	return s.jobRepo.ClaimTask(serverName, taskTimeoutMinutes)
 }
 
 func (s *workerService) ReportTaskResult(payload *WorkerReportPayload) (*model.Job, *model.JobResult, error) {
@@ -811,19 +782,6 @@ func (s *workerService) BroadcastJobUpdate(jobID string) {
 			}
 		}
 	}
-}
-
-func (s *workerService) CompleteTask(taskID uint, status string) error {
-	err := s.workerRepo.CompleteTask(taskID, status)
-	if err == nil {
-		// Reconcile job status
-		var task model.JobTask
-		if rErr := s.workerRepo.DB().Where("id = ?", taskID).First(&task).Error; rErr == nil {
-			s.ReconcileJobStatus(task.JobID)
-			s.BroadcastJobUpdate(task.JobID)
-		}
-	}
-	return err
 }
 
 func (s *workerService) ResetWorkerTasks(serverName string) (int64, error) {
