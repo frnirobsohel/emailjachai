@@ -4,18 +4,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"ejp-backend/pkg/config"
-	"ejp-backend/internal/model"
-	"ejp-backend/internal/ws"
-	"ejp-backend/pkg/logger"
 	"ejp-backend/internal/helper"
+	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
+	"ejp-backend/internal/ws"
+	"ejp-backend/pkg/config"
+	"ejp-backend/pkg/logger"
 	"ejp-backend/pkg/safe"
 
 	"github.com/gin-gonic/gin"
@@ -45,6 +46,75 @@ func isValidWorkerServerName(name string) bool {
 	}
 	_, reserved := reservedWorkerNames[strings.ToLower(name)]
 	return !reserved
+}
+
+// isValidServerHost accepts IPv4/IPv6 or a DNS hostname (valid_domain rules).
+func isValidServerHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return true
+	}
+
+	domain := strings.ToLower(host)
+	if len(domain) < 3 {
+		return false
+	}
+	parts := strings.Split(domain, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	for _, part := range parts {
+		if len(part) == 0 || len(part) > 63 {
+			return false
+		}
+		if part[0] == '-' || part[len(part)-1] == '-' {
+			return false
+		}
+		for _, ch := range part {
+			if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func adminIDFromContext(c *gin.Context) (uint, bool) {
+	raw, ok := c.Get("userID")
+	if !ok {
+		return 0, false
+	}
+	id, ok := raw.(uint)
+	return id, ok
+}
+
+func getChunkSizeSetting() int {
+	chunkSize := 1000
+	var chunkSettings []model.Setting
+	if err := config.DB.Where("setting_key = ?", "chunk_size").Find(&chunkSettings).Error; err == nil && len(chunkSettings) > 0 {
+		if val, err := strconv.Atoi(chunkSettings[0].SettingValue); err == nil && val > 0 {
+			chunkSize = val
+		}
+	}
+	return chunkSize
+}
+
+func formatHeartbeatAge(diff time.Duration) string {
+	secs := int(diff.Seconds())
+	if secs < 5 {
+		return "Just now"
+	}
+	if secs < 60 {
+		return strconv.Itoa(secs) + "s ago"
+	}
+	mins := secs / 60
+	if mins < 60 {
+		return strconv.Itoa(mins) + "m ago"
+	}
+	return strconv.Itoa(mins/60) + "h ago"
 }
 
 func maskKey(workerKey string) string {
@@ -155,8 +225,8 @@ func (h *AdminHandler) getServerNodes() ([]serverNode, error) {
 		if lastPing != nil {
 			diff := now.Sub(lastPing.UTC())
 			if diff < 130*time.Second {
-				n.Ping = strconv.Itoa(20+int(s.ID%31)) + "ms"
-				n.RunningTime = "Online"
+				n.Ping = "live"
+				n.RunningTime = formatHeartbeatAge(diff)
 				n.Status = "active"
 			} else {
 				n.Ping = "--"
@@ -190,7 +260,7 @@ func (h *AdminHandler) getServerNodes() ([]serverNode, error) {
 		if n.Config.RateLimit <= 0 {
 			n.Config.RateLimit = 100
 		}
-		n.Config.ChunkSize = 50
+		n.Config.ChunkSize = getChunkSizeSetting()
 		n.Config.Enabled = s.Enabled
 		if !s.Enabled {
 			n.Status = "disabled"
@@ -217,7 +287,8 @@ func (h *AdminHandler) getServerNodes() ([]serverNode, error) {
 func (h *AdminHandler) ListServers(c *gin.Context) {
 	out, err := h.getServerNodes()
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch servers", err.Error())
+		logger.Error("Failed to fetch servers", "error", err)
+		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch servers", "ERR_SERVER_LIST")
 		return
 	}
 
@@ -244,36 +315,66 @@ func (h *AdminHandler) StartServerListBroadcaster() {
 	})
 }
 
-// GetWorkerKey returns the currently configured worker API key (masked or plain)
+// GetWorkerKey returns the masked worker API key (never plaintext).
 func (h *AdminHandler) GetWorkerKey(c *gin.Context) {
-	adminID, _ := c.Get("userID")
-	reveal := c.Query("reveal")
-	revealBool := reveal == "1" || strings.EqualFold(reveal, "true") || strings.EqualFold(reveal, "yes")
-
-	plainKey, masked, err := h.serverService.GetOrProvisionWorkerKey()
+	_, masked, err := h.serverService.GetOrProvisionWorkerKey()
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Unable to access worker key configuration.", err.Error())
+		logger.Error("Unable to access worker key configuration", "error", err)
+		helper.SendError(c, http.StatusInternalServerError, "Unable to access worker key configuration.", "ERR_SERVER_WORKER_KEY")
 		return
 	}
 
-	if revealBool {
-		logAction(adminID.(uint), "WARN", "Admin", "Administrator revealed the dedicated worker API key")
-	}
-
-	resp := gin.H{
+	helper.SendSuccess(c, "Worker key retrieved", gin.H{
 		"masked_key": masked,
 		"worker_key": nil,
-	}
-	if revealBool {
-		resp["worker_key"] = plainKey
+	})
+}
+
+// RevealWorkerKey returns the plaintext worker key after admin password verification.
+func (h *AdminHandler) RevealWorkerKey(c *gin.Context) {
+	adminID, ok := adminIDFromContext(c)
+	if !ok {
+		helper.SendError(c, http.StatusUnauthorized, "Unauthorized", "ERR_UNAUTHORIZED")
+		return
 	}
 
-	helper.SendSuccess(c, "Worker key retrieved", resp)
+	var input struct {
+		Password string `json:"password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Password is required", "ERR_BAD_REQUEST")
+		return
+	}
+
+	valid, err := h.serverService.CheckAdminPassword(adminID, input.Password)
+	if err != nil || !valid {
+		logAction(adminID, "WARN", "Admin", "Failed worker key reveal attempt")
+		helper.SendError(c, http.StatusForbidden, "Invalid administrator password.", "ERR_SERVER_BAD_PASSWORD")
+		return
+	}
+
+	plainKey, masked, err := h.serverService.GetOrProvisionWorkerKey()
+	if err != nil {
+		logger.Error("Unable to reveal worker key", "error", err)
+		helper.SendError(c, http.StatusInternalServerError, "Unable to access worker key configuration.", "ERR_SERVER_WORKER_KEY")
+		return
+	}
+
+	logAction(adminID, "WARN", "Admin", "Administrator revealed the dedicated worker API key")
+	helper.SendSuccess(c, "Worker key revealed", gin.H{
+		"worker_key": plainKey,
+		"masked_key": masked,
+	})
 }
 
 // AddServer registers a new worker server (Legacy: Admin\ServerController@store)
 func (h *AdminHandler) AddServer(c *gin.Context) {
-	adminID, _ := c.Get("userID")
+	adminID, ok := adminIDFromContext(c)
+	if !ok {
+		helper.SendError(c, http.StatusUnauthorized, "Unauthorized", "ERR_UNAUTHORIZED")
+		return
+	}
+
 	var input struct {
 		ServerName string `json:"server_name" binding:"required"`
 		IPAddress  string `json:"ip_address" binding:"required"`
@@ -281,24 +382,31 @@ func (h *AdminHandler) AddServer(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Invalid server payload", "ERR_BAD_REQUEST")
 		return
 	}
 
 	input.ServerName = strings.TrimSpace(input.ServerName)
 	input.IPAddress = strings.TrimSpace(input.IPAddress)
-	if input.Port <= 0 || input.Port > 65535 {
-		input.Port = 80
+	if input.Port == 0 {
+		input.Port = 8080
+	} else if input.Port < 1 || input.Port > 65535 {
+		helper.SendError(c, http.StatusBadRequest, "Port must be between 1 and 65535", "ERR_SERVER_PORT")
+		return
 	}
 
 	if !isValidWorkerServerName(input.ServerName) {
-		helper.SendError(c, http.StatusBadRequest, "Invalid server name", "")
+		helper.SendError(c, http.StatusBadRequest, "Invalid server name", "ERR_SERVER_NAME")
+		return
+	}
+	if !isValidServerHost(input.IPAddress) {
+		helper.SendError(c, http.StatusBadRequest, "Invalid IP address or hostname", "ERR_SERVER_HOST")
 		return
 	}
 
 	existing, _ := h.serverService.GetByName(input.ServerName)
 	if existing != nil {
-		helper.SendError(c, http.StatusConflict, "server_name must be unique", "")
+		helper.SendError(c, http.StatusConflict, "server_name must be unique", "ERR_SERVER_NAME_EXISTS")
 		return
 	}
 
@@ -314,40 +422,46 @@ func (h *AdminHandler) AddServer(c *gin.Context) {
 	}
 
 	if err := h.serverService.CreateServer(&server); err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to register server", err.Error())
+		logger.Error("Failed to register server", "error", err)
+		helper.SendError(c, http.StatusInternalServerError, "Failed to register server", "ERR_SERVER_CREATE")
 		return
 	}
 
-	logAction(adminID.(uint), "INFO", "Admin", "New server '"+server.ServerName+"' ("+server.IPAddress+") registered")
+	logAction(adminID, "INFO", "Admin", "New server '"+server.ServerName+"' ("+server.IPAddress+") registered")
 	helper.SendSuccess(c, "Server registered", nil)
 }
 
 // UpdateServer updates a worker server (Legacy: Admin\ServerController@update)
 func (h *AdminHandler) UpdateServer(c *gin.Context) {
-	adminID, _ := c.Get("userID")
+	adminID, ok := adminIDFromContext(c)
+	if !ok {
+		helper.SendError(c, http.StatusUnauthorized, "Unauthorized", "ERR_UNAUTHORIZED")
+		return
+	}
+
 	var input struct {
-		ID         uint    `json:"id" binding:"required"`
-		ServerName *string `json:"server_name"`
-		IPAddress  *string `json:"ip_address"`
-		Port       *int    `json:"port"`
-		Status     *string `json:"status"`
-		RateLimit  *int    `json:"rate_limit"`
-		DailyLimit *int    `json:"daily_limit"`
+		ID           uint    `json:"id" binding:"required"`
+		ServerName   *string `json:"server_name"`
+		IPAddress    *string `json:"ip_address"`
+		Port         *int    `json:"port"`
+		Status       *string `json:"status"`
+		RateLimit    *int    `json:"rate_limit"`
+		DailyLimit   *int    `json:"daily_limit"`
 		IPReputation *string `json:"ip_reputation"`
-		Config     *struct {
+		Config       *struct {
 			DailyLimit *int `json:"dailyLimit"`
 			RateLimit  *int `json:"rateLimit"`
 		} `json:"config"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Invalid server payload", "ERR_BAD_REQUEST")
 		return
 	}
 
 	server, err := h.serverService.GetByID(input.ID)
 	if err != nil {
-		helper.SendError(c, http.StatusNotFound, "Server not found", "")
+		helper.SendError(c, http.StatusNotFound, "Server not found", "ERR_SERVER_NOT_FOUND")
 		return
 	}
 
@@ -357,12 +471,12 @@ func (h *AdminHandler) UpdateServer(c *gin.Context) {
 		name := strings.TrimSpace(*input.ServerName)
 		if name != "" && name != server.ServerName {
 			if !isValidWorkerServerName(name) {
-				helper.SendError(c, http.StatusBadRequest, "Invalid server name", "")
+				helper.SendError(c, http.StatusBadRequest, "Invalid server name", "ERR_SERVER_NAME")
 				return
 			}
 			existing, _ := h.serverService.GetByName(name)
 			if existing != nil && existing.ID != server.ID {
-				helper.SendError(c, http.StatusConflict, "server_name must be unique", "")
+				helper.SendError(c, http.StatusConflict, "server_name must be unique", "ERR_SERVER_NAME_EXISTS")
 				return
 			}
 			updates["server_name"] = name
@@ -372,14 +486,20 @@ func (h *AdminHandler) UpdateServer(c *gin.Context) {
 	if input.IPAddress != nil {
 		ip := strings.TrimSpace(*input.IPAddress)
 		if ip != "" {
+			if !isValidServerHost(ip) {
+				helper.SendError(c, http.StatusBadRequest, "Invalid IP address or hostname", "ERR_SERVER_HOST")
+				return
+			}
 			updates["ip_address"] = ip
 		}
 	}
 
 	if input.Port != nil {
-		if *input.Port > 0 && *input.Port <= 65535 {
-			updates["port"] = *input.Port
+		if *input.Port < 1 || *input.Port > 65535 {
+			helper.SendError(c, http.StatusBadRequest, "Port must be between 1 and 65535", "ERR_SERVER_PORT")
+			return
 		}
+		updates["port"] = *input.Port
 	}
 
 	if input.Status != nil && strings.TrimSpace(*input.Status) != "" {
@@ -411,28 +531,35 @@ func (h *AdminHandler) UpdateServer(c *gin.Context) {
 	}
 
 	if err := h.serverService.UpdateFields(server.ID, updates); err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to update server", err.Error())
+		logger.Error("Failed to update server", "error", err, "id", server.ID)
+		helper.SendError(c, http.StatusInternalServerError, "Failed to update server", "ERR_SERVER_UPDATE")
 		return
 	}
 
-	logAction(adminID.(uint), "INFO", "Admin", "Server ID #"+strconv.Itoa(int(server.ID))+" updated")
+	logAction(adminID, "INFO", "Admin", "Server ID #"+strconv.Itoa(int(server.ID))+" updated")
 	helper.SendSuccess(c, "Server updated", nil)
 }
 
 // ToggleServer enables/disables a worker server (Legacy: Admin\ServerController@toggle)
 func (h *AdminHandler) ToggleServer(c *gin.Context) {
-	adminID, _ := c.Get("userID")
+	adminID, ok := adminIDFromContext(c)
+	if !ok {
+		helper.SendError(c, http.StatusUnauthorized, "Unauthorized", "ERR_UNAUTHORIZED")
+		return
+	}
+
 	var input struct {
 		ID      uint  `json:"id" binding:"required"`
 		Enabled *bool `json:"enabled" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Invalid toggle payload", "ERR_BAD_REQUEST")
 		return
 	}
 
 	if err := h.serverService.ToggleServer(input.ID, *input.Enabled); err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to update server status", err.Error())
+		logger.Error("Failed to toggle server", "error", err, "id", input.ID)
+		helper.SendError(c, http.StatusInternalServerError, "Failed to update server status", "ERR_SERVER_TOGGLE")
 		return
 	}
 
@@ -440,40 +567,51 @@ func (h *AdminHandler) ToggleServer(c *gin.Context) {
 	if *input.Enabled {
 		label = "enabled"
 	}
-	logAction(adminID.(uint), "INFO", "Admin", "Server ID #"+strconv.Itoa(int(input.ID))+" "+label)
+	logAction(adminID, "INFO", "Admin", "Server ID #"+strconv.Itoa(int(input.ID))+" "+label)
 	helper.SendSuccess(c, "Server "+label+" successfully", nil)
 }
 
 // DeleteServer deletes a worker server (Legacy: Admin\ServerController@delete)
 func (h *AdminHandler) DeleteServer(c *gin.Context) {
-	adminID, _ := c.Get("userID")
+	adminID, ok := adminIDFromContext(c)
+	if !ok {
+		helper.SendError(c, http.StatusUnauthorized, "Unauthorized", "ERR_UNAUTHORIZED")
+		return
+	}
+
 	var input struct {
-		ID uint `json:"id" binding:"required"`
+		ID      uint   `json:"id" binding:"required"`
+		Confirm string `json:"confirm" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Type DELETE to confirm", "ERR_BAD_REQUEST")
+		return
+	}
+	if strings.ToUpper(strings.TrimSpace(input.Confirm)) != "DELETE" {
+		helper.SendError(c, http.StatusBadRequest, "Type DELETE to confirm", "ERR_SERVER_CONFIRM")
 		return
 	}
 
 	if err := h.serverService.DeleteServer(input.ID); err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to delete server", err.Error())
+		logger.Error("Failed to delete server", "error", err, "id", input.ID)
+		helper.SendError(c, http.StatusInternalServerError, "Failed to delete server", "ERR_SERVER_DELETE")
 		return
 	}
 
-	logAction(adminID.(uint), "WARN", "Admin", "Server ID #"+strconv.Itoa(int(input.ID))+" deleted")
+	logAction(adminID, "WARN", "Admin", "Server ID #"+strconv.Itoa(int(input.ID))+" deleted")
 	helper.SendSuccess(c, "Server deleted", nil)
 }
 
 // WorkerHeartbeat handles worker pings (Legacy: Admin\ServerController@heartbeat)
 func WorkerHeartbeat(c *gin.Context) {
 	var input struct {
-		ServerName string `json:"server_name" binding:"required"`
-		IPAddress  string `json:"ip_address"`
-		Port       *int   `json:"port"`
-		WorkerCount int   `json:"worker_count"`
+		ServerName  string `json:"server_name" binding:"required"`
+		IPAddress   string `json:"ip_address"`
+		Port        *int   `json:"port"`
+		WorkerCount int    `json:"worker_count"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Invalid heartbeat payload", "ERR_BAD_REQUEST")
 		return
 	}
 
@@ -483,13 +621,7 @@ func WorkerHeartbeat(c *gin.Context) {
 		ip = strings.TrimSpace(c.ClientIP())
 	}
 
-	var chunkSettings []model.Setting
-	chunkSize := 1000 // default
-	if err := config.DB.Where("setting_key = ?", "chunk_size").Find(&chunkSettings).Error; err == nil && len(chunkSettings) > 0 {
-		if val, err := strconv.Atoi(chunkSettings[0].SettingValue); err == nil && val > 0 {
-			chunkSize = val
-		}
-	}
+	chunkSize := getChunkSizeSetting()
 
 	now := time.Now().UTC()
 	var server model.WorkerServer
@@ -500,7 +632,7 @@ func WorkerHeartbeat(c *gin.Context) {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logger.Info("Auto-provisioning new worker server", "server_name", input.ServerName, "ip", ip)
 
-			port := 80
+			port := 8080
 			if input.Port != nil && *input.Port > 0 && *input.Port <= 65535 {
 				port = *input.Port
 			}
@@ -519,15 +651,16 @@ func WorkerHeartbeat(c *gin.Context) {
 			}
 
 			if err := config.DB.Create(&server).Error; err != nil {
-				helper.SendError(c, http.StatusInternalServerError, "Heartbeat failed", err.Error())
+				logger.Error("Heartbeat auto-provision failed", "error", err)
+				helper.SendError(c, http.StatusInternalServerError, "Heartbeat failed", "ERR_SERVER_HEARTBEAT")
 				return
 			}
 
-			// Real-time Update for Admins
 			ws.GlobalHub.BroadcastToAdmins("worker_update", gin.H{
 				"server_name":  server.ServerName,
 				"ip_address":   ip,
 				"status":       "online",
+				"enabled":      true,
 				"worker_count": input.WorkerCount,
 				"last_ping":    now.Format(time.RFC3339),
 			})
@@ -538,15 +671,16 @@ func WorkerHeartbeat(c *gin.Context) {
 			return
 		}
 
-		helper.SendError(c, http.StatusInternalServerError, "Heartbeat failed", err.Error())
+		logger.Error("Heartbeat lookup failed", "error", err)
+		helper.SendError(c, http.StatusInternalServerError, "Heartbeat failed", "ERR_SERVER_HEARTBEAT")
 		return
 	}
 
+	// Do NOT force enabled=true — admin Disable must survive heartbeats (H1).
 	updates := map[string]interface{}{
 		"ip_address":   ip,
 		"last_ping":    &now,
 		"status":       "online",
-		"enabled":      true,
 		"worker_count": input.WorkerCount,
 	}
 	if input.Port != nil && *input.Port > 0 && *input.Port <= 65535 {
@@ -554,56 +688,66 @@ func WorkerHeartbeat(c *gin.Context) {
 	}
 
 	if err := config.DB.Model(&server).Updates(updates).Error; err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Heartbeat failed", err.Error())
+		logger.Error("Heartbeat update failed", "error", err)
+		helper.SendError(c, http.StatusInternalServerError, "Heartbeat failed", "ERR_SERVER_HEARTBEAT")
 		return
 	}
 
-	// Real-time Update for Admins
+	statusLabel := "online"
+	if !server.Enabled {
+		statusLabel = "disabled"
+	}
+
 	ws.GlobalHub.BroadcastToAdmins("worker_update", gin.H{
 		"server_name":  server.ServerName,
 		"ip_address":   ip,
-		"status":       "online",
+		"status":       statusLabel,
+		"enabled":      server.Enabled,
 		"worker_count": input.WorkerCount,
 		"last_ping":    now.Format(time.RFC3339),
 	})
 
-	logger.Info("Worker heartbeat received", "server", server.ServerName, "ip", ip)
+	logger.Info("Worker heartbeat received", "server", server.ServerName, "ip", ip, "enabled", server.Enabled)
 
 	helper.SendSuccess(c, "Heartbeat received", gin.H{
 		"chunk_size": chunkSize,
+		"enabled":    server.Enabled,
 	})
 }
 
 // RotateWorkerKey generates a new worker API key
 func (h *AdminHandler) RotateWorkerKey(c *gin.Context) {
-	adminID, _ := c.Get("userID")
+	adminID, ok := adminIDFromContext(c)
+	if !ok {
+		helper.SendError(c, http.StatusUnauthorized, "Unauthorized", "ERR_UNAUTHORIZED")
+		return
+	}
+
 	var input struct {
 		Password string `json:"password" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Password is required", "ERR_BAD_REQUEST")
 		return
 	}
 
-	valid, err := h.serverService.CheckAdminPassword(adminID.(uint), input.Password)
+	valid, err := h.serverService.CheckAdminPassword(adminID, input.Password)
 	if err != nil || !valid {
-		logAction(adminID.(uint), "WARN", "Admin", "Failed worker key rotation attempt")
-		helper.SendError(c, http.StatusForbidden, "Invalid administrator password.", "")
+		logAction(adminID, "WARN", "Admin", "Failed worker key rotation attempt")
+		helper.SendError(c, http.StatusForbidden, "Invalid administrator password.", "ERR_SERVER_BAD_PASSWORD")
 		return
 	}
 
 	newKey, masked, err := h.serverService.RotateWorkerKey()
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Unable to rotate worker key.", err.Error())
+		logger.Error("Unable to rotate worker key", "error", err)
+		helper.SendError(c, http.StatusInternalServerError, "Unable to rotate worker key.", "ERR_SERVER_ROTATE_KEY")
 		return
 	}
 
-	logAction(adminID.(uint), "WARN", "Admin", "Dedicated worker API key rotated")
+	logAction(adminID, "WARN", "Admin", "Dedicated worker API key rotated")
 	helper.SendSuccess(c, "Worker key rotated successfully", gin.H{
 		"worker_key": newKey,
 		"masked_key": masked,
 	})
 }
-
-
-

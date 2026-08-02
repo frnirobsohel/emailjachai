@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
     Server, RefreshCcw, Activity, Plus, Copy, Check, Trash2, Settings2,
@@ -44,19 +44,46 @@ export interface ServerNode {
 }
 
 const addServerSchema = z.object({
-    name: z.string().min(1, "Display name is required"),
-    ip: z.string().min(1, "IP/Domain is required"),
-    port: z.string().min(1, "Invalid port")
+    name: z
+        .string()
+        .trim()
+        .min(3, "Name must be at least 3 characters")
+        .max(100, "Name is too long")
+        .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "Use letters, numbers, dots, underscores, or hyphens"),
+    ip: z
+        .string()
+        .trim()
+        .min(3, "IP/Domain is required")
+        .max(253, "Host is too long"),
+    port: z
+        .string()
+        .trim()
+        .regex(/^\d+$/, "Port must be a number")
+        .refine((value) => {
+            const port = Number(value)
+            return port >= 1 && port <= 65535
+        }, "Port must be between 1 and 65535"),
 })
 
 const manageServerSchema = z.object({
-    rateLimit: z.union([z.string(), z.number()]),
-    dailyLimit: z.union([z.string(), z.number()])
+    rateLimit: z
+        .union([z.string(), z.number()])
+        .transform((value) => Number(value))
+        .pipe(z.number().int().min(1, "Min 1").max(1_000_000, "Too high")),
+    dailyLimit: z
+        .union([z.string(), z.number()])
+        .transform((value) => Number(value))
+        .pipe(z.number().int().min(1, "Min 1").max(100_000_000, "Too high")),
 })
 
-const rotateKeySchema = z.object({
-    password: z.string().min(1, "Password is required")
+type ManageServerFormValues = z.input<typeof manageServerSchema>
+type ManageServerParsed = z.output<typeof manageServerSchema>
+
+const passwordSchema = z.object({
+    password: z.string().min(1, "Password is required"),
 })
+
+const DELETE_CONFIRM_PHRASE = "DELETE"
 
 export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
     const servers = useServerStore(state => state.servers)
@@ -71,25 +98,22 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
     const [copied, setCopied] = useState(false)
     const [showAddForm, setShowAddForm] = useState(false)
     const [showApiKey, setShowApiKey] = useState(false)
-    const [showRegenerateModal, setShowRegenerateModal] = useState(false)
+    const [passwordModal, setPasswordModal] = useState<"reveal" | "rotate" | null>(null)
     const [manageServer, setManageServer] = useState<ServerNode | null>(null)
     const [searchTerm, setSearchTerm] = useState("")
-    
-    // Inline confirmation state for delete
-    const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
-    const deleteTimerRef = useRef<NodeJS.Timeout | null>(null)
+    const [deleteConfirmText, setDeleteConfirmText] = useState("")
 
     const addForm = useForm<z.infer<typeof addServerSchema>>({
         resolver: zodResolver(addServerSchema),
         defaultValues: { name: "", ip: "", port: "8080" }
     })
 
-    const manageForm = useForm<z.infer<typeof manageServerSchema>>({
+    const manageForm = useForm<ManageServerFormValues, unknown, ManageServerParsed>({
         resolver: zodResolver(manageServerSchema)
     })
 
-    const rotateForm = useForm<z.infer<typeof rotateKeySchema>>({
-        resolver: zodResolver(rotateKeySchema),
+    const passwordForm = useForm<z.infer<typeof passwordSchema>>({
+        resolver: zodResolver(passwordSchema),
         defaultValues: { password: "" }
     })
 
@@ -120,10 +144,15 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                 rateLimit: manageServer.config.rateLimit,
                 dailyLimit: manageServer.config.dailyLimit
             })
-            setConfirmDeleteId(null)
-            if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current)
+            setDeleteConfirmText("")
         }
     }, [manageServer, manageForm])
+
+    useEffect(() => {
+        if (passwordModal) {
+            passwordForm.reset({ password: "" })
+        }
+    }, [passwordModal, passwordForm])
 
     const filteredServers = useMemo(() => {
         const query = searchTerm.trim().toLowerCase()
@@ -145,13 +174,13 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
     }, [servers, searchTerm])
 
     const fetchServers = async () => {
+        setIsLoading(true);
         try {
             const result = await ApiClient.get<ServerNode[]>('/admin/server/list');
             if (result.status === 'success') {
                 const data = Array.isArray(result.data) ? result.data : [];
                 setServers(data);
             }
-            setWorkerKey("");
         } catch (error) {
             console.error("Failed to fetch servers:", error);
         } finally {
@@ -161,11 +190,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
 
     const onAddServer = async (values: z.infer<typeof addServerSchema>) => {
         try {
-            const portNum = parseInt(values.port as string, 10);
-            if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-                toast.error("Port must be between 1 and 65535");
-                return;
-            }
+            const portNum = Number(values.port);
 
             const result = await ApiClient.post('/admin/server/add', {
                 server_name: values.name.trim(),
@@ -177,7 +202,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                 toast.success("Worker server added successfully");
                 setShowAddForm(false);
                 addForm.reset();
-                fetchServers();
+                void fetchServers();
             } else {
                 toast.error(result.message || "Failed to add server");
             }
@@ -195,7 +220,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
 
             if (result.status === 'success') {
                 toast.success(enable ? "Server enabled" : "Server disabled");
-                fetchServers();
+                void fetchServers();
             } else {
                 toast.error(result.message || "Failed to toggle server status");
             }
@@ -204,31 +229,27 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
         }
     }
 
-    const handleDeleteClick = (id: number) => {
-        if (confirmDeleteId !== id) {
-            setConfirmDeleteId(id)
-            if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current)
-            deleteTimerRef.current = setTimeout(() => {
-                setConfirmDeleteId(null)
-            }, 3000)
-            return
+    const doDeleteServer = async () => {
+        if (!manageServer) return;
+        if (deleteConfirmText.trim().toUpperCase() !== DELETE_CONFIRM_PHRASE) {
+            toast.error(`Type ${DELETE_CONFIRM_PHRASE} to confirm`);
+            return;
         }
 
-        doDeleteServer(id)
-    }
+        const id = manageServer.id;
+        setManageServer(null);
+        setDeleteConfirmText("");
 
-    const doDeleteServer = async (id: number) => {
-        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current)
-        setConfirmDeleteId(null)
-        setManageServer(null)
-        
-        const toastId = toast.loading("Deleting server...")
+        const toastId = toast.loading("Deleting server...");
         try {
-            const result = await ApiClient.post('/admin/server/delete', { id });
+            const result = await ApiClient.post('/admin/server/delete', {
+                id,
+                confirm: DELETE_CONFIRM_PHRASE,
+            });
 
             if (result.status === 'success') {
                 toast.success("Server deleted successfully", { id: toastId });
-                fetchServers();
+                void fetchServers();
             } else {
                 toast.error(result.message || "Failed to delete server", { id: toastId });
             }
@@ -237,27 +258,49 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
         }
     }
 
-    const fetchWorkerKey = async (reveal = false) => {
+    const onPasswordAction = async (values: z.infer<typeof passwordSchema>) => {
+        if (!passwordModal) return;
+
         setIsKeyLoading(true);
         try {
-            const result = await ApiClient.get<{ worker_key?: string | null }>(`/admin/server/worker-key${reveal ? '?reveal=1' : ''}`);
-            if (result.status === 'success') {
-                const data = result.data || {};
-                if (reveal) {
-                    setWorkerKey(data.worker_key || "");
+            if (passwordModal === "reveal") {
+                const result = await ApiClient.post<{ worker_key?: string }>('/admin/server/worker-key/reveal', {
+                    password: values.password,
+                });
+                if (result.status === 'success') {
+                    setWorkerKey(result.data?.worker_key || "");
                     setShowApiKey(true);
+                    setPasswordModal(null);
+                    passwordForm.reset();
+                    toast.success("Worker key revealed");
+                } else {
+                    toast.error(result.message || "Failed to reveal worker key");
                 }
-                return data.worker_key || "";
+                return;
+            }
+
+            const result = await ApiClient.post<{ worker_key?: string }>('/admin/server/worker-key/rotate', {
+                password: values.password,
+            });
+
+            if (result.status === 'success') {
+                setWorkerKey(result.data?.worker_key || "");
+                setShowApiKey(true);
+                setPasswordModal(null);
+                passwordForm.reset();
+                setCopied(false);
+                toast.success("Worker key rotated successfully.");
+            } else {
+                toast.error(result.message || "Failed to rotate worker key.");
             }
         } catch (error: unknown) {
-            toast.error(error instanceof Error ? error.message : "Failed to fetch worker key");
+            toast.error(error instanceof Error ? error.message : "Password verification failed");
         } finally {
             setIsKeyLoading(false);
         }
-        return "";
     }
 
-    const toggleReveal = async () => {
+    const toggleReveal = () => {
         if (showApiKey) {
             setShowApiKey(false);
             return;
@@ -268,72 +311,71 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             return;
         }
 
-        await fetchWorkerKey(true);
+        setPasswordModal("reveal");
     };
 
-    const onRotateKey = async (values: z.infer<typeof rotateKeySchema>) => {
-        try {
-            const result = await ApiClient.post<{ worker_key?: string }>('/admin/server/worker-key/rotate', {
-                password: values.password
-            });
-
-            if (result.status === 'success') {
-                const data = result.data || {};
-                setWorkerKey(data.worker_key || "");
-                setShowApiKey(true);
-                setShowRegenerateModal(false);
-                rotateForm.reset();
-                setCopied(false);
-                toast.success("Worker key rotated successfully.");
-            } else {
-                toast.error(result.message || "Failed to rotate worker key.");
-            }
-        } catch (error: unknown) {
-            toast.error(error instanceof Error ? error.message : "Failed to rotate worker key.");
-        }
-    }
-
     const copyToClipboard = async () => {
-        let keyToCopy = workerKey;
-        if (!keyToCopy) {
-            try {
-                keyToCopy = await fetchWorkerKey(true);
-                if (keyToCopy) {
-                    setWorkerKey(keyToCopy);
-                }
-            } catch (e) { console.error(e); }
-        }
-
-        if (!keyToCopy) {
-            toast.error("Please reveal the key first or check your connection.");
+        if (!workerKey) {
+            toast.error("Reveal the key first to copy it.");
+            setPasswordModal("reveal");
             return;
         }
-        navigator.clipboard.writeText(keyToCopy)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
+
+        try {
+            await navigator.clipboard.writeText(workerKey);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+            toast.success("Copied to clipboard");
+        } catch {
+            toast.error("Clipboard permission denied");
+        }
     }
 
-    const onUpdateConfig = async (values: z.infer<typeof manageServerSchema>) => {
+    const onUpdateConfig = async (values: ManageServerParsed) => {
         if (!manageServer) return;
 
         try {
             const result = await ApiClient.post('/admin/server/update', {
                 id: manageServer.id,
                 config: {
-                    rateLimit: parseInt(values.rateLimit as string, 10),
-                    dailyLimit: parseInt(values.dailyLimit as string, 10)
+                    rateLimit: values.rateLimit,
+                    dailyLimit: values.dailyLimit,
                 }
             });
 
             if (result.status === 'success') {
                 setManageServer(null);
-                fetchServers();
+                void fetchServers();
                 toast.success("Settings updated successfully.");
             } else {
                 toast.error(result.message || "Failed to update settings.");
             }
         } catch (error: unknown) {
             toast.error(error instanceof Error ? error.message : "Error updating server configuration.");
+        }
+    }
+
+    const canConfirmDelete = deleteConfirmText.trim().toUpperCase() === DELETE_CONFIRM_PHRASE
+
+    const statusBadge = (status: string) => {
+        if (status === "active") {
+            return {
+                label: "Active",
+                className: "bg-green-100 text-green-700 hover:bg-green-100 border-green-200",
+                dot: "bg-green-500 animate-pulse",
+            }
+        }
+        if (status === "disabled") {
+            return {
+                label: "Disabled",
+                className: "bg-amber-50 text-amber-800 hover:bg-amber-50 border-amber-200",
+                dot: "bg-amber-500",
+            }
+        }
+        return {
+            label: "Offline",
+            className: "bg-slate-100 text-slate-600 border-slate-200",
+            dot: "bg-slate-400",
         }
     }
 
@@ -346,6 +388,16 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                     <p className="text-sm text-[#5a736c]">Centrally manage and monitor your distributed verification infrastructure.</p>
                 </div>
                 <div className="flex items-center gap-3">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => { void fetchServers(); }}
+                        disabled={isLoading}
+                        className="border-[#0b1f1c]/15 text-[#0b1f1c]"
+                    >
+                        <RefreshCcw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                        Refresh
+                    </Button>
                     <Button
                         onClick={() => {
                             setShowAddForm(true);
@@ -420,23 +472,29 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                                 {manageServer.config.enabled ? "Disable Node" : "Enable Node"}
                                             </Button>
                                         </div>
-                                        <div className="flex items-center justify-between mt-2 pt-4 border-t border-slate-50">
+                                        <div className="flex flex-col gap-3 mt-2 pt-4 border-t border-slate-50">
                                             <div>
                                                 <p className="text-xs font-bold text-red-600">Danger Zone</p>
-                                                <p className="text-[10px] text-slate-500">Irreversible action</p>
+                                                <p className="text-[10px] text-slate-500">
+                                                    Type <span className="font-mono font-bold">{DELETE_CONFIRM_PHRASE}</span> to permanently delete this node.
+                                                </p>
                                             </div>
+                                            <Input
+                                                value={deleteConfirmText}
+                                                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                                                placeholder={DELETE_CONFIRM_PHRASE}
+                                                className="font-mono text-sm border-red-200 focus-visible:ring-red-300"
+                                                autoComplete="off"
+                                            />
                                             <Button
                                                 type="button"
-                                                onClick={() => handleDeleteClick(manageServer.id)}
-                                                variant="ghost"
+                                                onClick={() => { void doDeleteServer(); }}
+                                                disabled={!canConfirmDelete}
+                                                variant="destructive"
                                                 size="sm"
-                                                className={`h-9 font-bold uppercase tracking-wider transition-all ${
-                                                    confirmDeleteId === manageServer.id 
-                                                        ? "bg-red-600 text-white hover:bg-red-700 hover:text-white" 
-                                                        : "text-red-500 hover:text-red-600 hover:bg-red-50"
-                                                }`}
+                                                className="h-9 font-bold uppercase tracking-wider"
                                             >
-                                                <Trash2 className="h-4 w-4 mr-2" /> {confirmDeleteId === manageServer.id ? "Confirm Delete" : "Delete Server"}
+                                                <Trash2 className="h-4 w-4 mr-2" /> Delete Server
                                             </Button>
                                         </div>
                                     </div>
@@ -473,7 +531,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() => { void toggleReveal(); }}
+                                    onClick={toggleReveal}
                                     disabled={isKeyLoading}
                                     className="h-8 w-8 text-slate-400 hover:text-[#0f5c52] hover:bg-[#0f5c52]/10"
                                     title={showApiKey ? "Hide Key" : "Reveal Key"}
@@ -484,10 +542,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() => {
-                                        setShowRegenerateModal(true);
-                                        rotateForm.reset();
-                                    }}
+                                    onClick={() => setPasswordModal("rotate")}
                                     className="h-8 w-8 text-slate-400 hover:text-amber-600 hover:bg-amber-50"
                                     title="Regenerate Key"
                                 >
@@ -570,8 +625,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                 </div>
             )}
 
-            {/* Regenerate Worker Key Modal */}
-            {showRegenerateModal && (
+            {/* Password step-up for reveal / rotate */}
+            {passwordModal && (
                 <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="w-full max-w-md animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
                         <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden">
@@ -580,33 +635,44 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                     <Lock className="h-5 w-5 text-amber-600" />
                                     Security Verification
                                 </CardTitle>
-                                <CardDescription>Please enter your administrator password to regenerate the universal API key for all backend worker servers.</CardDescription>
+                                <CardDescription>
+                                    {passwordModal === "reveal"
+                                        ? "Enter your administrator password to reveal the universal worker API key."
+                                        : "Enter your administrator password to regenerate the universal API key for all backend worker servers."}
+                                </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4 pt-6">
-                                <form onSubmit={rotateForm.handleSubmit(onRotateKey)}>
+                                <form onSubmit={passwordForm.handleSubmit(onPasswordAction)}>
                                     <div className="space-y-2">
                                         <Label htmlFor="admin-password" className="font-semibold text-slate-700">Admin Password</Label>
                                         <Input
                                             id="admin-password"
                                             type="password"
                                             placeholder="Enter password..."
-                                            className={`focus-visible:ring-[#0f5c52]/30 ${rotateForm.formState.errors.password ? 'border-red-400' : 'border-[#0b1f1c]/10'}`}
-                                            {...rotateForm.register("password")}
+                                            className={`focus-visible:ring-[#0f5c52]/30 ${passwordForm.formState.errors.password ? 'border-red-400' : 'border-[#0b1f1c]/10'}`}
+                                            {...passwordForm.register("password")}
                                         />
-                                        {rotateForm.formState.errors.password && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3" />{rotateForm.formState.errors.password.message}</p>}
-                                        <p className="text-[10px] text-amber-600 bg-amber-50 p-2 rounded border border-amber-100 italic mt-2">
-                                            Warning: Regenerating this API key will immediately disconnect all backend worker servers until they are updated with the new key.
-                                        </p>
+                                        {passwordForm.formState.errors.password && (
+                                            <p className="text-xs text-red-500 flex items-center gap-1">
+                                                <AlertCircle className="h-3 w-3" />
+                                                {passwordForm.formState.errors.password.message}
+                                            </p>
+                                        )}
+                                        {passwordModal === "rotate" && (
+                                            <p className="text-[10px] text-amber-600 bg-amber-50 p-2 rounded border border-amber-100 italic mt-2">
+                                                Warning: Regenerating this API key will immediately disconnect all backend worker servers until they are updated with the new key.
+                                            </p>
+                                        )}
                                     </div>
                                     <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-4">
-                                        <Button type="button" variant="outline" onClick={() => setShowRegenerateModal(false)} className="px-6">Cancel</Button>
+                                        <Button type="button" variant="outline" onClick={() => setPasswordModal(null)} className="px-6">Cancel</Button>
                                         <Button
                                             type="submit"
-                                            disabled={rotateForm.formState.isSubmitting}
+                                            disabled={passwordForm.formState.isSubmitting || isKeyLoading}
                                             className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white px-6 font-bold"
                                         >
-                                            {rotateForm.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                                            {rotateForm.formState.isSubmitting ? "Regenerating..." : "Regenerate Key"}
+                                            {(passwordForm.formState.isSubmitting || isKeyLoading) ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                                            {passwordModal === "reveal" ? "Reveal Key" : "Regenerate Key"}
                                         </Button>
                                     </div>
                                 </form>
@@ -638,6 +704,9 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                         <Badge variant="outline" className="bg-green-50 text-green-700 border-green-100 font-medium">
                             Online: {filteredServers.filter(s => s.status === "active").length}
                         </Badge>
+                        <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-100 font-medium">
+                            Disabled: {filteredServers.filter(s => s.status === "disabled").length}
+                        </Badge>
                     </div>
                 </div>
                 <div className="overflow-x-auto">
@@ -657,6 +726,9 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                             {filteredServers.map((server) => {
                                 const dailyLimit = Math.max(1, server.config?.dailyLimit || 50000)
                                 const usagePercent = Math.min(100, Math.round(((server.emailsVerified || 0) / dailyLimit) * 100))
+                                const badge = statusBadge(server.status)
+                                const isActive = server.status === "active"
+                                const isDisabled = server.status === "disabled"
 
                                 return (
                                 <TableRow key={server.id} className="group hover:bg-slate-50/30 transition-colors border-b border-slate-50">
@@ -679,15 +751,17 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                     </TableCell>
                                     <TableCell className="text-center">
                                         <div className="flex flex-col items-center gap-1">
-                                            <Badge variant={server.status === "active" ? "default" : "secondary"}
-                                                className={server.status === "active" ? "bg-green-100 text-green-700 hover:bg-green-100 border-green-200" : "bg-slate-100 text-slate-600 border-slate-200"}>
-                                                <div className={`h-1.5 w-1.5 rounded-full mr-1.5 ${server.status === "active" ? "bg-green-500 animate-pulse" : "bg-slate-400"}`} />
-                                                {server.status === "active" ? "Active" : "Offline"}
+                                            <Badge variant={isActive ? "default" : "secondary"} className={badge.className}>
+                                                <div className={`h-1.5 w-1.5 rounded-full mr-1.5 ${badge.dot}`} />
+                                                {badge.label}
                                             </Badge>
-                                            {server.status === "active" && (
+                                            {isActive && (
                                                 <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
-                                                    <Signal className="h-2.5 w-2.5" /> {server.ping}
+                                                    <Signal className="h-2.5 w-2.5" /> {server.ping === "live" ? "Live" : server.ping}
                                                 </span>
+                                            )}
+                                            {isDisabled && (
+                                                <span className="text-[10px] text-amber-700/80 font-medium">Admin off</span>
                                             )}
                                         </div>
                                     </TableCell>
@@ -708,19 +782,19 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2 max-w-[220px] bg-slate-50/50 p-2 rounded border border-slate-100 group-hover:border-[#0f5c52]/20 group-hover:bg-[#0f5c52]/5 transition-all">
-                                            <Zap className={`h-3.5 w-3.5 flex-shrink-0 ${server.status === "active" ? "text-amber-500 animate-pulse" : "text-slate-300"}`} />
+                                            <Zap className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? "text-amber-500 animate-pulse" : "text-slate-300"}`} />
                                             <div className="overflow-hidden">
                                                 <p className="text-[10px] font-bold text-slate-700 truncate uppercase tracking-tighter">
-                                                    {server.status === "active" ? "Processing" : "Idle"}
+                                                    {isActive ? "Processing" : isDisabled ? "Disabled" : "Idle"}
                                                 </p>
                                                 <p className="text-[10px] text-slate-500 truncate italic">
-                                                    {server.status === "active" ? server.currentJob : "--"}
+                                                    {isActive ? server.currentJob : isDisabled ? "Not accepting jobs" : "--"}
                                                 </p>
                                             </div>
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-center">
-                                        {server.status === 'active' ? (
+                                        {isActive ? (
                                             <Badge variant="outline" className={`
                                                 ${server.ipReputation === 'Good' ? 'bg-green-50 text-green-700 border-green-200' :
                                                     server.ipReputation === 'Medium' ? 'bg-amber-50 text-amber-700 border-amber-200' :
@@ -737,8 +811,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                     </TableCell>
                                     <TableCell className="text-center">
                                         <div className="flex flex-col items-center">
-                                            <span className={`text-sm font-bold ${server.status === 'active' ? 'text-slate-700' : 'text-slate-300'}`}>
-                                                {server.status === 'active' ? server.workerCount : 0}
+                                            <span className={`text-sm font-bold ${isActive ? 'text-slate-700' : 'text-slate-300'}`}>
+                                                {isActive ? server.workerCount : 0}
                                             </span>
                                         </div>
                                     </TableCell>
@@ -756,6 +830,14 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                 </TableRow>
                                 )
                             })}
+                            {isLoading && filteredServers.length === 0 && (
+                                <TableRow>
+                                    <TableCell colSpan={7} className="py-10 text-center text-sm text-slate-500">
+                                        <Loader2 className="h-4 w-4 animate-spin inline-block mr-2" />
+                                        Loading servers...
+                                    </TableCell>
+                                </TableRow>
+                            )}
                             {!isLoading && filteredServers.length === 0 && (
                                 <TableRow>
                                     <TableCell colSpan={7} className="py-10 text-center text-sm text-slate-500">

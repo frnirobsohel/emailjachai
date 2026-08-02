@@ -242,6 +242,7 @@ func SetupRoutes(router *gin.Engine) {
 			// Server Management
 			admin.GET("/server/list", adminHandler.ListServers)
 			admin.GET("/server/worker-key", adminHandler.GetWorkerKey)
+			admin.POST("/server/worker-key/reveal", adminHandler.RevealWorkerKey)
 			admin.POST("/server/add", adminHandler.AddServer)
 			admin.POST("/server/update", adminHandler.UpdateServer)
 			admin.POST("/server/toggle", adminHandler.ToggleServer)
