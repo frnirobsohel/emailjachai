@@ -13,7 +13,7 @@ const visionItems = [
     },
     {
         title: "Upcoming Features",
-        body: "Day by day, we are evolving beyond verification into a complete marketing powerhouse—campaign email sending, inbox warmup, bulk email discovery, database building, and more tools designed to grow your outreach with confidence.",
+        body: "In future updates we will add and integrate tools to build a full marketing ecosystem—bulk email sending, email warmup, cold email outreach, databases, CRM, and more—so verification sits at the center of your growth stack.",
     },
     {
         title: "Community-Driven Innovation",
