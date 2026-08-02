@@ -3,7 +3,7 @@ import { verifyUser } from '@/lib/auth';
 import { cookies } from 'next/headers';
 import { applyClientIpHeaders } from '@/lib/client-ip';
 
-const API_BASE_URL = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {

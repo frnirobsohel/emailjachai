@@ -3,7 +3,7 @@ import { authorizeUser, verifyUser } from '@/lib/auth';
 import { cookies } from 'next/headers';
 import { applyClientIpHeaders } from '@/lib/client-ip';
 
-const PHP_API_URL = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
 
 export async function POST(request: Request) {
     try {
@@ -26,7 +26,6 @@ export async function POST(request: Request) {
             );
         }
 
-        // To call PHP Admin routes, we need the Admin's API key from the session
         const adminApiKey = cookieStore.get('user_api_key')?.value;
 
         if (!adminApiKey) {
@@ -42,8 +41,7 @@ export async function POST(request: Request) {
         });
         applyClientIpHeaders(headers, request.headers);
 
-        // Call PHP Backend to validate target user and log the action
-        const response = await fetch(`${PHP_API_URL}/admin/impersonate`, {
+        const response = await fetch(`${API_BASE_URL}/admin/impersonate`, {
             method: 'POST',
             headers,
             body: JSON.stringify({ user_id }),

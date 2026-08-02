@@ -3,7 +3,7 @@ import { verifyUser } from '@/lib/auth';
 import { cookies } from 'next/headers';
 import { applyClientIpHeaders } from '@/lib/client-ip';
 
-const PHP_API_URL = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
 
 export async function POST(request: Request) {
     try {
@@ -28,8 +28,7 @@ export async function POST(request: Request) {
         });
         applyClientIpHeaders(headers, request.headers);
 
-        // Forward request to PHP Backend
-        const response = await fetch(`${PHP_API_URL}/auth/profile/update`, {
+        const response = await fetch(`${API_BASE_URL}/auth/profile/update`, {
             method: 'POST',
             headers,
             body: JSON.stringify(body),

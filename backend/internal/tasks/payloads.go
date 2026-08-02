@@ -7,17 +7,9 @@ import (
 )
 
 const (
-	TypeEmailVerify      = "email:verify"
 	TypeEmailChunkVerify = "email:chunk:verify"
 	TypeWebhookDeliver   = "webhook:deliver"
 )
-
-// EmailVerifyPayload holds the data needed to verify a single email
-type EmailVerifyPayload struct {
-	JobID  string `json:"job_id"`
-	TaskID uint   `json:"task_id"`
-	Email  string `json:"email"`
-}
 
 // EmailChunkTaskPayload holds the data needed to verify a chunk of emails
 type EmailChunkTaskPayload struct {
@@ -32,15 +24,6 @@ type WebhookDeliverPayload struct {
 	Secret  string                 `json:"secret"`
 	Event   string                 `json:"event"` // e.g., "job.completed"
 	Payload map[string]interface{} `json:"payload"`
-}
-
-// NewEmailVerifyTask creates an asynq.Task for verifying an email
-func NewEmailVerifyTask(jobID string, taskID uint, email string) (*asynq.Task, error) {
-	payload, err := json.Marshal(EmailVerifyPayload{JobID: jobID, TaskID: taskID, Email: email})
-	if err != nil {
-		return nil, err
-	}
-	return asynq.NewTask(TypeEmailVerify, payload), nil
 }
 
 // NewEmailChunkTask creates an asynq.Task for verifying a chunk of emails
@@ -65,6 +48,3 @@ func NewWebhookDeliverTask(url, secret, event string, data map[string]interface{
 	}
 	return asynq.NewTask(TypeWebhookDeliver, payload), nil
 }
-
-
-

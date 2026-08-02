@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { applyClientIpHeaders } from '@/lib/client-ip';
 
-const PHP_API_URL = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
 
 export async function POST(request: Request) {
     try {
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
         const headers = new Headers({ 'Content-Type': 'application/json' });
         applyClientIpHeaders(headers, request.headers);
 
-        const response = await fetch(`${PHP_API_URL}/auth/register`, {
+        const response = await fetch(`${API_BASE_URL}/auth/register`, {
             method: 'POST',
             headers,
             body: JSON.stringify({ firstName, lastName, email, password }),
@@ -34,9 +34,14 @@ export async function POST(request: Request) {
             );
         }
 
-        // result.data contains { user_id, api_key }
+        // Go AuthResponse: { api_key, user: { id, name, email, role, credits } }
+        const userId = result.data?.user?.id;
         return NextResponse.json(
-            { status: 'success', message: 'User registered successfully', data: { userId: result.data.user_id } },
+            {
+                status: 'success',
+                message: 'User registered successfully',
+                data: { userId },
+            },
             { status: 201 }
         );
 

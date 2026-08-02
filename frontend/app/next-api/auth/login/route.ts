@@ -36,7 +36,7 @@ export async function POST(request: Request) {
             );
         }
 
-        // The PHP API returns { status: 'success', data: { user: { id, name, email, role }, api_key: '...' } }
+        // Go AuthResponse: { api_key, user: { id, name, email, role, credits } }
         const { user, api_key } = result.data;
 
         // Set the JWT cookie and API Key cookie
