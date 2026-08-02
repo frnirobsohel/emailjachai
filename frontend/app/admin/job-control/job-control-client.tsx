@@ -30,29 +30,75 @@ import {
 import { cn } from "@/lib/utils"
 
 const settingsSchema = z.object({
-    chunk_size: z.string().min(1, "Required").regex(/^\d+$/, "Must be a number"),
-    task_timeout: z.string().min(1, "Required").regex(/^\d+$/, "Must be a number"),
-    max_emails_per_job: z.string().min(1, "Required").regex(/^\d+$/, "Must be a number"),
-    max_active_jobs_per_user: z.string().min(1, "Required").regex(/^\d+$/, "Must be a number")
+    chunk_size: z
+        .string()
+        .min(1, "Required")
+        .regex(/^\d+$/, "Must be a number")
+        .refine((v) => {
+            const n = Number(v)
+            return n >= 10 && n <= 50000
+        }, "Must be between 10 and 50000"),
+    task_timeout: z
+        .string()
+        .min(1, "Required")
+        .regex(/^\d+$/, "Must be a number")
+        .refine((v) => {
+            const n = Number(v)
+            return n >= 1 && n <= 1440
+        }, "Must be between 1 and 1440 minutes"),
+    max_emails_per_job: z
+        .string()
+        .min(1, "Required")
+        .regex(/^\d+$/, "Must be a number")
+        .refine((v) => {
+            const n = Number(v)
+            return n >= 10 && n <= 1000000
+        }, "Must be between 10 and 1,000,000"),
+    max_active_jobs_per_user: z
+        .string()
+        .min(1, "Required")
+        .regex(/^\d+$/, "Must be a number")
+        .refine((v) => {
+            const n = Number(v)
+            return n >= 0 && n <= 10000
+        }, "Must be between 0 and 10000"),
 })
 
 type JobOverview = {
-    processed_emails?: string
-    total_emails?: string
+    processed_emails?: string | number
+    total_emails?: string | number
     total_jobs?: number
-    processed_today?: string
+    processed_today?: string | number
     jobs_today?: number
-    processed_30d?: string
+    processed_30d?: string | number
     jobs_30d?: number
+}
+
+type JobBreakdown = {
+    valid?: number
+    unknown?: number
+    invalid?: number
+    catch_all?: number
+    disposable?: number
 }
 
 type JobStats = {
     overview?: JobOverview
+    breakdown?: JobBreakdown
 }
 
 type SettingRow = {
     setting_key: string
     setting_value: string
+}
+
+const DELETE_CONFIRM_PHRASE = "DELETE"
+const EXPORT_DAYS = 90
+const ALLOWED_CLEANUP_DAYS = new Set(["7", "14", "21", "30"])
+
+function asCount(value: string | number | undefined): number {
+    if (typeof value === "number") return value
+    return parseInt(value || "0", 10) || 0
 }
 
 export function JobControlClient({ initialSettings, initialStats }: { initialSettings: Record<string, string>, initialStats: JobStats | null }) {
@@ -71,12 +117,13 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
     const [isSaved, setIsSaved] = useState(false)
     const [isCleaning, setIsCleaning] = useState(false)
     const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date())
-    
-    // Cleanup Modal State
+
     const [showCleanupModal, setShowCleanupModal] = useState(false)
     const [cleanupDays, setCleanupDays] = useState("7")
+    const [cleanupConfirmText, setCleanupConfirmText] = useState("")
     const [cleanupStep, setCleanupStep] = useState<'confirm' | 'deleting' | 'success'>('confirm')
     const [deletedCount, setDeletedCount] = useState(0)
+    const [filesPurged, setFilesPurged] = useState(0)
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -102,10 +149,13 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
 
             if (statsRes.status === 'success' && statsRes.data) {
                 setStats(statsRes.data);
+            } else if (statsRes.status === 'error') {
+                toast.error(statsRes.message || "Failed to load job stats");
             }
             setLastRefreshed(new Date());
         } catch (error) {
             console.error("Failed to fetch data:", error);
+            toast.error(error instanceof Error ? error.message : "Failed to refresh job control data");
         } finally {
             setIsLoading(false);
         }
@@ -126,8 +176,14 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
     }, [initialSettings, initialStats, settingsForm]);
 
     useEffect(() => {
-        void fetchData();
-    }, [fetchData]);
+        // Skip redundant mount fetch when RSC already hydrated settings/stats (L1).
+        const hasSSR = Boolean(initialStats) || Object.keys(initialSettings).length > 0
+        if (hasSSR) {
+            return
+        }
+        void fetchData()
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only when SSR empty
+    }, [])
 
     const onSaveSettings = async (values: z.infer<typeof settingsSchema>) => {
         setIsSaved(false);
@@ -139,7 +195,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 setIsSaved(true);
                 setTimeout(() => setIsSaved(false), 2000);
                 toast.success("Settings updated successfully");
-                fetchData();
+                void fetchData();
             } else {
                 toast.error(result.message || "Failed to save settings");
             }
@@ -148,33 +204,55 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
         }
     };
 
+    const openCleanupModal = () => {
+        setCleanupStep('confirm');
+        setCleanupConfirmText("");
+        setShowCleanupModal(true);
+    };
+
     const handleCleanup = async () => {
+        if (!ALLOWED_CLEANUP_DAYS.has(cleanupDays)) {
+            toast.error("Choose 7, 14, 21, or 30 days");
+            return;
+        }
+        if (cleanupConfirmText.trim().toUpperCase() !== DELETE_CONFIRM_PHRASE) {
+            toast.error(`Type ${DELETE_CONFIRM_PHRASE} to confirm`);
+            return;
+        }
+
         setCleanupStep('deleting');
         setIsCleaning(true);
         try {
-            const days = parseInt(cleanupDays);
-            const result = await ApiClient.post<{ deleted_count: number }>('/admin/jobs/cleanup', { days });
+            const days = parseInt(cleanupDays, 10);
+            const result = await ApiClient.post<{ deleted_count: number; files_purged?: number }>(
+                '/admin/jobs/cleanup',
+                { days, confirm: DELETE_CONFIRM_PHRASE },
+                { timeout: 120_000 }
+            );
             if (result.status === 'success') {
                 setDeletedCount(result.data?.deleted_count || 0);
+                setFilesPurged(result.data?.files_purged || 0);
                 setCleanupStep('success');
                 toast.success("Cleanup completed successfully");
-                fetchData();
+                void fetchData();
             } else {
                 toast.error(result.message || "Cleanup failed");
-                setShowCleanupModal(false);
+                setCleanupStep('confirm');
             }
         } catch (error: unknown) {
             toast.error(error instanceof Error ? error.message : "An error occurred during cleanup");
-            setShowCleanupModal(false);
+            setCleanupStep('confirm');
         } finally {
             setIsCleaning(false);
         }
     };
 
     const handleDownload = (type: string) => {
-        const url = `${ApiClient.getBaseUrl()}/admin/jobs/download-all?type=${type}`;
+        const url = `${ApiClient.getBaseUrl()}/admin/jobs/download-all?type=${encodeURIComponent(type)}&days=${EXPORT_DAYS}`;
         window.open(url, '_blank');
     };
+
+    const canConfirmCleanup = cleanupConfirmText.trim().toUpperCase() === DELETE_CONFIRM_PHRASE;
 
     if (isLoading && !stats) {
         return (
@@ -199,6 +277,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
     }
 
     const overview = stats?.overview || {};
+    const breakdown = stats?.breakdown || {};
 
     return (
         <div className="flex-1 space-y-6 pb-8">
@@ -215,7 +294,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 <Button
                     variant="outline"
                     size="sm"
-                    onClick={fetchData}
+                    onClick={() => { void fetchData(); }}
                     className="h-8 gap-2 border-slate-200 text-slate-600"
                 >
                     <RefreshCcw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
@@ -223,12 +302,11 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 </Button>
             </div>
 
-            {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
                     title="Total Emails Verified"
-                    value={parseInt(overview.processed_emails || "0").toLocaleString()}
-                    subvalue={`${parseInt(overview.total_emails || "0").toLocaleString()} requested`}
+                    value={asCount(overview.processed_emails).toLocaleString()}
+                    subvalue={`${asCount(overview.total_emails).toLocaleString()} requested`}
                     icon={ShieldCheck}
                     color="text-emerald-600"
                     bg="bg-emerald-50"
@@ -243,7 +321,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 />
                 <StatCard
                     title="Processed Today"
-                    value={parseInt(overview.processed_today || "0").toLocaleString()}
+                    value={asCount(overview.processed_today).toLocaleString()}
                     subvalue={`${overview.jobs_today || 0} jobs submitted`}
                     icon={Calendar}
                     color="text-amber-600"
@@ -251,7 +329,7 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 />
                 <StatCard
                     title="Last 30 Days"
-                    value={parseInt(overview.processed_30d || "0").toLocaleString()}
+                    value={asCount(overview.processed_30d).toLocaleString()}
                     subvalue={`${overview.jobs_30d || 0} jobs completed`}
                     icon={Clock}
                     color="text-blue-600"
@@ -259,8 +337,15 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 />
             </div>
 
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <MiniStat label="Valid" value={breakdown.valid || 0} />
+                <MiniStat label="Unknown" value={breakdown.unknown || 0} />
+                <MiniStat label="Invalid" value={breakdown.invalid || 0} />
+                <MiniStat label="Catch-all" value={breakdown.catch_all || 0} />
+                <MiniStat label="Disposable" value={breakdown.disposable || 0} />
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                {/* Worker Configuration */}
                 <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden">
                     <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                         <CardTitle className="text-lg font-semibold text-[#0b1f1c] flex items-center gap-2">
@@ -275,11 +360,13 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                 <Input
                                     id="chunk_size"
                                     type="number"
+                                    min={10}
+                                    max={50000}
                                     className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.chunk_size ? 'border-red-400' : ''}`}
                                     {...settingsForm.register("chunk_size")}
                                 />
                                 {settingsForm.formState.errors.chunk_size && <p className="text-xs text-red-500">{settingsForm.formState.errors.chunk_size.message}</p>}
-                                <p className="text-[11px] text-slate-500 leading-relaxed italic">Emails per task. Smaller means better distribution, larger means less overhead.</p>
+                                <p className="text-[11px] text-slate-500 leading-relaxed italic">Emails per task (10–50000). Smaller means better distribution, larger means less overhead.</p>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -288,6 +375,8 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                     <Input
                                         id="task_timeout"
                                         type="number"
+                                        min={1}
+                                        max={1440}
                                         className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.task_timeout ? 'border-red-400' : ''}`}
                                         {...settingsForm.register("task_timeout")}
                                     />
@@ -298,6 +387,8 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                     <Input
                                         id="max_emails"
                                         type="number"
+                                        min={10}
+                                        max={1000000}
                                         className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.max_emails_per_job ? 'border-red-400' : ''}`}
                                         {...settingsForm.register("max_emails_per_job")}
                                     />
@@ -310,6 +401,8 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                 <Input
                                     id="max_active"
                                     type="number"
+                                    min={0}
+                                    max={10000}
                                     className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.max_active_jobs_per_user ? 'border-red-400' : ''}`}
                                     {...settingsForm.register("max_active_jobs_per_user")}
                                 />
@@ -323,8 +416,8 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                 disabled={settingsForm.formState.isSubmitting || isSaved}
                                 className={cn(
                                     "shadow-md transition-all active:scale-[0.98] h-9 w-full sm:min-w-[180px]",
-                                    isSaved 
-                                        ? "bg-emerald-600 hover:bg-emerald-700 text-white" 
+                                    isSaved
+                                        ? "bg-emerald-600 hover:bg-emerald-700 text-white"
                                         : "border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white"
                                 )}
                             >
@@ -350,19 +443,19 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 </Card>
 
                 <div className="space-y-6">
-                    {/* Job Cleanup */}
-                    <Card className="shadow-lg border-rose-50 overflow-hidden ring-1 ring-slate-100">
+                    <Card className="shadow-none border-rose-100 overflow-hidden">
                         <CardHeader className="bg-rose-50/30 border-b border-rose-100/50">
                             <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
                                 <Trash2 className="h-5 w-5 text-rose-500" /> Job Cleanup Controls
                             </CardTitle>
-                            <CardDescription>Safely remove old training data and result files.</CardDescription>
+                            <CardDescription>Remove completed/failed jobs and their bulk result files.</CardDescription>
                         </CardHeader>
                         <CardContent className="pt-6">
                             <div className="bg-rose-50 border border-rose-100 rounded-lg p-3 mb-6 flex items-start gap-3">
                                 <AlertCircle className="h-5 w-5 text-rose-600 mt-0.5 flex-shrink-0" />
                                 <div className="text-xs text-rose-800 leading-relaxed">
-                                    <strong>Warning:</strong> Cleanup actions are permanent. Associated result files (`.ndjson`) will also be deleted from the server storage.
+                                    <strong>Warning:</strong> Permanent for completed/failed jobs older than the window.
+                                    Pending/processing jobs are skipped. Bulk <code className="font-mono">.ndjson</code> and source files are purged.
                                 </div>
                             </div>
 
@@ -382,13 +475,10 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                     </select>
                                     <ChevronDown className="absolute right-3 top-3 h-4 w-4 text-slate-400 pointer-events-none" />
                                 </div>
-                                <Button 
+                                <Button
                                     variant="destructive"
                                     className="bg-rose-600 hover:bg-rose-700 text-white font-semibold h-10 px-6 gap-2"
-                                    onClick={() => {
-                                        setCleanupStep('confirm');
-                                        setShowCleanupModal(true);
-                                    }}
+                                    onClick={openCleanupModal}
                                 >
                                     <Trash2 className="h-4 w-4" />
                                     Permanently Delete
@@ -397,29 +487,37 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                         </CardContent>
                     </Card>
 
-                    {/* Cleanup Modal */}
                     {showCleanupModal && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
                             <div className="w-full max-w-md animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
-                                <Card className="shadow-2xl border-rose-100 overflow-hidden">
+                                <Card className="shadow-none border-rose-100 overflow-hidden">
                                     {cleanupStep === 'confirm' && (
                                         <>
                                             <CardHeader className="bg-rose-50/50 border-b border-rose-100/50">
                                                 <CardTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
                                                     <AlertCircle className="h-5 w-5 text-rose-600" /> Confirm Deletion
                                                 </CardTitle>
-                                                <CardDescription>This action will permanently remove all records and files older than {cleanupDays} days.</CardDescription>
+                                                <CardDescription>
+                                                    Permanently remove completed/failed jobs older than {cleanupDays} days (all users).
+                                                </CardDescription>
                                             </CardHeader>
-                                            <CardContent className="pt-6 pb-2">
-                                                <p className="text-sm text-slate-600 mb-4">
-                                                    Are you sure you want to proceed? This cannot be undone and will affect all users&apos; data for this period.
+                                            <CardContent className="pt-6 pb-2 space-y-3">
+                                                <p className="text-sm text-slate-600">
+                                                    Type <span className="font-mono font-bold">{DELETE_CONFIRM_PHRASE}</span> to confirm. This cannot be undone.
                                                 </p>
+                                                <Input
+                                                    value={cleanupConfirmText}
+                                                    onChange={(e) => setCleanupConfirmText(e.target.value)}
+                                                    placeholder={DELETE_CONFIRM_PHRASE}
+                                                    className="font-mono text-sm border-red-200 focus-visible:ring-red-300"
+                                                    autoComplete="off"
+                                                />
                                             </CardContent>
                                             <CardFooter className="flex justify-end gap-3 p-4 bg-slate-50/50 border-t border-slate-100">
                                                 <Button variant="outline" onClick={() => setShowCleanupModal(false)} className="px-6 h-9">Cancel</Button>
-                                                <Button 
-                                                    onClick={handleCleanup}
-                                                    disabled={isCleaning}
+                                                <Button
+                                                    onClick={() => { void handleCleanup(); }}
+                                                    disabled={isCleaning || !canConfirmCleanup}
                                                     className="bg-rose-600 hover:bg-rose-700 text-white px-6 h-9 font-bold"
                                                 >
                                                     {isCleaning ? "Deleting..." : "Yes, Delete"}
@@ -430,27 +528,11 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
 
                                     {cleanupStep === 'deleting' && (
                                         <CardContent className="py-12 flex flex-col items-center justify-center text-center space-y-6">
-                                            <div className="relative h-16 w-16">
-                                                <div className="absolute inset-0 rounded-full border-4 border-slate-100" />
-                                                <Loader2 className="h-16 w-16 text-rose-500 animate-spin absolute inset-0" />
-                                            </div>
+                                            <Loader2 className="h-12 w-12 text-rose-500 animate-spin" />
                                             <div className="space-y-2">
                                                 <h3 className="text-lg font-bold text-slate-900">Deleting Records...</h3>
-                                                <p className="text-sm text-slate-500">Please wait while we safely remove the data.</p>
+                                                <p className="text-sm text-slate-500">Removing database rows and bulk result files. This may take a minute.</p>
                                             </div>
-                                            <div className="w-full max-w-[240px] h-2 bg-slate-100 rounded-full overflow-hidden">
-                                                <div className="h-full bg-rose-500 animate-pulse-width" style={{ width: '60%' }} />
-                                            </div>
-                                            <style jsx>{`
-                                                @keyframes progress {
-                                                    0% { width: 0%; }
-                                                    50% { width: 70%; }
-                                                    100% { width: 95%; }
-                                                }
-                                                .animate-pulse-width {
-                                                    animation: progress 3s infinite ease-in-out;
-                                                }
-                                            `}</style>
                                         </CardContent>
                                     )}
 
@@ -462,10 +544,11 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                             <div className="space-y-2">
                                                 <h3 className="text-xl font-bold text-slate-900">Cleanup Successful!</h3>
                                                 <p className="text-sm text-slate-500">
-                                                    Successfully deleted <span className="font-bold text-slate-900">{deletedCount}</span> jobs and their associated files.
+                                                    Deleted <span className="font-bold text-slate-900">{deletedCount}</span> jobs
+                                                    and purged <span className="font-bold text-slate-900">{filesPurged}</span> result files.
                                                 </p>
                                             </div>
-                                            <Button 
+                                            <Button
                                                 onClick={() => setShowCleanupModal(false)}
                                                 className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[120px] font-bold"
                                             >
@@ -478,19 +561,18 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                         </div>
                     )}
 
-                    {/* Results Storage */}
-                    <Card className="shadow-lg border-blue-50 overflow-hidden ring-1 ring-slate-100">
+                    <Card className="shadow-none border-blue-100 overflow-hidden">
                         <CardHeader className="bg-blue-50/30 border-b border-blue-100/50">
                             <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
                                 <Database className="h-5 w-5 text-blue-600" /> Results Storage
                             </CardTitle>
-                            <CardDescription>Centralized access to all verification logs.</CardDescription>
+                            <CardDescription>Export verification logs from the last {EXPORT_DAYS} days.</CardDescription>
                         </CardHeader>
                         <CardContent className="pt-6 space-y-4">
                             <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
                                 <div>
                                     <h4 className="text-sm font-semibold text-slate-800">Single Verification Logs</h4>
-                                    <p className="text-[11px] text-slate-500">History of individual email checks.</p>
+                                    <p className="text-[11px] text-slate-500">History of individual email checks ({EXPORT_DAYS}d).</p>
                                 </div>
                                 <Button
                                     size="sm"
@@ -504,14 +586,14 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                             <div className="flex items-center justify-between p-3 bg-[#0f5c52]/5 rounded-lg border border-[#0f5c52]/20">
                                 <div>
                                     <h4 className="text-sm font-semibold text-slate-800">Bulk Verification Logs</h4>
-                                    <p className="text-[11px] text-slate-500">All individual bulk verification results.</p>
+                                    <p className="text-[11px] text-slate-500">Bulk verification results ({EXPORT_DAYS}d).</p>
                                 </div>
                                 <Button
                                     size="sm"
                                     onClick={() => handleDownload('bulk')}
                                     className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white gap-2 h-8"
                                 >
-                                    <Download className="h-4 w-4" /> Export All
+                                    <Download className="h-4 w-4" /> Export
                                 </Button>
                             </div>
                         </CardContent>
@@ -519,6 +601,17 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 </div>
             </div>
         </div>
+    )
+}
+
+function MiniStat({ label, value }: { label: string; value: number }) {
+    return (
+        <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90">
+            <CardContent className="p-3">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{label}</p>
+                <p className="text-lg font-bold text-slate-900">{value.toLocaleString()}</p>
+            </CardContent>
+        </Card>
     )
 }
 

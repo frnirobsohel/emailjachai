@@ -143,20 +143,52 @@ func (h *AdminHandler) UserAction(c *gin.Context) {
 
 // Additional Admin Actions
 func (h *AdminHandler) AdminJobStats(c *gin.Context) {
-	stats, _ := h.adminService.GetJobStats()
+	stats, err := h.adminService.GetJobStats()
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch job stats", "ERR_JOB_STATS")
+		return
+	}
 	helper.SendSuccess(c, "Job stats retrieved", stats)
 }
 
 func (h *AdminHandler) AdminJobCleanup(c *gin.Context) {
-	var input struct {
-		Days int `json:"days" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+	adminID, ok := adminIDFromContext(c)
+	if !ok {
+		helper.SendError(c, http.StatusUnauthorized, "Unauthorized", "ERR_UNAUTHORIZED")
 		return
 	}
-	count, _ := h.adminService.CleanupJobs(input.Days)
-	helper.SendSuccess(c, "Cleanup completed", gin.H{"deleted_count": count})
+
+	var input struct {
+		Days    int    `json:"days" binding:"required"`
+		Confirm string `json:"confirm" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Type DELETE and choose a retention window", "ERR_BAD_REQUEST")
+		return
+	}
+	if strings.ToUpper(strings.TrimSpace(input.Confirm)) != "DELETE" {
+		helper.SendError(c, http.StatusBadRequest, "Type DELETE to confirm", "ERR_JOB_CONFIRM")
+		return
+	}
+
+	count, filesPurged, err := h.adminService.CleanupJobs(input.Days)
+	if err != nil {
+		if errors.Is(err, service.ErrAdminCleanupDays) {
+			helper.SendError(c, http.StatusBadRequest, "Cleanup days must be 7, 14, 21, or 30", "ERR_JOB_CLEANUP_DAYS")
+			return
+		}
+		helper.SendError(c, http.StatusInternalServerError, "Cleanup failed", "ERR_JOB_CLEANUP")
+		return
+	}
+
+	logAction(adminID, "WARN", "Admin",
+		fmt.Sprintf("Job cleanup: deleted %d completed/failed jobs older than %d days; purged %d result files", count, input.Days, filesPurged))
+
+	helper.SendSuccess(c, "Cleanup completed", gin.H{
+		"deleted_count": count,
+		"files_purged":  filesPurged,
+		"days":          input.Days,
+	})
 }
 
 // User Actions (moved to admin_credits.go / admin_domain.go)
@@ -164,20 +196,38 @@ func (h *AdminHandler) AdminJobCleanup(c *gin.Context) {
 // Worker Key (moved to admin_server.go)
 
 func (h *AdminHandler) AdminDownloadAllJobs(c *gin.Context) {
-	jobType := c.Query("type")
+	jobType := strings.ToLower(strings.TrimSpace(c.Query("type")))
 	if jobType == "" {
 		jobType = "all"
 	}
 
-	rows, err := h.adminService.AdminDownloadAllJobs(jobType)
+	days := 90
+	if raw := strings.TrimSpace(c.Query("days")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			helper.SendError(c, http.StatusBadRequest, "Invalid days parameter", "ERR_JOB_DOWNLOAD_DAYS")
+			return
+		}
+		days = n
+	}
+
+	rows, err := h.adminService.AdminDownloadAllJobs(jobType, days)
 	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch results", err.Error())
+		if errors.Is(err, service.ErrAdminDownloadDays) {
+			helper.SendError(c, http.StatusBadRequest, "Download days must be between 1 and 365", "ERR_JOB_DOWNLOAD_DAYS")
+			return
+		}
+		if errors.Is(err, service.ErrAdminDownloadType) {
+			helper.SendError(c, http.StatusBadRequest, "Download type must be single, bulk, or all", "ERR_JOB_DOWNLOAD_TYPE")
+			return
+		}
+		helper.SendError(c, http.StatusInternalServerError, "Failed to fetch results", "ERR_JOB_DOWNLOAD")
 		return
 	}
 	defer rows.Close()
 
 	c.Header("Content-Type", "text/csv; charset=utf-8")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"verification-results-%s-%s.csv\"", jobType, time.Now().Format("2006-01-02")))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"verification-results-%s-%dd-%s.csv\"", jobType, days, time.Now().Format("2006-01-02")))
 	c.Writer.Write([]byte("\xEF\xBB\xBF"))
 
 	writer := csv.NewWriter(c.Writer)

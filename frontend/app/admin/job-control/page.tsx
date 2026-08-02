@@ -9,13 +9,20 @@ import { JobControlClient } from "./job-control-client"
 
 type JobStats = {
     overview?: {
-        processed_emails?: string
-        total_emails?: string
+        processed_emails?: string | number
+        total_emails?: string | number
         total_jobs?: number
-        processed_today?: string
+        processed_today?: string | number
         jobs_today?: number
-        processed_30d?: string
+        processed_30d?: string | number
         jobs_30d?: number
+    }
+    breakdown?: {
+        valid?: number
+        unknown?: number
+        invalid?: number
+        catch_all?: number
+        disposable?: number
     }
 }
 

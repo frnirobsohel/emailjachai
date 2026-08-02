@@ -4,14 +4,18 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
+	"ejp-backend/internal/storage"
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
+	"ejp-backend/pkg/logger"
 	"ejp-backend/pkg/safe"
 	"ejp-backend/pkg/security"
 )
@@ -22,10 +26,10 @@ type AdminService interface {
 	ListUsers(q, role string, page, limit int) (*AdminUserListResult, error)
 	UserAction(action string, targetUserID uint, adminID uint, status, role string, amount int, amountPaid float64) error
 	GetJobStats() (interface{}, error)
-	CleanupJobs(days int) (int64, error)
+	CleanupJobs(days int) (deletedCount int64, filesPurged int, err error)
 	CreateUser(name, email, password, role string, credits int) error
 	EditUser(id uint, name, email, role string) error
-	AdminDownloadAllJobs(jobType string) (*sql.Rows, error)
+	AdminDownloadAllJobs(jobType string, days int) (*sql.Rows, error)
 }
 
 type AdminUserDTO struct {
@@ -69,6 +73,9 @@ var (
 	ErrAdminInvalidAction      = errors.New("invalid action specified")
 	ErrAdminRequiredFields     = errors.New("name, email and password are required")
 	ErrAdminNameEmailRequired  = errors.New("name and email are required")
+	ErrAdminCleanupDays        = errors.New("cleanup days must be 7, 14, 21, or 30")
+	ErrAdminDownloadDays       = errors.New("download days must be between 1 and 365")
+	ErrAdminDownloadType       = errors.New("download type must be single, bulk, or all")
 )
 
 type adminService struct {
@@ -513,13 +520,57 @@ func (s *adminService) GetJobStats() (interface{}, error) {
 	return s.adminRepo.GetJobStatsSummary(todayStart, sevenDaysAgo, fourteenDaysAgo, thirtyDaysAgo)
 }
 
-func (s *adminService) CleanupJobs(days int) (int64, error) {
-	cutoff := time.Now().AddDate(0, 0, -days)
-	n, err := s.adminRepo.CleanupJobsByDate(cutoff)
-	if err == nil {
+func (s *adminService) CleanupJobs(days int) (deletedCount int64, filesPurged int, err error) {
+	allowed := map[int]struct{}{7: {}, 14: {}, 21: {}, 30: {}}
+	if _, ok := allowed[days]; !ok {
+		return 0, 0, ErrAdminCleanupDays
+	}
+
+	cutoff := time.Now().UTC().AddDate(0, 0, -days)
+	jobIDs, n, err := s.adminRepo.CleanupJobsByDate(cutoff)
+	if err != nil {
+		return 0, 0, err
+	}
+	if n > 0 {
 		config.ClearAdminCache()
 	}
-	return n, err
+
+	filesPurged = purgeJobStorageFiles(jobIDs)
+	return n, filesPurged, nil
+}
+
+func purgeJobStorageFiles(jobIDs []string) int {
+	if len(jobIDs) == 0 {
+		return 0
+	}
+
+	basePath := os.Getenv("BULK_RESULTS_PATH")
+	if basePath == "" {
+		basePath = "./storage/results/bulk"
+	}
+	sourcePath := os.Getenv("BULK_SOURCE_PATH")
+	if sourcePath == "" {
+		sourcePath = "./storage/jobs/bulk"
+	}
+
+	purged := 0
+	for _, jobID := range jobIDs {
+		jobID = strings.TrimSpace(jobID)
+		if jobID == "" {
+			continue
+		}
+		hadFile := storage.FileExists(basePath, jobID)
+		if err := storage.DeleteJobFile(basePath, jobID); err != nil {
+			logger.Warn("Failed to purge bulk result file during cleanup", "job_id", jobID, "error", err)
+		} else if hadFile {
+			purged++
+		}
+		sourceFile := filepath.Join(sourcePath, jobID+"_source.txt")
+		if err := os.Remove(sourceFile); err != nil && !os.IsNotExist(err) {
+			logger.Warn("Failed to purge bulk source file during cleanup", "job_id", jobID, "error", err)
+		}
+	}
+	return purged
 }
 
 func (s *adminService) CreateUser(name, email, password, role string, credits int) error {
@@ -597,6 +648,19 @@ func (s *adminService) EditUser(id uint, name, email, role string) error {
 	return nil
 }
 
-func (s *adminService) AdminDownloadAllJobs(jobType string) (*sql.Rows, error) {
-	return s.adminRepo.AdminDownloadAllJobs(jobType)
+func (s *adminService) AdminDownloadAllJobs(jobType string, days int) (*sql.Rows, error) {
+	jobType = strings.ToLower(strings.TrimSpace(jobType))
+	if jobType == "" {
+		jobType = "all"
+	}
+	switch jobType {
+	case "single", "bulk", "all":
+	default:
+		return nil, ErrAdminDownloadType
+	}
+	if days < 1 || days > 365 {
+		return nil, ErrAdminDownloadDays
+	}
+	since := time.Now().UTC().AddDate(0, 0, -days)
+	return s.adminRepo.AdminDownloadAllJobs(jobType, since)
 }

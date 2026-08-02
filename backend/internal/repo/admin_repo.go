@@ -12,8 +12,8 @@ import (
 
 type AdminRepo interface {
 	GetJobStatsSummary(todayStart, sevenDaysAgo, fourteenDaysAgo, thirtyDaysAgo time.Time) (interface{}, error)
-	CleanupJobsByDate(cutoff time.Time) (int64, error)
-	AdminDownloadAllJobs(jobType string) (*sql.Rows, error)
+	CleanupJobsByDate(cutoff time.Time) (jobIDs []string, deletedCount int64, err error)
+	AdminDownloadAllJobs(jobType string, since time.Time) (*sql.Rows, error)
 }
 
 type adminRepo struct {
@@ -94,40 +94,50 @@ func (r *adminRepo) GetJobStatsSummary(todayStart, sevenDaysAgo, fourteenDaysAgo
 	}, nil
 }
 
-func (r *adminRepo) CleanupJobsByDate(cutoff time.Time) (int64, error) {
-	var jobIDs []string
-	r.db.Model(&model.Job{}).Where("created_at < ?", cutoff).Pluck("job_id", &jobIDs)
-
-	if len(jobIDs) == 0 {
-		return 0, nil
+func (r *adminRepo) CleanupJobsByDate(cutoff time.Time) (jobIDs []string, deletedCount int64, err error) {
+	// Only terminal jobs — never soft-delete pending/processing mid-flight.
+	if err := r.db.Model(&model.Job{}).
+		Where("created_at < ? AND status IN ?", cutoff, []string{"completed", "failed"}).
+		Pluck("job_id", &jobIDs).Error; err != nil {
+		return nil, 0, err
 	}
 
-	var deletedCount int64
-	err := r.db.Transaction(func(tx *gorm.DB) error {
+	if len(jobIDs) == 0 {
+		return nil, 0, nil
+	}
+
+	err = r.db.Transaction(func(tx *gorm.DB) error {
 		var internalIDs []uint
-		tx.Model(&model.Job{}).Where("job_id IN ?", jobIDs).Pluck("id", &internalIDs)
-		if len(internalIDs) > 0 {
-			tx.Where("job_internal_id IN ?", internalIDs).Delete(&model.JobResult{})
+		if err := tx.Model(&model.Job{}).Where("job_id IN ?", jobIDs).Pluck("id", &internalIDs).Error; err != nil {
+			return err
 		}
-		tx.Where("job_id IN ?", jobIDs).Delete(&model.JobTask{})
+		if len(internalIDs) > 0 {
+			if err := tx.Where("job_internal_id IN ?", internalIDs).Delete(&model.JobResult{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("job_id IN ?", jobIDs).Delete(&model.JobTask{}).Error; err != nil {
+			return err
+		}
 		res := tx.Where("job_id IN ?", jobIDs).Delete(&model.Job{})
 		deletedCount = res.RowsAffected
 		return res.Error
 	})
 
-	return deletedCount, err
+	return jobIDs, deletedCount, err
 }
 
-func (r *adminRepo) AdminDownloadAllJobs(jobType string) (*sql.Rows, error) {
+func (r *adminRepo) AdminDownloadAllJobs(jobType string, since time.Time) (*sql.Rows, error) {
 	query := r.db.Model(&model.JobResult{}).
 		Joins("JOIN jobs ON jobs.id = job_results.job_internal_id").
-		Select("job_results.email, job_results.status, job_results.reason, job_results.is_catch_all, job_results.score, job_results.created_at, jobs.job_id as legacy_job_id, job_results.mx_records")
+		Select("job_results.email, job_results.status, job_results.reason, job_results.is_catch_all, job_results.score, job_results.created_at, jobs.job_id as legacy_job_id, job_results.mx_records").
+		Where("job_results.created_at >= ?", since)
 
 	switch jobType {
 	case "single":
-		query = query.Where("jobs.job_type = ?", "single")
+		query = query.Where("jobs.type = ?", "single")
 	case "bulk":
-		query = query.Where("jobs.job_type = ?", "bulk")
+		query = query.Where("jobs.type = ?", "bulk")
 	}
 
 	return query.Order("job_results.created_at DESC").Rows()
