@@ -122,8 +122,10 @@ func main() {
 		logger.Info("Trusted platform enabled", "platform", router.TrustedPlatform)
 	}
 
+	// Restore real client IP from Next BFF before logging / handlers call ClientIP().
+	router.Use(middleware.PreserveBFFClientIP())
 	router.Use(middleware.Logger()) // Custom Zap logger middleware
-	router.Use(gin.Recovery()) // Panic recovery middleware
+	router.Use(gin.Recovery())      // Panic recovery middleware
 
 	// 6. Setup Routes
 	routes.SetupRoutes(router)

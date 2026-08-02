@@ -7,6 +7,7 @@ export function getClientIp(headers: { get(name: string): string | null }): stri
     const candidates = [
         headers.get('cf-connecting-ip'),
         headers.get('true-client-ip'),
+        headers.get('x-ejp-client-ip'),
         ...forwardedIps(headers.get('x-forwarded-for')),
         headers.get('x-real-ip'),
     ];
@@ -29,8 +30,29 @@ export function applyClientIpHeaders(
 ): void {
     const ip = getClientIp(source);
     if (!ip || isPrivateOrReservedIp(ip)) return;
+
+    // Standard headers (may be rewritten by Traefik when API_BASE_URL is public).
     target.set('X-Forwarded-For', ip);
     target.set('X-Real-IP', ip);
+
+    // Survives Traefik forwarded-header rewrite; backend middleware restores ClientIP from this.
+    target.set('X-EJP-Client-IP', ip);
+
+    // So Gin TRUSTED_PLATFORM=cloudflare can read it on the BFF → API hop.
+    target.set('CF-Connecting-IP', ip);
+}
+
+/** Snapshot of IP-related headers for Dokploy/Traefik debugging. */
+export function getClientIpDebug(headers: { get(name: string): string | null }): Record<string, string | null> {
+    return {
+        detected: getClientIp(headers) || null,
+        'cf-connecting-ip': headers.get('cf-connecting-ip'),
+        'true-client-ip': headers.get('true-client-ip'),
+        'x-real-ip': headers.get('x-real-ip'),
+        'x-forwarded-for': headers.get('x-forwarded-for'),
+        'x-forwarded-proto': headers.get('x-forwarded-proto'),
+        'x-ejp-client-ip': headers.get('x-ejp-client-ip'),
+    };
 }
 
 function forwardedIps(xff: string | null): string[] {
@@ -66,7 +88,7 @@ export function isPrivateOrReservedIp(ip: string): boolean {
         if (a === 172 && b >= 16 && b <= 31) return true;
         if (a === 192 && b === 168) return true;
         if (a === 169 && b === 254) return true;
-        if (a === 0 || a === 100 && b >= 64 && b <= 127) return true; // 0.x / CGNAT 100.64/10
+        if (a === 0 || (a === 100 && b >= 64 && b <= 127)) return true; // 0.x / CGNAT 100.64/10
         return false;
     }
 
