@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useMemo, useState, useEffect } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -11,14 +11,11 @@ import { useSecurityWebSocket } from "@/hooks/use-security-web-socket"
 
 export function SecurityDashboardClient({ initialData }: { initialData?: SecurityHydrateData }) {
     const [activeTab, setActiveTab] = useState<"stream" | "blocklist">("stream")
+    const [blocklistQuery, setBlocklistQuery] = useState("")
     
-    // Connect Zustand Store
     const store = useSecurityStore()
-    
-    // Initialize WebSocket Connection
     useSecurityWebSocket()
 
-    // Initialize initial REST data on mount
     useEffect(() => {
         if (store.hasInitialized) {
             store.initialize(true)
@@ -30,12 +27,30 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
         // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only hydrate from SSR
     }, [initialData])
 
-    // Use store state if initialized, otherwise fallback to initialData (to prevent flash)
     const currentStats = store.hasInitialized ? store.stats : (initialData?.stats || store.stats)
     const currentVerificationEnabled = store.hasInitialized ? store.isVerificationEnabled : (initialData?.stats?.verifier_enabled ?? store.isVerificationEnabled)
     const currentDailyLimit = store.hasInitialized ? store.dailyLimit : (initialData?.stats?.daily_limit || store.dailyLimit)
     const currentLogs = store.hasInitialized ? store.logs : (initialData?.logs || store.logs)
     const currentBlocked = store.hasInitialized ? store.blocked : (initialData?.blocked || store.blocked)
+
+    const filteredBlocked = useMemo(() => {
+        const q = blocklistQuery.trim().toLowerCase()
+        if (!q) return currentBlocked
+        return currentBlocked.filter((block) => {
+            const haystack = [block.value, block.type, block.reason].filter(Boolean).join(" ").toLowerCase()
+            return haystack.includes(q)
+        })
+    }, [currentBlocked, blocklistQuery])
+
+    const requestUnblock = (id: number | undefined, value?: string) => {
+        if (id == null) return
+        const typed = window.prompt(
+            `Type UNBLOCK to remove ${value || "this entry"} from the blocklist:`,
+            ""
+        )
+        if (typed == null) return
+        void store.unblockClient(id, typed.trim())
+    }
 
     return (
         <div className="flex-1 space-y-6">
@@ -50,7 +65,7 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
                         checked={currentVerificationEnabled} 
                         onCheckedChange={(val) => {
                             store.setVerificationEnabled(val)
-                            store.handleSettingsUpdate(undefined, val)
+                            void store.handleSettingsUpdate(undefined, val)
                         }} 
                     />
                     <Badge variant={currentVerificationEnabled ? "default" : "destructive"} className="ml-2">
@@ -59,7 +74,6 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
                 </div>
             </div>
 
-            {/* Overview Cards */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Card className="border-[#0b1f1c]/10 shadow-none bg-white/90">
                     <CardHeader className="flex flex-row items-center justify-between pb-2 bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
@@ -78,7 +92,7 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
                     </CardHeader>
                     <CardContent className="pt-4">
                         <div className="text-2xl font-bold text-slate-900">{currentStats.fraud_prevented}</div>
-                        <p className="text-xs text-slate-500 mt-1">Cookie & IP cross-checks</p>
+                        <p className="text-xs text-slate-500 mt-1">Blocks & quota denials (24h)</p>
                     </CardContent>
                 </Card>
                 <Card className="border-[#0b1f1c]/10 shadow-none bg-white/90">
@@ -101,7 +115,7 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
                             value={currentDailyLimit}
                             onChange={(e) => {
                                 store.setDailyLimit(e.target.value)
-                                store.handleSettingsUpdate(e.target.value, undefined)
+                                void store.handleSettingsUpdate(e.target.value, undefined)
                             }}
                             className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0f5c52]/30"
                         >
@@ -114,9 +128,7 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
                 </Card>
             </div>
 
-            {/* Unified Terminal Window (Stream + Blocklist) */}
             <Card className="shadow-xl border-slate-800 overflow-hidden bg-[#0a0c10] ring-1 ring-slate-800">
-                {/* Terminal Toolbar */}
                 <div className="px-5 py-3 border-b border-slate-800 bg-[#11141a] flex items-center justify-between">
                     <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2 px-1">
@@ -126,7 +138,6 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
                         </div>
                         <div className="h-4 w-px bg-slate-800 mx-1 hidden md:block" />
                         
-                        {/* Tabs */}
                         <div className="flex items-center gap-2">
                             <button 
                                 onClick={() => setActiveTab("stream")}
@@ -149,6 +160,8 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
                              <div className="relative group mr-2">
                                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-600 group-focus-within:text-[#1a8a78] transition-colors" />
                                 <input
+                                    value={blocklistQuery}
+                                    onChange={(e) => setBlocklistQuery(e.target.value)}
                                     placeholder="Search blocklist..."
                                     className="pl-8 h-8 text-xs bg-[#0a0c10] border border-slate-800 rounded text-slate-300 placeholder:text-slate-600 focus-visible:outline-none focus-visible:border-[#1a8a78]/50 font-mono w-48"
                                 />
@@ -161,7 +174,6 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
                     </div>
                 </div>
                 
-                {/* Headers */}
                 {activeTab === 'stream' ? (
                     <div className="grid font-mono text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] px-6 py-2 border-b border-slate-800/50 bg-[#0a0c10] select-none" style={{ gridTemplateColumns: "repeat(6, minmax(0, 1fr))" }}>
                         <span>Time</span>
@@ -181,24 +193,23 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
                     </div>
                 )}
 
-                {/* Content */}
                 <div className="divide-y divide-slate-800/30 overflow-y-auto custom-scrollbar bg-[#0a0c10]" style={{ height: "400px" }}>
                     {activeTab === 'stream' ? (
                         currentLogs.map((log) => (
-                            <div key={log.id} className="grid items-center px-6 py-3 font-mono text-[11px] hover:bg-white/[0.02] transition-colors group relative" style={{ gridTemplateColumns: "repeat(6, minmax(0, 1fr))" }}>
+                            <div key={log.id ?? `${log.created_at}-${log.ip}-${log.email}`} className="grid items-center px-6 py-3 font-mono text-[11px] hover:bg-white/[0.02] transition-colors group relative" style={{ gridTemplateColumns: "repeat(6, minmax(0, 1fr))" }}>
                                 <span className="text-slate-500 group-hover:text-slate-400 transition-colors">{log.created_at ? new Date(log.created_at).toLocaleTimeString() : '—'}</span>
                                 <span className="text-slate-300 font-semibold tabular-nums">{log.ip}</span>
                                 <span className="text-slate-500 truncate mr-2" title={log.cookie_id}>{log.cookie_id}</span>
                                 <span className="text-slate-500 truncate mr-2" title={log.browser}>{log.browser}</span>
                                 <span className="text-[#1a8a78] truncate mr-2">{log.email}</span>
-                                <div className={`text-right font-bold ${log.status === 'valid' ? 'text-emerald-400' : log.status === 'blocked' ? 'text-rose-400' : 'text-amber-400'}`}>
+                                <div className={`text-right font-bold ${log.status === 'valid' ? 'text-emerald-400' : log.status === 'blocked' || log.status === 'quota' ? 'text-rose-400' : 'text-amber-400'}`}>
                                     {(log.status ?? 'unknown').toUpperCase()}
                                 </div>
                             </div>
                         ))
                     ) : (
-                        currentBlocked.map((block) => (
-                            <div key={block.id} className="grid items-center px-6 py-3 font-mono text-[11px] hover:bg-white/[0.02] transition-colors group relative bg-rose-500/[0.02]" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
+                        filteredBlocked.map((block) => (
+                            <div key={block.id ?? `${block.type}-${block.value}`} className="grid items-center px-6 py-3 font-mono text-[11px] hover:bg-white/[0.02] transition-colors group relative bg-rose-500/[0.02]" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
                                 <div className="absolute left-0 top-0 bottom-0 w-[2px] opacity-100 bg-rose-500" />
                                 <span className="text-slate-500">{block.blocked_at ? new Date(block.blocked_at).toLocaleTimeString() : '—'}</span>
                                 <span className="text-slate-300 font-semibold truncate mr-2" title={block.value}>{block.value}</span>
@@ -207,7 +218,7 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
                                 </div>
                                 <span className="text-rose-300/80 truncate mr-2" title={block.reason}>{block.reason}</span>
                                 <div className="text-right">
-                                    <button onClick={() => block.id != null && store.unblockClient(block.id)} className="text-[10px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded px-3 py-1 transition-all focus:outline-none">
+                                    <button onClick={() => requestUnblock(block.id, block.value)} className="text-[10px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded px-3 py-1 transition-all focus:outline-none">
                                         UNBLOCK
                                     </button>
                                 </div>
@@ -216,7 +227,6 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
                     )}
                 </div>
 
-                {/* Footer bar */}
                 <div className="px-6 py-2 border-t border-slate-800 bg-[#11141a] flex items-center justify-between shadow-[0_-4px_10px_rgba(0,0,0,0.2)]">
                      <div className="flex items-center gap-2">
                         <span className="relative flex h-2 w-2">
@@ -228,7 +238,9 @@ export function SecurityDashboardClient({ initialData }: { initialData?: Securit
                         </span>
                     </div>
                     <span className="font-mono text-[10px] text-slate-500">
-                        {activeTab === 'stream' ? `${currentLogs.length} ENTRIES` : `${currentBlocked.length} BLOCKS RECORDED`}
+                        {activeTab === 'stream'
+                            ? `${currentLogs.length} ENTRIES`
+                            : `${filteredBlocked.length}${blocklistQuery.trim() ? ` / ${currentBlocked.length}` : ''} BLOCKS`}
                     </span>
                 </div>
             </Card>

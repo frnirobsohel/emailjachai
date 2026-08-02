@@ -113,7 +113,7 @@ func ClearPublicVerifierEnabledCache() {
 }
 
 // PublicVerifyHandler handles the no-auth, no-credit public email verification endpoint.
-// Used for the landing page demo verifier — no DB writes, no credit deductions.
+// Used for the landing page demo verifier — no credit deductions; writes public_verify_logs only.
 type PublicVerifyHandler struct {
 	cacheRepo repo.CacheRepository
 }
@@ -129,9 +129,25 @@ type publicVerifyRequest struct {
 	TurnstileToken string `json:"turnstile_token"`
 }
 
+func logPublicVerifyAsync(email, ip, cookieID, browser, status string) {
+	safe.Go(func() {
+		logEntry := model.PublicVerifyLog{
+			Email:    email,
+			IP:       ip,
+			CookieID: cookieID,
+			Browser:  browser,
+			Status:   status,
+		}
+		if err := config.DB.Create(&logEntry).Error; err == nil {
+			ws.GlobalHub.BroadcastToAdmins("security_log", logEntry)
+		}
+	})
+}
+
 // VerifyPublic handles POST /api/v1/jobs/verify-public
-// No authentication required. No credits deducted. No DB writes.
+// No authentication required. No credits deducted.
 // Uses cache first, then falls back to live SMTP/DNS verification.
+// Writes public_verify_logs for both successful verifies and blocked/quota denials.
 func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 	if !isPublicVerifierEnabled() {
 		helper.SendError(c, http.StatusForbidden, "Public verifier is disabled by administrator", "ERR_DISABLED")
@@ -151,12 +167,12 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 		return
 	}
 
-	if err := security.VerifyTurnstileToken(req.TurnstileToken, c.ClientIP()); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "ERR_CAPTCHA")
+	ip := c.ClientIP()
+	if err := security.VerifyTurnstileToken(req.TurnstileToken, ip); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Captcha verification failed", "ERR_CAPTCHA")
 		return
 	}
 
-	ip := c.ClientIP()
 	cookieId, err := c.Cookie("device_id")
 	if err != nil || cookieId == "" {
 		cookieId = uuid.New().String()
@@ -169,10 +185,12 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 	action, msg := guard.CheckRequest(ip, cookieId)
 
 	if action == security.ActionHardBlock || action == security.ActionSoftBlock {
+		logPublicVerifyAsync(email, ip, cookieId, browser, "blocked")
 		helper.SendError(c, http.StatusForbidden, msg, "ERR_BLOCKED")
 		return
 	}
 	if action == security.ActionWarning {
+		logPublicVerifyAsync(email, ip, cookieId, browser, "quota")
 		helper.SendError(c, http.StatusTooManyRequests, msg, "ERR_QUOTA_EXHAUSTED")
 		return
 	}
@@ -269,29 +287,8 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 		},
 	})
 
-	// 4. Save Public Verification Log asynchronously
-	emailLogCopy := email
-	ipLogCopy := ip
-	cookieLogCopy := cookieId
-	browserLogCopy := browser
-	statusLogCopy := res.Status
-	safe.Go(func() {
-		e := emailLogCopy
-		i := ipLogCopy
-		cook := cookieLogCopy
-		brow := browserLogCopy
-		stat := statusLogCopy
-		logEntry := model.PublicVerifyLog{
-			Email:    e,
-			IP:       i,
-			CookieID: cook,
-			Browser:  brow,
-			Status:   stat,
-		}
-		if err := config.DB.Create(&logEntry).Error; err == nil {
-			ws.GlobalHub.BroadcastToAdmins("security_log", logEntry)
-		}
-	})
+	// 4. Save Public Verification Log asynchronously (real client IP via Gin ClientIP)
+	logPublicVerifyAsync(email, ip, cookieId, browser, res.Status)
 }
 
 // GetPublicStatus returns the remaining verifications based on the user's IP and Cookie tracking.

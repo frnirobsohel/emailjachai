@@ -59,8 +59,8 @@ interface SecurityState {
   updateStats: (stats: Partial<SecurityStats>) => void
   setDailyLimit: (limit: string) => void
   setVerificationEnabled: (enabled: boolean) => void
-  unblockClient: (id: number) => Promise<void>
-  handleSettingsUpdate: (newLimit?: string, newToggle?: boolean) => Promise<void>
+  unblockClient: (id: number, confirm?: string) => Promise<boolean>
+  handleSettingsUpdate: (newLimit?: string, newToggle?: boolean) => Promise<boolean>
 }
 
 export const useSecurityStore = create<SecurityState>((set, get) => ({
@@ -125,7 +125,22 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
 
     if (exists) return {}
 
-    return { logs: [log, ...state.logs].slice(0, 50) }
+    const isFraud = log.status === 'blocked' || log.status === 'quota'
+    return {
+      logs: [log, ...state.logs].slice(0, 50),
+      ...(isFraud ? {
+        stats: {
+          ...state.stats,
+          fraud_prevented: state.stats.fraud_prevented + 1,
+          total_verified: state.stats.total_verified + 1,
+        }
+      } : {
+        stats: {
+          ...state.stats,
+          total_verified: state.stats.total_verified + 1,
+        }
+      }),
+    }
   }),
 
   addBlocked: (block) => set((state) => {
@@ -137,7 +152,13 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
 
     if (exists) return {}
 
-    return { blocked: [block, ...state.blocked].slice(0, 50) }
+    return {
+      blocked: [block, ...state.blocked].slice(0, 50),
+      stats: {
+        ...state.stats,
+        currently_blocked: state.stats.currently_blocked + 1,
+      },
+    }
   }),
 
   removeBlocked: (id) => set((state) => ({
@@ -153,30 +174,46 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
   setVerificationEnabled: (enabled) => set({ isVerificationEnabled: enabled }),
 
   handleSettingsUpdate: async (newLimit?: string, newToggle?: boolean) => {
+    const prevLimit = get().dailyLimit
+    const prevToggle = get().isVerificationEnabled
+
     try {
-      await ApiClient.post('/admin/public-verifier/settings', {
+      const res = await ApiClient.post('/admin/public-verifier/settings', {
         daily_limit: newLimit,
         verifier_enabled: newToggle
       })
+      if (res.status !== 'success') {
+        if (newLimit !== undefined) set({ dailyLimit: prevLimit })
+        if (newToggle !== undefined) set({ isVerificationEnabled: prevToggle })
+        toast.error(res.message || "Failed to update settings")
+        return false
+      }
       toast.success("Settings updated")
+      return true
     } catch {
+      if (newLimit !== undefined) set({ dailyLimit: prevLimit })
+      if (newToggle !== undefined) set({ isVerificationEnabled: prevToggle })
       toast.error("Failed to update settings")
+      return false
     }
   },
 
-  unblockClient: async (id) => {
+  unblockClient: async (id, confirm = 'UNBLOCK') => {
     try {
-      const res = await ApiClient.post('/admin/public-verifier/unblock', { id })
+      const res = await ApiClient.post('/admin/public-verifier/unblock', { id, confirm })
       if (res.status === 'success') {
         toast.success("Unblocked successfully")
         get().removeBlocked(id)
         set(state => ({
           stats: { ...state.stats, currently_blocked: Math.max(0, state.stats.currently_blocked - 1) }
         }))
+        return true
       }
+      toast.error(res.message || "Failed to unblock")
+      return false
     } catch {
       toast.error("Failed to unblock")
+      return false
     }
   }
 }))
-

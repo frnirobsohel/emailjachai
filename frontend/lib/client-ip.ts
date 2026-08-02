@@ -2,7 +2,7 @@
  * Resolve the originating client IP from reverse-proxy / CDN headers.
  * Prefers CDN-specific headers, then X-Real-IP, then the left-most X-Forwarded-For hop.
  */
-export function getClientIp(headers: Headers): string {
+export function getClientIp(headers: { get(name: string): string | null }): string {
     const candidates = [
         headers.get('cf-connecting-ip'),
         headers.get('true-client-ip'),
@@ -19,7 +19,10 @@ export function getClientIp(headers: Headers): string {
 }
 
 /** Attach client IP headers for backend Gin ClientIP() behind Docker/Dokploy proxies. */
-export function applyClientIpHeaders(target: Headers, source: Headers): void {
+export function applyClientIpHeaders(
+    target: Headers,
+    source: { get(name: string): string | null },
+): void {
     const ip = getClientIp(source);
     if (!ip) return;
     target.set('X-Forwarded-For', ip);

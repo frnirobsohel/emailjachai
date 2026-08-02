@@ -35,7 +35,7 @@ func getCachedDailyFreeLimit() int64 {
 
 	limit := defaultLimit
 	var setting model.Setting
-	if err := config.DB.Where("setting_key = 'daily_free_limit'").First(&setting).Error; err == nil {
+	if err := config.DB.Where("setting_key = ?", "daily_free_limit").First(&setting).Error; err == nil {
 		if val, err := helper.SafeAtoi(setting.SettingValue); err == nil && val > 0 {
 			limit = int64(val)
 		}
@@ -47,6 +47,13 @@ func getCachedDailyFreeLimit() int64 {
 	dailyFreeLimitCache.mu.Unlock()
 
 	return limit
+}
+
+// ClearDailyFreeLimitCache forces the next quota read to reload from settings.
+func ClearDailyFreeLimitCache() {
+	dailyFreeLimitCache.mu.Lock()
+	dailyFreeLimitCache.expiresAt = time.Time{}
+	dailyFreeLimitCache.mu.Unlock()
 }
 
 type FraudAction string
@@ -193,33 +200,33 @@ func (g *FraudGuard) applySoftBlock(ctx context.Context, target string, targetTy
 }
 
 func (g *FraudGuard) softBlock(value, typ, reason string) {
-	block := model.BlockedClient{
-		Value:     value,
-		Type:      typ,
-		BlockType: "soft",
-		Reason:    reason,
-	}
-	// --- Fix I-07: Use ON CONFLICT DO NOTHING instead of FirstOrCreate ---
-	// আগে FirstOrCreate race-prone ছিল: দুই goroutine একসাথে First করলে
-	// দুজনই record খুঁজে পেত না, তারপর দুজনই Create করত → unique violation.
-	// এখন OnConflict{DoNothing: true} ব্যবহার করা হয় যেটা atomic.
-	result := config.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&block)
-	if result.Error == nil {
-		ws.GlobalHub.BroadcastToAdmins("blocklist_update", block)
-	}
+	g.upsertBlock(value, typ, "soft", reason)
 }
 
 func (g *FraudGuard) hardBlock(value, typ, reason string) {
+	g.upsertBlock(value, typ, "hard", reason)
+}
+
+func (g *FraudGuard) upsertBlock(value, typ, blockType, reason string) {
+	now := time.Now().UTC()
 	block := model.BlockedClient{
 		Value:     value,
 		Type:      typ,
-		BlockType: "hard",
+		BlockType: blockType,
 		Reason:    reason,
+		BlockedAt: now,
 	}
-	// Upsert: insert new, or upgrade existing block to "hard" atomically
-	result := config.DB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "value"}},
-		DoUpdates: clause.AssignmentColumns([]string{"block_type", "reason", "blocked_at"}),
+	// Unscoped + clear deleted_at so admin Unblock (soft delete) cannot prevent re-block (H2).
+	result := config.DB.Unscoped().Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "value"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"type":       typ,
+			"block_type": blockType,
+			"reason":     reason,
+			"blocked_at": now,
+			"deleted_at": nil,
+			"updated_at": now,
+		}),
 	}).Create(&block)
 	if result.Error == nil {
 		ws.GlobalHub.BroadcastToAdmins("blocklist_update", block)
