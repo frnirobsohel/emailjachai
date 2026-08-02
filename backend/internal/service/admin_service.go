@@ -249,7 +249,7 @@ func (s *adminService) GetAdminStats() (map[string]interface{}, error) {
 	}
 
 	recentLogs := make([]map[string]interface{}, 0, 5)
-	dbLogs, _, err := s.logRepo.List(5, 0)
+	dbLogs, _, err := s.logRepo.List(repo.LogListParams{Limit: 5})
 	if err != nil {
 		return nil, fmt.Errorf("recent logs: %w", err)
 	}

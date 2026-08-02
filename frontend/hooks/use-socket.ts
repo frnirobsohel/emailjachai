@@ -20,6 +20,20 @@ function getWsUrl() {
     return apiUrl.replace(/^http/, 'ws').replace(/\/api\/v1\/?$/, '') + '/api/v1/ws';
 }
 
+/** Encode JWT into a Sec-WebSocket-Protocol token (browsers cannot set WS Authorization headers). */
+function toWsAuthProtocol(token: string): string {
+    const bytes = new TextEncoder().encode(token);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 1) {
+        binary += String.fromCharCode(bytes[i]!);
+    }
+    const base64url = btoa(binary)
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '');
+    return `ejp.jwt.${base64url}`;
+}
+
 export function useSocket(enabled = true) {
     const [isConnected, setIsConnected] = useState(false);
     const socketRef = useRef<WebSocket | null>(null);
@@ -86,8 +100,8 @@ export function useSocket(enabled = true) {
                 return;
             }
 
-            const url = `${getWsUrl()}?token=${encodeURIComponent(token)}`;
-            const ws = new WebSocket(url);
+            // Pass token via Sec-WebSocket-Protocol — never as ?token= (avoids access-log leaks).
+            const ws = new WebSocket(getWsUrl(), [toWsAuthProtocol(token)]);
 
             ws.onopen = () => {
                 logger.info('WebSocket Connected');

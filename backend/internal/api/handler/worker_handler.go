@@ -23,12 +23,14 @@ import (
 type WorkerHandler struct {
 	workerService service.WorkerService
 	cacheRepo     repo.CacheRepository
+	logRepo       repo.LogRepo
 }
 
-func NewWorkerHandler(workerService service.WorkerService, cacheRepo repo.CacheRepository) *WorkerHandler {
+func NewWorkerHandler(workerService service.WorkerService, cacheRepo repo.CacheRepository, logRepo repo.LogRepo) *WorkerHandler {
 	return &WorkerHandler{
 		workerService: workerService,
 		cacheRepo:     cacheRepo,
+		logRepo:       logRepo,
 	}
 }
 
@@ -70,6 +72,15 @@ func (h *WorkerHandler) CompleteTask(c *gin.Context) {
 		return
 	}
 
+	if strings.EqualFold(input.Status, "failed") && h.logRepo != nil {
+		_ = h.logRepo.Create(&model.ActivityLog{
+			Level:   "WARN",
+			Source:  "Worker",
+			Event:   "Task Failed",
+			Message: fmt.Sprintf("Worker reported task #%d as failed", input.TaskID),
+		})
+	}
+
 	helper.SendSuccess(c, "Task status updated", nil)
 }
 
@@ -87,6 +98,16 @@ func (h *WorkerHandler) ResetWorkerTasks(c *gin.Context) {
 	if err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to reset tasks", err.Error())
 		return
+	}
+
+	if rowsAffected > 0 && h.logRepo != nil {
+		_ = h.logRepo.Create(&model.ActivityLog{
+			Level:      "WARN",
+			Source:     "Worker",
+			Event:      "Zombie Recovery",
+			Message:    fmt.Sprintf("Worker %s reset %d zombie task(s)", input.ServerName, rowsAffected),
+			Identifier: input.ServerName,
+		})
 	}
 
 	helper.SendSuccess(c, fmt.Sprintf("Reset %d tasks", rowsAffected), nil)

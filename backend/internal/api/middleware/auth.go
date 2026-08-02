@@ -2,18 +2,25 @@ package middleware
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"net/http"
 	"strings"
 	"time"
 
+	"ejp-backend/internal/helper"
+	"ejp-backend/internal/model"
 	"ejp-backend/pkg/config"
 	"ejp-backend/pkg/safe"
-	"ejp-backend/internal/model"
-	"ejp-backend/internal/helper"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
+
+// wsAuthProtocolPrefix is the Sec-WebSocket-Protocol carrier for browser JWT auth.
+// Browsers cannot set Authorization on WebSocket handshakes, so the token is
+// base64url-encoded into a negotiated subprotocol instead of a URL query param.
+const wsAuthProtocolPrefix = "ejp.jwt."
 
 // AuthMiddleware implements 100% legacy parity for DB-backed Bearer API Keys.
 func AuthMiddleware() gin.HandlerFunc {
@@ -88,23 +95,43 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
+func extractWSToken(c *gin.Context) (token string, selectedProtocol string) {
+	for _, protocol := range websocket.Subprotocols(c.Request) {
+		if !strings.HasPrefix(protocol, wsAuthProtocolPrefix) {
+			continue
+		}
+		encoded := strings.TrimPrefix(protocol, wsAuthProtocolPrefix)
+		raw, err := base64.RawURLEncoding.DecodeString(encoded)
+		if err != nil {
+			// Some clients may include padding
+			raw, err = base64.URLEncoding.DecodeString(encoded)
+		}
+		if err == nil && len(raw) > 0 {
+			return string(raw), protocol
+		}
+	}
+
+	authHeader := c.GetHeader("Authorization")
+	if authHeader != "" {
+		parts := strings.Split(authHeader, " ")
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && parts[1] != "" {
+			return parts[1], ""
+		}
+	}
+
+	return "", ""
+}
+
 func WSAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		tokenString := c.Query("token")
-		if tokenString == "" {
-			authHeader := c.GetHeader("Authorization")
-			if authHeader != "" {
-				parts := strings.Split(authHeader, " ")
-				if len(parts) == 2 && parts[0] == "Bearer" {
-					tokenString = parts[1]
-				}
-			}
-		}
-
+		tokenString, selectedProtocol := extractWSToken(c)
 		if tokenString == "" {
 			helper.SendError(c, http.StatusUnauthorized, "Token is required", "ERR_UNAUTHORIZED")
 			c.Abort()
 			return
+		}
+		if selectedProtocol != "" {
+			c.Set("wsSubprotocol", selectedProtocol)
 		}
 
 		if token, claims, err := helper.VerifyJWT(tokenString); err == nil && token.Valid {
@@ -128,7 +155,6 @@ func WSAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Compute SHA-256 hash of tokenString
 		hasher := sha256.New()
 		hasher.Write([]byte(tokenString))
 		hashedKey := hex.EncodeToString(hasher.Sum(nil))

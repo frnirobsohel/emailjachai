@@ -49,7 +49,15 @@ func (h *SystemHandler) HealthCheck(c *gin.Context) {
 }
 
 func (h *SystemHandler) ServeWS(c *gin.Context) {
-	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
+	responseHeader := http.Header{}
+	if proto, ok := c.Get("wsSubprotocol"); ok {
+		if protocol, isString := proto.(string); isString && protocol != "" {
+			// Echo negotiated auth subprotocol — required by browsers when client offers one.
+			responseHeader.Set("Sec-WebSocket-Protocol", protocol)
+		}
+	}
+
+	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, responseHeader)
 	if err != nil {
 		log.Printf("WebSocket Upgrade Error: %v", err)
 		return

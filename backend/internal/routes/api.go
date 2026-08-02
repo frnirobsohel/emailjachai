@@ -57,7 +57,7 @@ func SetupRoutes(router *gin.Engine) {
 	userHandler := handler.NewUserHandler(userService, jobService, paymentService, resellerService)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	paymentHandler := handler.NewPaymentHandler(paymentService)
-	workerHandler := handler.NewWorkerHandler(workerService, cacheRepo)
+	workerHandler := handler.NewWorkerHandler(workerService, cacheRepo, logRepo)
 	systemHandler := handler.NewSystemHandler()
 	adminHandler := handler.NewAdminHandler(adminService, logService, domainService, serverService, packageService, settingsService, systemService)
 	cacheHandler := handler.NewCacheHandler(cacheRepo, settingsRepo)

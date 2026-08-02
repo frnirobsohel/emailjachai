@@ -944,6 +944,7 @@ func verifyStripeSignature(payload []byte, sigHeader, secret string) bool {
 func (s *paymentService) fulfillPaymentMapping(mapKey, gateway string) error {
 	var newlyFulfilled bool
 	var fulfilledTxn model.Transaction
+	var fulfilledLog *model.ActivityLog
 
 	err := s.txRepo.DB().Transaction(func(tx *gorm.DB) error {
 		var txn model.Transaction
@@ -984,11 +985,20 @@ func (s *paymentService) fulfillPaymentMapping(mapKey, gateway string) error {
 
 		newlyFulfilled = true
 		fulfilledTxn = txn
+		fulfilledLog = logEntry
 		return nil
 	})
 
 	if err != nil || !newlyFulfilled {
 		return err
+	}
+
+	if fulfilledLog != nil && ws.GlobalHub != nil {
+		if fulfilledLog.CreatedAt.IsZero() {
+			fulfilledLog.CreatedAt = time.Now().UTC()
+		}
+		fulfilledLog.Time = fulfilledLog.CreatedAt.UTC().Format("2006-01-02 15:04:05")
+		ws.GlobalHub.BroadcastToAdmins("system_log_update", fulfilledLog)
 	}
 
 	userIDCopy := fulfilledTxn.UserID

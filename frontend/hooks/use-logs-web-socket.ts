@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useLogsStore } from '@/stores/logs-store'
 import type { LogEntry } from '@/app/admin/logs/logs-client'
-import { WsMessage } from '@/hooks/use-socket'
+import type { WsMessage } from '@/hooks/use-socket'
 
 function wsFieldString(value: unknown, fallback = ''): string {
   if (typeof value === 'string') return value
@@ -22,6 +22,17 @@ function wsFieldOptionalNumber(value: unknown): number | null | undefined {
   return undefined
 }
 
+function formatLogTime(raw: string): string {
+  if (!raw) return new Date().toISOString().replace('T', ' ').substring(0, 19)
+  if (raw.includes('T')) {
+    const date = new Date(raw)
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString().replace('T', ' ').substring(0, 19)
+    }
+  }
+  return raw.length >= 19 ? raw.substring(0, 19) : raw
+}
+
 export function useLogsWebSocket() {
   const addLiveLog = useLogsStore(state => state.addLiveLog)
 
@@ -29,14 +40,9 @@ export function useLogsWebSocket() {
     const handleLogUpdate = (event: CustomEvent<WsMessage>) => {
       const logData = event.detail.data as Record<string, unknown>
 
-      let timeStr =
-        wsFieldString(logData.created_at) ||
-        wsFieldString(logData.time) ||
-        new Date().toISOString()
-      if (timeStr.includes('T')) {
-          const date = new Date(timeStr)
-          timeStr = date.toISOString().replace('T', ' ').substring(0, 16)
-      }
+      const timeStr = formatLogTime(
+        wsFieldString(logData.time) || wsFieldString(logData.created_at)
+      )
 
       const formattedLog: LogEntry = {
           id: wsFieldNumber(logData.id, Date.now()),
@@ -44,7 +50,8 @@ export function useLogsWebSocket() {
           level: wsFieldString(logData.level, 'INFO'),
           source: wsFieldString(logData.source, 'System'),
           message: wsFieldString(logData.message),
-          ip: wsFieldString(logData.ip, '127.0.0.1'),
+          ip: wsFieldString(logData.ip) || null,
+          created_at: timeStr,
           time: timeStr,
       }
 

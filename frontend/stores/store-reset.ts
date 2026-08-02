@@ -29,7 +29,9 @@ export function resetAllStores() {
     useLogsStore.setState({
         logs: [],
         total: 0,
-        hasMore: true,
+        hasMore: false,
+        nextBeforeId: null,
+        nextBeforeCreatedAt: null,
     });
 
     useCreditStore.setState({

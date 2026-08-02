@@ -12,6 +12,7 @@ import (
 
 	"ejp-backend/internal/api/middleware"
 	"ejp-backend/internal/api/validator"
+	"ejp-backend/internal/repo"
 	"ejp-backend/internal/routes"
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
@@ -52,6 +53,21 @@ func main() {
 				logger.Info("Cleaned up old public_verify_logs", "count", result.RowsAffected)
 			}
 			// Repeat every 24 hours
+			time.Sleep(24 * time.Hour)
+		}
+	}()
+
+	// Activity logs retention: operational 90d, Auth Login Failed 7d (throttle needs 15m)
+	go func() {
+		time.Sleep(15 * time.Second)
+		logRepo := repo.NewLogRepo()
+		for {
+			n, err := logRepo.PurgeExpired(90, 7)
+			if err != nil {
+				logger.Error("Failed to purge expired activity_logs", "error", err)
+			} else if n > 0 {
+				logger.Info("Purged expired activity_logs", "count", n)
+			}
 			time.Sleep(24 * time.Hour)
 		}
 	}()
