@@ -2,7 +2,9 @@ package handler
 
 import (
 	"bufio"
+	"encoding/csv"
 	"errors"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"strings"
@@ -137,6 +139,9 @@ func (h *JobHandler) SubmitBulkJob(c *gin.Context) {
 
 	queuedCount := job.TotalEmails - job.InvalidSyntax
 	duplicatesRemoved := sourceCount - job.TotalEmails
+	if duplicatesRemoved < 0 {
+		duplicatesRemoved = 0
+	}
 
 	helper.SendSuccess(c, "Job accepted; preparing queue in background", gin.H{
 		"jobId":              job.JobID,
@@ -149,48 +154,284 @@ func (h *JobHandler) SubmitBulkJob(c *gin.Context) {
 }
 
 func extractEmailsWithSourceCount(file multipart.File, maxLimit int) ([]string, int) {
-	var emails []string
-	count := 0
-	seen := make(map[string]bool)
-	scanner := bufio.NewScanner(file)
-
-	// Expand scanner buffer to support lines up to 1MB (default is 64KB)
-	scannerBuf := make([]byte, 0, 64*1024)
-	scanner.Buffer(scannerBuf, 1*1024*1024)
-
-	// Create a replacer for common delimiters
-	r := strings.NewReplacer(",", " ", ";", " ", "\t", " ", "|", " ")
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		// Split by any of the delimiters
-		cleanedLine := r.Replace(line)
-		parts := strings.Fields(cleanedLine)
-
-		for _, part := range parts {
-			email := strings.ToLower(strings.TrimSpace(part))
-			if email != "" {
-				count++
-				// Basic sanity check before adding to raw list
-				if strings.Contains(email, "@") {
-					if !seen[email] {
-						seen[email] = true
-						emails = append(emails, email)
-						// Enforce memory cap early
-						if len(emails) > maxLimit {
-							return emails, count
-						}
-					}
-				}
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
+	emails, occurrences, err := extractEmailsFromReader(file, maxLimit)
+	if err != nil {
 		logger.Error("Error reading uploaded file", "error", err)
 	}
-	return emails, count
+	return emails, occurrences
+}
+
+func extractEmailsFromReader(r io.Reader, maxLimit int) ([]string, int, error) {
+	br := bufio.NewReaderSize(r, 1024*1024)
+
+	firstLine, err := readNonEmptyLine(br)
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, 0, nil
+		}
+		return nil, 0, err
+	}
+
+	delimiter := detectDelimiter(firstLine)
+	headerFields := splitDelimitedLine(firstLine, delimiter)
+	namedCol := findEmailHeaderColumn(headerFields)
+
+	const sampleLimit = 25
+	samples := make([]string, 0, sampleLimit)
+	for len(samples) < sampleLimit {
+		line, lerr := readNonEmptyLine(br)
+		if lerr != nil {
+			if errors.Is(lerr, io.EOF) {
+				break
+			}
+			return nil, 0, lerr
+		}
+		samples = append(samples, line)
+	}
+
+	emailCol := -1
+	if namedCol >= 0 && columnHasEmails(samples, delimiter, namedCol) {
+		// Name matches AND sample rows actually contain @ in that column
+		emailCol = namedCol
+	} else if looksLikeHeaderRow(headerFields) {
+		// Named column missing/empty of emails — pick the column that actually holds addresses
+		emailCol = findBestEmailDataColumn(samples, delimiter, len(headerFields))
+	}
+
+	seen := make(map[string]bool)
+	var emails []string
+	occurrences := 0
+
+	addEmail := func(raw string) bool {
+		email, ok := normalizeEmailCell(raw)
+		if !ok {
+			return false
+		}
+		occurrences++
+		if !seen[email] {
+			seen[email] = true
+			emails = append(emails, email)
+			if len(emails) > maxLimit {
+				return true
+			}
+		}
+		return false
+	}
+
+	if emailCol >= 0 {
+		for _, line := range samples {
+			fields := splitDelimitedLine(line, delimiter)
+			if emailCol < len(fields) && addEmail(fields[emailCol]) {
+				return emails, occurrences, nil
+			}
+		}
+		for {
+			line, lerr := readNonEmptyLine(br)
+			if lerr != nil {
+				if errors.Is(lerr, io.EOF) {
+					break
+				}
+				return emails, occurrences, lerr
+			}
+			fields := splitDelimitedLine(line, delimiter)
+			if emailCol < len(fields) && addEmail(fields[emailCol]) {
+				return emails, occurrences, nil
+			}
+		}
+		return emails, occurrences, nil
+	}
+
+	// Fallback: plain list / no usable email column — scan tokens that look like emails
+	if scanLineForEmails(firstLine, addEmail) {
+		return emails, occurrences, nil
+	}
+	for _, line := range samples {
+		if scanLineForEmails(line, addEmail) {
+			return emails, occurrences, nil
+		}
+	}
+	for {
+		line, lerr := readNonEmptyLine(br)
+		if lerr != nil {
+			if errors.Is(lerr, io.EOF) {
+				break
+			}
+			return emails, occurrences, lerr
+		}
+		if scanLineForEmails(line, addEmail) {
+			return emails, occurrences, nil
+		}
+	}
+	return emails, occurrences, nil
+}
+
+func looksLikeHeaderRow(fields []string) bool {
+	if len(fields) == 0 {
+		return false
+	}
+	if findEmailHeaderColumn(fields) >= 0 {
+		return true
+	}
+	// Multi-column row with no @ → likely headers (Domain,Status,...)
+	if len(fields) < 2 {
+		return false
+	}
+	for _, f := range fields {
+		if strings.Contains(f, "@") {
+			return false
+		}
+	}
+	return true
+}
+
+func cellLooksLikeEmail(raw string) bool {
+	_, ok := normalizeEmailCell(raw)
+	return ok
+}
+
+// normalizeEmailCell accepts a single email token cell (not free-text notes).
+func normalizeEmailCell(raw string) (string, bool) {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	s = strings.Trim(s, `"'`)
+	if s == "" || !strings.Contains(s, "@") {
+		return "", false
+	}
+	// Reject notes like "contact support@help.com for help"
+	if strings.ContainsAny(s, " \t") {
+		return "", false
+	}
+	return s, true
+}
+
+func columnHasEmails(rows []string, delimiter rune, col int) bool {
+	for _, line := range rows {
+		fields := splitDelimitedLine(line, delimiter)
+		if col < len(fields) && cellLooksLikeEmail(fields[col]) {
+			return true
+		}
+	}
+	return false
+}
+
+func findBestEmailDataColumn(rows []string, delimiter rune, headerCols int) int {
+	if len(rows) == 0 {
+		return -1
+	}
+	maxCols := headerCols
+	parsed := make([][]string, 0, len(rows))
+	for _, line := range rows {
+		fields := splitDelimitedLine(line, delimiter)
+		parsed = append(parsed, fields)
+		if len(fields) > maxCols {
+			maxCols = len(fields)
+		}
+	}
+	if maxCols == 0 {
+		return -1
+	}
+
+	bestCol, bestHits := -1, 0
+	for col := 0; col < maxCols; col++ {
+		hits := 0
+		for _, fields := range parsed {
+			if col < len(fields) && cellLooksLikeEmail(fields[col]) {
+				hits++
+			}
+		}
+		if hits > bestHits {
+			bestHits = hits
+			bestCol = col
+		}
+	}
+	if bestHits == 0 {
+		return -1
+	}
+	return bestCol
+}
+
+func readNonEmptyLine(br *bufio.Reader) (string, error) {
+	for {
+		line, err := br.ReadString('\n')
+		line = strings.TrimRight(line, "\r\n")
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line, nil
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+}
+
+func detectDelimiter(line string) rune {
+	counts := map[rune]int{
+		',':  strings.Count(line, ","),
+		';':  strings.Count(line, ";"),
+		'\t': strings.Count(line, "\t"),
+		'|':  strings.Count(line, "|"),
+	}
+	best := ','
+	bestN := -1
+	for d, n := range counts {
+		if n > bestN {
+			bestN = n
+			best = d
+		}
+	}
+	if bestN <= 0 {
+		return ','
+	}
+	return best
+}
+
+func splitDelimitedLine(line string, delimiter rune) []string {
+	r := csv.NewReader(strings.NewReader(line))
+	r.Comma = delimiter
+	r.LazyQuotes = true
+	r.FieldsPerRecord = -1
+	fields, err := r.Read()
+	if err != nil || len(fields) == 0 {
+		return strings.Split(line, string(delimiter))
+	}
+	return fields
+}
+
+func normalizeHeaderName(h string) string {
+	h = strings.ToLower(strings.TrimSpace(h))
+	h = strings.Trim(h, `"'`)
+	replacer := strings.NewReplacer(" ", "", "_", "", "-", "", ".", "")
+	return replacer.Replace(h)
+}
+
+func findEmailHeaderColumn(headers []string) int {
+	exact := map[string]bool{
+		"email": true, "emails": true, "mail": true,
+		"emailaddress": true, "emailaddresses": true, "useremail": true,
+		"recipientemail": true, "primaryemail": true, "workemail": true,
+		"emailid": true, "emailaddr": true,
+	}
+	softIdx := -1
+	for i, h := range headers {
+		n := normalizeHeaderName(h)
+		if exact[n] {
+			return i
+		}
+		// Prefer columns that *end* with "email" (e.g. ContactEmail).
+		// Do not use HasPrefix — "Email Status" / "Email Type" would steal the column.
+		if softIdx < 0 && len(n) > 5 && strings.HasSuffix(n, "email") {
+			softIdx = i
+		}
+	}
+	return softIdx
+}
+
+func scanLineForEmails(line string, addEmail func(string) bool) bool {
+	r := strings.NewReplacer(",", " ", ";", " ", "\t", " ", "|", " ")
+	parts := strings.Fields(r.Replace(line))
+	for _, part := range parts {
+		if addEmail(part) {
+			return true
+		}
+	}
+	return false
 }

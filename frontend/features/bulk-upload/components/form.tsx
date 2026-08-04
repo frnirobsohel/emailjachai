@@ -4,11 +4,9 @@ import { useState, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
     Upload,
     FileText,
-    AlertCircle,
     X,
     Clock,
     FileCheck,
@@ -17,6 +15,7 @@ import {
     CheckCircle2
 } from "lucide-react"
 import Link from "next/link"
+import { toast } from "react-hot-toast"
 import { useSettings } from "@/lib/settings-context"
 import { useDashboardStore } from "@/stores/dashboard-store"
 import { useCreditStore } from "@/stores/credit-state"
@@ -42,7 +41,6 @@ export function BulkUploadForm() {
     const [isDragOver, setIsDragOver] = useState(false)
     const [isUploading, setIsUploading] = useState(false)
     const [uploadStats, setUploadStats] = useState<UploadStats | null>(null)
-    const [error, setError] = useState<string | null>(null)
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const isSubmittingRef = useRef(false)
@@ -59,7 +57,6 @@ export function BulkUploadForm() {
     }, [])
 
     const handleFileSelect = useCallback((file?: File | null) => {
-        setError(null)
         setUploadStats(null)
         idempotencyKeyRef.current = null
 
@@ -75,12 +72,12 @@ export function BulkUploadForm() {
             !normalizedName.endsWith(".csv") &&
             !normalizedName.endsWith(".txt")
         ) {
-            setError("Please upload a CSV or TXT file only.")
+            toast.error("Please upload a CSV or TXT file only.")
             return
         }
 
         if (file.size > 200 * 1024 * 1024) {
-            setError("File size must be less than 200MB.")
+            toast.error("File size must be less than 200MB.")
             return
         }
 
@@ -116,13 +113,12 @@ export function BulkUploadForm() {
 
         // Soft preflight: large uploads need at least 1 credit; exact count known after parse
         if (available != null && available < 1) {
-            setError("Insufficient credits. Please buy credits before uploading.")
+            toast.error("Insufficient credits. Please buy credits before uploading.")
             return
         }
 
         isSubmittingRef.current = true
         setIsUploading(true)
-        setError(null)
 
         const idempotencyKey =
             idempotencyKeyRef.current ||
@@ -157,7 +153,9 @@ export function BulkUploadForm() {
             const queued = Math.max(0, data.queued ?? data.total ?? 0)
             if (!data.is_duplicate && available != null && queued > available) {
                 // Backend would have rejected; keep message clear if somehow returned
-                setError(`This job needs ${queued.toLocaleString()} credits but you have ${available.toLocaleString()}.`)
+                toast.error(
+                    `This job needs ${queued.toLocaleString()} credits but you have ${available.toLocaleString()}.`
+                )
                 return
             }
 
@@ -197,7 +195,7 @@ export function BulkUploadForm() {
             setSelectedFile(null)
             if (fileInputRef.current) fileInputRef.current.value = ""
         } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : "An unexpected error occurred during upload.")
+            toast.error(err instanceof Error ? err.message : "An unexpected error occurred during upload.")
         } finally {
             isSubmittingRef.current = false
             setIsUploading(false)
@@ -326,13 +324,6 @@ export function BulkUploadForm() {
                             </Button>
                         </div>
                     )}
-
-                    {error && (
-                        <Alert variant="destructive" className="mt-4 bg-rose-50 border-rose-100 text-rose-900">
-                            <AlertCircle className="h-4 w-4 text-rose-600" />
-                            <AlertDescription className="text-rose-800">{error}</AlertDescription>
-                        </Alert>
-                    )}
                 </CardContent>
             </Card>
 
@@ -398,12 +389,6 @@ export function BulkUploadForm() {
                                         #{uploadStats.jobId.substring(0, 12)}...
                                     </Badge>
                                 </div>
-                                <div className="flex items-center justify-between p-2 bg-[#f0f4f2]/60 rounded-md border border-[#0b1f1c]/8">
-                                    <span className="text-sm font-medium text-[#3d564f]">File:</span>
-                                    <span className="text-xs text-[#5a736c] truncate max-w-[150px] font-medium">
-                                        {uploadStats.fileName}
-                                    </span>
-                                </div>
                             </div>
 
                             <Button
@@ -413,17 +398,8 @@ export function BulkUploadForm() {
                                 className="w-full border-[#0f5c52]/25 text-[#0f5c52] hover:bg-[#0f5c52]/5"
                             >
                                 <Link href="/dashboard/jobs">
-                                    <Eye className="mr-2 h-4 w-4" /> View Jobs & Download
+                                    <Eye className="mr-2 h-4 w-4" /> View Job Status
                                 </Link>
-                            </Button>
-
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="w-full text-[#5a736c] hover:text-[#0b1f1c] hover:bg-[#f0f4f2]/60 border border-dashed border-[#0b1f1c]/15"
-                                onClick={() => setUploadStats(null)}
-                            >
-                                <Upload className="mr-2 h-3.5 w-3.5" /> Upload Another File
                             </Button>
                         </div>
                     ) : (
