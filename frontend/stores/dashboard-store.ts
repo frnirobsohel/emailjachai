@@ -16,7 +16,7 @@ export interface DashboardStats {
 export interface RecentDashboardJob {
     job_id: string;
     filename?: string | null;
-    status: "pending" | "processing" | "completed" | "failed" | string;
+    status: "pending" | "preparing" | "processing" | "completed" | "failed" | string;
     total_emails: number;
     processed_count?: number;
     created_at?: string;

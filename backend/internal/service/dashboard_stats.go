@@ -94,7 +94,7 @@ func ComputeAndCacheDashboardStats(uID uint, tzQuery string) gin.H {
 			Select(`
 				SUM(processed_count) as total_verifications,
 				COUNT(CASE WHEN type = 'bulk' THEN 1 END) as total_jobs,
-				COUNT(CASE WHEN type = 'bulk' AND status IN ('pending', 'processing') THEN 1 END) as active_jobs,
+				COUNT(CASE WHEN type = 'bulk' AND status IN ('preparing', 'pending', 'processing') THEN 1 END) as active_jobs,
 				SUM(CASE WHEN created_at >= ?::timestamp THEN processed_count ELSE 0 END) as today_verifications,
 				SUM(deliverable) as deliverable_total,
 				SUM(risky) as risky_total,

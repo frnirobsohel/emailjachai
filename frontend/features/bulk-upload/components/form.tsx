@@ -184,7 +184,7 @@ export function BulkUploadForm() {
                 dash.upsertRecentJob({
                     job_id: data.jobId,
                     filename: selectedFile.name,
-                    status: "pending",
+                    status: "preparing",
                     total_emails: data.total ?? 0,
                     processed_count: 0,
                     created_at: new Date().toISOString(),
@@ -362,10 +362,10 @@ export function BulkUploadForm() {
                             <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-100 rounded-lg">
                                 <CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0" />
                                 <div>
-                                    <p className="text-sm font-semibold text-emerald-800">Upload Successful!</p>
+                                    <p className="text-sm font-semibold text-emerald-800">Upload Accepted!</p>
                                     <p className="text-xs text-emerald-600">
-                                        {uploadStats.fileName} is queued. Download is available from Jobs when
-                                        processing finishes.
+                                        {uploadStats.fileName} is preparing in the background. Verification will start
+                                        shortly — track progress and download from Jobs.
                                     </p>
                                 </div>
                             </div>

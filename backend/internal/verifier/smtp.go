@@ -262,6 +262,14 @@ func verifyEmailInternal(email string, start time.Time, deadline time.Time) Veri
 	}
 	result.MxRecords = mxList
 
+	if err := waitDomainUntil(domain, result.IsFree, deadline); err != nil {
+		result.Status = "unknown"
+		result.Reason = "rate_limit_timeout"
+		result.DetailedError = "per-domain rate limit wait exceeded"
+		result.ProcessingTime = time.Since(start).Seconds()
+		return result
+	}
+
 	// Try the best MX records (Limit to top 5)
 	for i, mx := range mxRecords {
 		if i >= 5 {

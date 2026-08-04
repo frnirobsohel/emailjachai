@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"net"
@@ -216,6 +217,16 @@ func VerifyEmail(email string) VerifyResult {
 		mxList = append(mxList, strings.TrimSuffix(mx.Host, "."))
 	}
 	result.MxRecords = mxList
+
+	// Per-domain rate limit (local to worker — does not call backend API).
+	rlCtx, rlCancel := context.WithDeadline(context.Background(), deadline)
+	defer rlCancel()
+	if err := WaitDomainRateLimit(rlCtx, domain, result.IsFree); err != nil {
+		result.Status = "unknown"
+		result.Reason = "rate_limit_timeout"
+		result.DetailedError = "per-domain rate limit wait exceeded"
+		return result
+	}
 
 	for i, mx := range mxRecords {
 		if i >= 5 {

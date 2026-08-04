@@ -76,6 +76,7 @@ var WritableSettingKeys = map[string]bool{
 	// job control
 	"chunk_size": true, "task_timeout": true, "task_timeout_minutes": true,
 	"max_emails_per_job": true, "max_active_jobs_per_user": true,
+	"prepare_concurrency": true, "worker_concurrency": true,
 	// maintenance / license page
 	"maintenance_mode": true, "maintenance_message": true,
 	// payment gateways (+ api_base_url for webhook callbacks)
@@ -236,6 +237,8 @@ func (s *settingsService) persist(updates map[string]string, adminID uint, logMs
 		"task_timeout_minutes":     {1, 1440, 60},
 		"max_emails_per_job":       {10, 1000000, 100000},
 		"max_active_jobs_per_user": {0, 10000, 0},
+		"prepare_concurrency":      {1, 10, 1},
+		"worker_concurrency":       {1, 100, 10},
 	}
 
 	prepared := make(map[string]string, len(updates)+1)

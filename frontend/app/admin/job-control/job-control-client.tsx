@@ -62,6 +62,22 @@ const settingsSchema = z.object({
             const n = Number(v)
             return n >= 0 && n <= 10000
         }, "Must be between 0 and 10000"),
+    prepare_concurrency: z
+        .string()
+        .min(1, "Required")
+        .regex(/^\d+$/, "Must be a number")
+        .refine((v) => {
+            const n = Number(v)
+            return n >= 1 && n <= 10
+        }, "Must be between 1 and 10"),
+    worker_concurrency: z
+        .string()
+        .min(1, "Required")
+        .regex(/^\d+$/, "Must be a number")
+        .refine((v) => {
+            const n = Number(v)
+            return n >= 1 && n <= 100
+        }, "Must be between 1 and 100"),
 })
 
 type JobOverview = {
@@ -108,7 +124,9 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
             chunk_size: initialSettings.chunk_size || "1000",
             task_timeout: initialSettings.task_timeout || "60",
             max_emails_per_job: initialSettings.max_emails_per_job || "100000",
-            max_active_jobs_per_user: initialSettings.max_active_jobs_per_user || "0"
+            max_active_jobs_per_user: initialSettings.max_active_jobs_per_user || "0",
+            prepare_concurrency: initialSettings.prepare_concurrency || "1",
+            worker_concurrency: initialSettings.worker_concurrency || "10",
         }
     })
 
@@ -143,7 +161,9 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                     chunk_size: mappedSettings.chunk_size || "1000",
                     task_timeout: mappedSettings.task_timeout || "60",
                     max_emails_per_job: mappedSettings.max_emails_per_job || "100000",
-                    max_active_jobs_per_user: mappedSettings.max_active_jobs_per_user || "0"
+                    max_active_jobs_per_user: mappedSettings.max_active_jobs_per_user || "0",
+                    prepare_concurrency: mappedSettings.prepare_concurrency || "1",
+                    worker_concurrency: mappedSettings.worker_concurrency || "10",
                 });
             }
 
@@ -167,7 +187,9 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 chunk_size: initialSettings.chunk_size || "1000",
                 task_timeout: initialSettings.task_timeout || "60",
                 max_emails_per_job: initialSettings.max_emails_per_job || "100000",
-                max_active_jobs_per_user: initialSettings.max_active_jobs_per_user || "0"
+                max_active_jobs_per_user: initialSettings.max_active_jobs_per_user || "0",
+                prepare_concurrency: initialSettings.prepare_concurrency || "1",
+                worker_concurrency: initialSettings.worker_concurrency || "10",
             });
         }
         if (initialStats) {
@@ -408,6 +430,35 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                 />
                                 {settingsForm.formState.errors.max_active_jobs_per_user && <p className="text-xs text-red-500">{settingsForm.formState.errors.max_active_jobs_per_user.message}</p>}
                                 <p className="text-[11px] text-slate-500 italic">Limit concurrent jobs to prevent resource hogging (0 = infinite).</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="prepare_concurrency" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Prepare Concurrency</Label>
+                                    <Input
+                                        id="prepare_concurrency"
+                                        type="number"
+                                        min={1}
+                                        max={10}
+                                        className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.prepare_concurrency ? 'border-red-400' : ''}`}
+                                        {...settingsForm.register("prepare_concurrency")}
+                                    />
+                                    {settingsForm.formState.errors.prepare_concurrency && <p className="text-xs text-red-500">{settingsForm.formState.errors.prepare_concurrency.message}</p>}
+                                    <p className="text-[11px] text-slate-500 italic">How many bulk jobs prepare (shuffle/chunk/queue) at once (1–10). Keep low to protect the API.</p>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="worker_concurrency" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Worker Concurrency</Label>
+                                    <Input
+                                        id="worker_concurrency"
+                                        type="number"
+                                        min={1}
+                                        max={100}
+                                        className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.worker_concurrency ? 'border-red-400' : ''}`}
+                                        {...settingsForm.register("worker_concurrency")}
+                                    />
+                                    {settingsForm.formState.errors.worker_concurrency && <p className="text-xs text-red-500">{settingsForm.formState.errors.worker_concurrency.message}</p>}
+                                    <p className="text-[11px] text-slate-500 italic">Parallel verify chunks across workers (1–100). Applied via heartbeat (~1 min).</p>
+                                </div>
                             </div>
                         </CardContent>
                         <CardFooter className="bg-slate-50/50 border-t border-slate-100 p-4">

@@ -13,6 +13,7 @@ const statusMap: Record<string, { label: string, color: string }> = {
     'catch-all': { label: 'Catch-All', color: 'bg-indigo-100 text-indigo-700 ring-indigo-600/20' },
     disposable: { label: 'Disposable', color: 'bg-pink-100 text-pink-700 ring-pink-600/20' },
     pending: { label: 'Pending', color: 'bg-slate-100 text-slate-700 ring-slate-600/20' },
+    preparing: { label: 'Preparing', color: 'bg-violet-100 text-violet-700 ring-violet-600/20' },
     processing: { label: 'Processing', color: 'bg-blue-100 text-blue-700 ring-blue-600/20' },
     completed: { label: 'Completed', color: 'bg-emerald-100 text-emerald-700 ring-emerald-600/20' },
     failed: { label: 'Failed', color: 'bg-rose-100 text-rose-700 ring-rose-600/20' },

@@ -99,6 +99,9 @@ func HandleEmailVerifyTask(ctx context.Context, t *asynq.Task) error {
 
 // HandleEmailChunkTask processes an email chunk for bulk verification
 func HandleEmailChunkTask(ctx context.Context, t *asynq.Task) error {
+	chunkVerifyGate.Acquire()
+	defer chunkVerifyGate.Release()
+
 	var p EmailChunkTaskPayload
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)

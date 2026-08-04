@@ -14,7 +14,7 @@ type Job struct {
 	Filename       string         `gorm:"type:varchar(255)" json:"filename"`
 	FileURL        string         `gorm:"column:file_url;type:varchar(255)" json:"file_url"`
 	ResultFilePath string         `gorm:"column:result_file_path;type:varchar(512)" json:"result_file_path,omitempty"` // ndjson storage path
-	Status         string         `gorm:"type:varchar(20);default:'pending'" json:"status"`            // pending, processing, completed, failed
+	Status         string         `gorm:"type:varchar(20);default:'pending'" json:"status"`            // preparing, pending, processing, completed, failed
 	JobType        string         `gorm:"column:type;type:varchar(20);default:'bulk';index:idx_user_type,priority:2" json:"job_type"` // bulk, single
 	TotalEmails    int            `gorm:"column:total_emails;default:0" json:"total_emails"`
 	ProcessedCount int            `gorm:"column:processed_count;default:0" json:"processed_count"`

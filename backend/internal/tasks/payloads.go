@@ -9,6 +9,7 @@ import (
 const (
 	TypeEmailChunkVerify = "email:chunk:verify"
 	TypeWebhookDeliver   = "webhook:deliver"
+	TypeBulkPrepare      = "job:bulk:prepare"
 )
 
 // EmailChunkTaskPayload holds the data needed to verify a chunk of emails
@@ -16,6 +17,11 @@ type EmailChunkTaskPayload struct {
 	JobID  string   `json:"job_id"`
 	TaskID uint     `json:"task_id"`
 	Emails []string `json:"emails"`
+}
+
+// BulkPreparePayload schedules post-accept prepare (shuffle/chunk/enqueue) for one job.
+type BulkPreparePayload struct {
+	JobID string `json:"job_id"`
 }
 
 // WebhookDeliverPayload holds the data needed to send a webhook
@@ -33,6 +39,15 @@ func NewEmailChunkTask(jobID string, taskID uint, emails []string) (*asynq.Task,
 		return nil, err
 	}
 	return asynq.NewTask(TypeEmailChunkVerify, payload), nil
+}
+
+// NewBulkPrepareTask creates an asynq.Task to prepare an accepted bulk job for verification.
+func NewBulkPrepareTask(jobID string) (*asynq.Task, error) {
+	payload, err := json.Marshal(BulkPreparePayload{JobID: jobID})
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(TypeBulkPrepare, payload), nil
 }
 
 // NewWebhookDeliverTask creates an asynq.Task for delivering a webhook

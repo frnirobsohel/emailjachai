@@ -102,6 +102,31 @@ func getChunkSizeSetting() int {
 	return chunkSize
 }
 
+func getIntSetting(key string, def, min, max int) int {
+	v := def
+	var rows []model.Setting
+	if err := config.DB.Where("setting_key = ?", key).Find(&rows).Error; err == nil && len(rows) > 0 {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(rows[0].SettingValue)); err == nil {
+			v = parsed
+		}
+	}
+	if v < min {
+		v = min
+	}
+	if v > max {
+		v = max
+	}
+	return v
+}
+
+func getWorkerConcurrencySetting() int {
+	return getIntSetting("worker_concurrency", 10, 1, 100)
+}
+
+func getPrepareConcurrencySetting() int {
+	return getIntSetting("prepare_concurrency", 1, 1, 10)
+}
+
 func formatHeartbeatAge(diff time.Duration) string {
 	secs := int(diff.Seconds())
 	if secs < 5 {
@@ -622,6 +647,8 @@ func WorkerHeartbeat(c *gin.Context) {
 	}
 
 	chunkSize := getChunkSizeSetting()
+	workerConcurrency := getWorkerConcurrencySetting()
+	prepareConcurrency := getPrepareConcurrencySetting()
 
 	now := time.Now().UTC()
 	var server model.WorkerServer
@@ -666,7 +693,9 @@ func WorkerHeartbeat(c *gin.Context) {
 			})
 
 			helper.SendSuccess(c, "Heartbeat received", gin.H{
-				"chunk_size": chunkSize,
+				"chunk_size":           chunkSize,
+				"worker_concurrency":   workerConcurrency,
+				"prepare_concurrency":  prepareConcurrency,
 			})
 			return
 		}
@@ -710,8 +739,10 @@ func WorkerHeartbeat(c *gin.Context) {
 	logger.Info("Worker heartbeat received", "server", server.ServerName, "ip", ip, "enabled", server.Enabled)
 
 	helper.SendSuccess(c, "Heartbeat received", gin.H{
-		"chunk_size": chunkSize,
-		"enabled":    server.Enabled,
+		"chunk_size":          chunkSize,
+		"worker_concurrency":  workerConcurrency,
+		"prepare_concurrency": prepareConcurrency,
+		"enabled":             server.Enabled,
 	})
 }
 

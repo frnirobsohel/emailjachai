@@ -145,7 +145,7 @@ func (r *jobRepository) GetStats(userID uint) (map[string]interface{}, error) {
 
 func (r *jobRepository) CountActiveJobs(userID uint) (int64, error) {
 	var count int64
-	err := r.db.Model(&model.Job{}).Where("user_id = ? AND type = 'bulk' AND status IN ('pending', 'processing')", userID).Count(&count).Error
+	err := r.db.Model(&model.Job{}).Where("user_id = ? AND type = 'bulk' AND status IN ('preparing', 'pending', 'processing')", userID).Count(&count).Error
 	return count, err
 }
 
@@ -158,7 +158,7 @@ func (r *jobRepository) CreateBulkJob(userID uint, jobID string, filename string
 		if maxActiveJobs > 0 {
 			var activeCount int64
 			if err := tx.Model(&model.Job{}).
-				Where("user_id = ? AND type = 'bulk' AND status IN ('pending', 'processing')", userID).
+				Where("user_id = ? AND type = 'bulk' AND status IN ('preparing', 'pending', 'processing')", userID).
 				Count(&activeCount).Error; err != nil {
 				return err
 			}
@@ -194,9 +194,12 @@ func (r *jobRepository) CreateBulkJob(userID uint, jobID string, filename string
 		}
 
 		// 3. Job Record
+		// Empty taskRecords => accept-only path; prepare/enqueue happens asynchronously.
 		jobStatus := "pending"
 		if queuedCount == 0 {
 			jobStatus = "completed"
+		} else if len(taskRecords) == 0 {
+			jobStatus = "preparing"
 		}
 
 		job = model.Job{
@@ -215,7 +218,7 @@ func (r *jobRepository) CreateBulkJob(userID uint, jobID string, filename string
 			return err
 		}
 
-		// 4. Save job tasks in chunk
+		// 4. Save job tasks in chunk (may be empty on accept-only)
 		for i := range taskRecords {
 			if err := tx.Create(&taskRecords[i]).Error; err != nil {
 				return err
@@ -276,7 +279,7 @@ func (r *jobRepository) GetJobResultsRows(jobInternalID uint) (*sql.Rows, error)
 
 func (r *jobRepository) CountAllActiveJobs() (int64, error) {
 	var count int64
-	err := r.db.Model(&model.Job{}).Where("status IN ?", []string{"pending", "processing"}).Count(&count).Error
+	err := r.db.Model(&model.Job{}).Where("status IN ?", []string{"preparing", "pending", "processing"}).Count(&count).Error
 	return count, err
 }
 

@@ -71,7 +71,8 @@ func main() {
 	fmt.Println("Starting Standalone Email Verification Worker...")
 	logger.Info("Starting Worker",
 		zap.String("server_name", config.Cfg.WorkerServerName),
-		zap.Int("concurrency", config.Cfg.Concurrency),
+		zap.Int("asynq_pool", config.Cfg.Concurrency),
+		zap.Int("effective_concurrency", config.GetEffectiveWorkerConcurrency()),
 	)
 
 	if err := srv.Start(mux); err != nil {

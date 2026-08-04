@@ -127,6 +127,8 @@ func (h *JobHandler) SubmitBulkJob(c *gin.Context) {
 			helper.SendError(c, http.StatusConflict, "Duplicate job request.", "ERR_DUPLICATE_REQUEST")
 		case strings.Contains(errStr, "failed to queue") || strings.Contains(errStr, "credits refunded"):
 			helper.SendError(c, http.StatusInternalServerError, "Failed to queue job. Credits have been refunded.", "ERR_QUEUE_FAILED")
+		case strings.Contains(errStr, "failed to save job source"):
+			helper.SendError(c, http.StatusInternalServerError, "Failed to save upload. Credits have been refunded.", "ERR_SOURCE_SAVE_FAILED")
 		default:
 			helper.SendError(c, http.StatusInternalServerError, "Failed to submit job.", "ERR_SUBMIT_JOB")
 		}
@@ -136,12 +138,13 @@ func (h *JobHandler) SubmitBulkJob(c *gin.Context) {
 	queuedCount := job.TotalEmails - job.InvalidSyntax
 	duplicatesRemoved := sourceCount - job.TotalEmails
 
-	helper.SendSuccess(c, "Job created and queued successfully", gin.H{
+	helper.SendSuccess(c, "Job accepted; preparing queue in background", gin.H{
 		"jobId":              job.JobID,
 		"total":              job.TotalEmails,
 		"queued":             queuedCount,
 		"pre_filtered":       job.InvalidSyntax,
 		"duplicates_removed": duplicatesRemoved,
+		"status":             job.Status,
 	})
 }
 

@@ -88,7 +88,7 @@ func StartHeartbeat() {
 
 		payload := map[string]interface{}{
 			"server_name":  config.Cfg.WorkerServerName,
-			"worker_count": config.Cfg.Concurrency,
+			"worker_count": config.GetEffectiveWorkerConcurrency(),
 		}
 
 		jsonData, _ := json.Marshal(payload)
@@ -108,14 +108,33 @@ func StartHeartbeat() {
 			} else {
 				var result struct {
 					Data struct {
-						ChunkSize int `json:"chunk_size"`
+						ChunkSize          int `json:"chunk_size"`
+						WorkerConcurrency  int `json:"worker_concurrency"`
+						PrepareConcurrency int `json:"prepare_concurrency"`
 					} `json:"data"`
 				}
 				if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
 					if result.Data.ChunkSize > 0 {
 						batchMutex.Lock()
+						prevChunk := config.Cfg.ChunkSizeLimit
 						config.Cfg.ChunkSizeLimit = result.Data.ChunkSize
 						batchMutex.Unlock()
+						if prevChunk != result.Data.ChunkSize {
+							logger.Info("Chunk size updated from Job Control",
+								zap.Int("from", prevChunk),
+								zap.Int("to", result.Data.ChunkSize),
+							)
+						}
+					}
+					if result.Data.WorkerConcurrency > 0 {
+						prev := config.GetEffectiveWorkerConcurrency()
+						config.SetEffectiveWorkerConcurrency(result.Data.WorkerConcurrency)
+						if prev != result.Data.WorkerConcurrency {
+							logger.Info("Worker concurrency updated from Job Control",
+								zap.Int("from", prev),
+								zap.Int("to", result.Data.WorkerConcurrency),
+							)
+						}
 					}
 				}
 			}

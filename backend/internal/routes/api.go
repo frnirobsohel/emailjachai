@@ -67,6 +67,9 @@ func SetupRoutes(router *gin.Engine) {
 	adminHandler.StartAdminStatsBroadcaster()
 	adminHandler.StartServerListBroadcaster()
 
+	// Serial bulk prepare consumer (accept fast → prepare one-by-one → verify parallel)
+	service.StartBulkPrepareWorker(jobService)
+
 	// Global API v1 Group
 	v1 := router.Group("/api/v1")
 	{

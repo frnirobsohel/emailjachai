@@ -23,7 +23,7 @@ import { toast } from "react-hot-toast"
 export interface Job {
     job_id: string;
     filename: string | null;
-    status: "pending" | "processing" | "completed" | "failed";
+    status: "pending" | "preparing" | "processing" | "completed" | "failed";
     total_emails: number;
     processed_count: number;
     created_at: string;

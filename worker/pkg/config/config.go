@@ -2,7 +2,6 @@ package config
 
 import (
 	"os"
-	"strconv"
 	"strings"
 
 	"ejp-worker/pkg/logger"
@@ -11,25 +10,30 @@ import (
 	"go.uber.org/zap"
 )
 
+// AsynqPoolCeiling is the fixed Asynq worker pool size.
+// Effective parallel verify work is controlled by Job Control (worker_concurrency) via heartbeat.
+const AsynqPoolCeiling = 100
+
 type WorkerConfig struct {
 	RedisURL         string
 	APIBaseURL       string
 	WorkerAPIKey     string
-	Concurrency      int
-	ChunkSizeLimit   int
+	Concurrency      int // Asynq pool size (fixed ceiling; not from env)
+	ChunkSizeLimit   int // From Job Control chunk_size via heartbeat
 	WorkerServerName string
 }
 
 var Cfg *WorkerConfig
 
 // LoadConfig loads environment variables and validates required settings.
+// Tuning (concurrency / chunk size) comes from Admin → Job Control, not .env.
 func LoadConfig() {
 	_ = godotenv.Load()
 
 	cfg := &WorkerConfig{
-		RedisURL:         "redis://localhost:6379/0",
-		Concurrency:      10,
-		ChunkSizeLimit:   50,
+		RedisURL:       "redis://localhost:6379/0",
+		Concurrency:    AsynqPoolCeiling,
+		ChunkSizeLimit: 1000, // Job Control default until first heartbeat
 	}
 
 	if val := os.Getenv("REDIS_URL"); val != "" {
@@ -47,21 +51,12 @@ func LoadConfig() {
 		}
 	}
 	cfg.APIBaseURL = strings.TrimRight(apiBase, "/")
-	os.Setenv("API_BASE_URL", cfg.APIBaseURL) // keep compatible with other code using os.Getenv temporarily if needed
+	os.Setenv("API_BASE_URL", cfg.APIBaseURL)
 
 	cfg.WorkerAPIKey = os.Getenv("WORKER_API_KEY")
 
-	if raw := strings.TrimSpace(os.Getenv("CONCURRENCY")); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			cfg.Concurrency = parsed
-		}
-	}
-
-	if raw := strings.TrimSpace(os.Getenv("CHUNK_SIZE")); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			cfg.ChunkSizeLimit = parsed
-		}
-	}
+	// Job Control defaults until heartbeat delivers live values
+	SetEffectiveWorkerConcurrency(10)
 
 	cfg.WorkerServerName = strings.TrimSpace(os.Getenv("WORKER_SERVER_NAME"))
 	if cfg.WorkerServerName == "" {

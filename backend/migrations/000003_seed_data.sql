@@ -18,6 +18,8 @@ VALUES
     ('free_invalid_retention',    '30',    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     ('public_verifier_enabled',   'true',  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     ('daily_free_limit',          '10',    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('license_key',               '',      CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ('license_key',               '',      CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('prepare_concurrency',       '1',     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('worker_concurrency',        '10',    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 
 ON CONFLICT (setting_key) DO NOTHING;
