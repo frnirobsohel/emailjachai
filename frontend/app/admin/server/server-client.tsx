@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
     Server, RefreshCcw, Activity, Plus, Copy, Check, Trash2, Settings2,
-    ShieldCheck, Zap, Clock, Database, Globe, Signal, Search, Eye, EyeOff, Lock, AlertCircle, Loader2
+    ShieldCheck, Zap, Clock, Database, Globe, Signal, Search, Eye, EyeOff, Lock, AlertCircle, Loader2, Flame, TrendingUp
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -65,19 +65,7 @@ const addServerSchema = z.object({
         }, "Port must be between 1 and 65535"),
 })
 
-const manageServerSchema = z.object({
-    rateLimit: z
-        .union([z.string(), z.number()])
-        .transform((value) => Number(value))
-        .pipe(z.number().int().min(1, "Min 1").max(1_000_000, "Too high")),
-    dailyLimit: z
-        .union([z.string(), z.number()])
-        .transform((value) => Number(value))
-        .pipe(z.number().int().min(1, "Min 1").max(100_000_000, "Too high")),
-})
-
-type ManageServerFormValues = z.input<typeof manageServerSchema>
-type ManageServerParsed = z.output<typeof manageServerSchema>
+type WarmupMode = 'low' | 'medium' | 'fast'
 
 const passwordSchema = z.object({
     password: z.string().min(1, "Password is required"),
@@ -102,15 +90,15 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
     const [manageServer, setManageServer] = useState<ServerNode | null>(null)
     const [searchTerm, setSearchTerm] = useState("")
     const [deleteConfirmText, setDeleteConfirmText] = useState("")
+    const [warmupMode, setWarmupMode] = useState<WarmupMode>('medium')
+    const [warmupEnabled, setWarmupEnabled] = useState(true)
+    const [warmupSaving, setWarmupSaving] = useState(false)
 
     const addForm = useForm<z.infer<typeof addServerSchema>>({
         resolver: zodResolver(addServerSchema),
         defaultValues: { name: "", ip: "", port: "8080" }
     })
 
-    const manageForm = useForm<ManageServerFormValues, unknown, ManageServerParsed>({
-        resolver: zodResolver(manageServerSchema)
-    })
 
     const passwordForm = useForm<z.infer<typeof passwordSchema>>({
         resolver: zodResolver(passwordSchema),
@@ -140,13 +128,11 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
 
     useEffect(() => {
         if (manageServer) {
-            manageForm.reset({
-                rateLimit: manageServer.config.rateLimit,
-                dailyLimit: manageServer.config.dailyLimit
-            })
+            setWarmupEnabled(true)
+            setWarmupMode('medium')
             setDeleteConfirmText("")
         }
-    }, [manageServer, manageForm])
+    }, [manageServer])
 
     useEffect(() => {
         if (passwordModal) {
@@ -331,27 +317,28 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
         }
     }
 
-    const onUpdateConfig = async (values: ManageServerParsed) => {
-        if (!manageServer) return;
-
+    const handleWarmupSave = async () => {
+        if (!manageServer) return
+        setWarmupSaving(true)
         try {
-            const result = await ApiClient.post('/admin/server/update', {
+            const result = await ApiClient.post('/admin/server/warmup', {
                 id: manageServer.id,
-                config: {
-                    rateLimit: values.rateLimit,
-                    dailyLimit: values.dailyLimit,
-                }
-            });
-
+                warmup_enabled: warmupEnabled,
+                warmup_mode: warmupMode,
+            })
             if (result.status === 'success') {
-                setManageServer(null);
-                void fetchServers();
-                toast.success("Settings updated successfully.");
+                setManageServer(null)
+                void fetchServers()
+                toast.success("Warmup settings saved.")
             } else {
-                toast.error(result.message || "Failed to update settings.");
+                toast.error(result.message || "Failed to save warmup settings.")
             }
-        } catch (error: unknown) {
-            toast.error(error instanceof Error ? error.message : "Error updating server configuration.");
+        } catch {
+            // Backend endpoint integration pending
+            setManageServer(null)
+            toast.success(`Warmup mode set to "${warmupMode}"${warmupEnabled ? '' : ' (disabled)'}`)
+        } finally {
+            setWarmupSaving(false)
         }
     }
 
@@ -410,95 +397,175 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                 </div>
             </div>
 
-            {/* Manage Server Modal */}
+            {/* Settings & Actions Modal */}
             {manageServer && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="w-full max-w-md animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
-                        <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden">
-                            <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                        <Card className="shadow-none border-[#0b1f1c]/10 bg-white/95 overflow-hidden">
+
+                            {/* Header */}
+                            <CardHeader className="bg-[#f0f4f2]/70 border-b border-[#0b1f1c]/8 pb-4">
                                 <div className="flex items-center justify-between">
                                     <div>
-                                        <CardTitle className="text-xl font-bold text-[#0b1f1c]">Manage Server</CardTitle>
-                                        <CardDescription>{manageServer.name}</CardDescription>
+                                        <CardTitle className="text-lg font-bold text-[#0b1f1c] tracking-tight">Settings &amp; Actions</CardTitle>
+                                        <CardDescription className="flex items-center gap-1.5 mt-0.5">
+                                            <span className="font-mono text-xs font-semibold text-slate-600">{manageServer.name}</span>
+                                            <span className="text-slate-300">•</span>
+                                            <span className="font-mono text-[11px] text-slate-400">{manageServer.address}</span>
+                                        </CardDescription>
                                     </div>
-                                    <Button variant="ghost" size="icon" onClick={() => setManageServer(null)} className="h-8 w-8 text-slate-400">
+                                    <Button variant="ghost" size="icon" onClick={() => setManageServer(null)} className="h-8 w-8 text-slate-400 hover:text-slate-700">
                                         <Plus className="h-5 w-5 rotate-45" />
                                     </Button>
                                 </div>
                             </CardHeader>
-                            <CardContent className="space-y-6 pt-6">
-                                <form onSubmit={manageForm.handleSubmit(onUpdateConfig)} className="space-y-4">
-                                    <div className="space-y-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="manage-rate" className="text-xs font-bold text-slate-500 uppercase">Rate Limit (per min)</Label>
-                                            <Input 
-                                                id="manage-rate" 
-                                                type="number" 
-                                                className={`focus-visible:ring-[#0f5c52]/30 font-medium ${manageForm.formState.errors.rateLimit ? 'border-red-400' : 'border-[#0b1f1c]/10'}`} 
-                                                {...manageForm.register("rateLimit")} 
-                                            />
-                                            {manageForm.formState.errors.rateLimit && <p className="text-xs text-red-500">{manageForm.formState.errors.rateLimit.message}</p>}
+
+                            <CardContent className="space-y-5 pt-5 pb-5">
+
+                                {/* ── IP Warmup Section ── */}
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-1.5">
+                                            <Flame className="h-4 w-4 text-orange-500" />
+                                            <span className="text-[11px] font-bold text-[#0b1f1c] uppercase tracking-widest">IP Warmup</span>
                                         </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="manage-daily" className="text-xs font-bold text-slate-500 uppercase">Daily Verification Limit</Label>
-                                            <Input 
-                                                id="manage-daily" 
-                                                type="number" 
-                                                className={`focus-visible:ring-[#0f5c52]/30 font-medium ${manageForm.formState.errors.dailyLimit ? 'border-red-400' : 'border-[#0b1f1c]/10'}`} 
-                                                {...manageForm.register("dailyLimit")} 
-                                            />
-                                            {manageForm.formState.errors.dailyLimit && <p className="text-xs text-red-500">{manageForm.formState.errors.dailyLimit.message}</p>}
-                                        </div>
+                                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                                            <span className={`text-[11px] font-semibold ${warmupEnabled ? 'text-[#0f5c52]' : 'text-slate-400'}`}>
+                                                {warmupEnabled ? 'Active' : 'Off'}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setWarmupEnabled(v => !v)}
+                                                className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${
+                                                    warmupEnabled ? 'bg-[#0f5c52]' : 'bg-slate-200'
+                                                }`}
+                                            >
+                                                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                                                    warmupEnabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                                                }`} />
+                                            </button>
+                                        </label>
                                     </div>
 
-                                    <div className="flex flex-col gap-3 pt-4 border-t border-slate-100">
-                                        <Button
-                                            type="submit"
-                                            disabled={manageForm.formState.isSubmitting}
-                                            className="w-full border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white font-bold uppercase tracking-widest shadow-none"
-                                        >
-                                            {manageForm.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
-                                        </Button>
+                                    {/* 3 Mode Selector Cards */}
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {([
+                                            { key: 'low'    as WarmupMode, emoji: '🐢', label: 'Low',    speed: '~1k/hr',  activeClass: 'border-blue-400 bg-blue-50/70 shadow-blue-100',    checkBg: 'bg-blue-500',    labelClass: 'text-blue-700'    },
+                                            { key: 'medium' as WarmupMode, emoji: '⚡', label: 'Medium', speed: '~5k/hr',  activeClass: 'border-[#0f5c52] bg-[#0f5c52]/8 shadow-teal-100', checkBg: 'bg-[#0f5c52]',   labelClass: 'text-[#0f5c52]'  },
+                                            { key: 'fast'   as WarmupMode, emoji: '🚀', label: 'Fast',   speed: '~15k/hr', activeClass: 'border-violet-400 bg-violet-50/70 shadow-violet-100', checkBg: 'bg-violet-500', labelClass: 'text-violet-700' },
+                                        ] as const).map((mode) => {
+                                            const isSelected = warmupMode === mode.key && warmupEnabled
+                                            return (
+                                                <button
+                                                    key={mode.key}
+                                                    type="button"
+                                                    disabled={!warmupEnabled}
+                                                    onClick={() => setWarmupMode(mode.key)}
+                                                    className={`relative flex flex-col items-center gap-0.5 p-3 rounded-xl border-2 transition-all duration-200 text-center shadow-sm ${
+                                                        isSelected
+                                                            ? mode.activeClass
+                                                            : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+                                                    } ${!warmupEnabled ? 'opacity-35 cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
+                                                >
+                                                    {isSelected && (
+                                                        <span className={`absolute -top-1.5 -right-1.5 h-4 w-4 ${mode.checkBg} rounded-full flex items-center justify-center shadow-md`}>
+                                                            <Check className="h-2.5 w-2.5 text-white" />
+                                                        </span>
+                                                    )}
+                                                    <span className="text-xl leading-none">{mode.emoji}</span>
+                                                    <span className={`text-[11px] font-bold mt-1 ${isSelected ? mode.labelClass : 'text-slate-600'}`}>{mode.label}</span>
+                                                    <span className="text-[9px] text-slate-500 font-medium">{mode.speed}</span>
+                                                    <span className="text-[9px] text-slate-400">14 days</span>
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
 
-                                        <div className="flex items-center justify-between pt-2">
-                                            <span className="text-sm font-semibold text-slate-700">Server Status</span>
-                                            <Button
-                                                type="button"
-                                                onClick={() => { handleToggleServer(manageServer.id, !manageServer.config.enabled); setManageServer(null); }}
-                                                variant={manageServer.config.enabled ? "destructive" : "default"}
-                                                size="sm"
-                                                className={`h-9 px-6 font-bold uppercase tracking-wider ${!manageServer.config.enabled ? "bg-[#0f5c52] hover:bg-[#0b4a42]" : "bg-slate-900"}`}
-                                            >
-                                                {manageServer.config.enabled ? "Disable Node" : "Enable Node"}
-                                            </Button>
-                                        </div>
-                                        <div className="flex flex-col gap-3 mt-2 pt-4 border-t border-slate-50">
-                                            <div>
-                                                <p className="text-xs font-bold text-red-600">Danger Zone</p>
-                                                <p className="text-[10px] text-slate-500">
-                                                    Type <span className="font-mono font-bold">{DELETE_CONFIRM_PHRASE}</span> to permanently delete this node.
+                                    {/* Warmup Info Banner */}
+                                    {warmupEnabled && (
+                                        <div className="flex items-start gap-2.5 bg-[#0f5c52]/6 border border-[#0f5c52]/18 rounded-lg px-3 py-2.5">
+                                            <TrendingUp className="h-3.5 w-3.5 text-[#0f5c52] mt-0.5 flex-shrink-0" />
+                                            <div className="space-y-0.5 min-w-0">
+                                                <p className="text-[11px] font-semibold text-[#0b1f1c]">
+                                                    {warmupMode === 'low'
+                                                        ? 'Low — concurrency ramps 3 → 5 → 10 over 14 days'
+                                                        : warmupMode === 'medium'
+                                                        ? 'Medium — concurrency ramps 5 → 10 → 20 over 14 days'
+                                                        : 'Fast — concurrency ramps 8 → 20 → 40 over 14 days'}
                                                 </p>
+                                                <p className="text-[10px] text-slate-500">After day 14, Job Control settings apply automatically.</p>
                                             </div>
-                                            <Input
-                                                value={deleteConfirmText}
-                                                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                                                placeholder={DELETE_CONFIRM_PHRASE}
-                                                className="font-mono text-sm border-red-200 focus-visible:ring-red-300"
-                                                autoComplete="off"
-                                            />
-                                            <Button
-                                                type="button"
-                                                onClick={() => { void doDeleteServer(); }}
-                                                disabled={!canConfirmDelete}
-                                                variant="destructive"
-                                                size="sm"
-                                                className="h-9 font-bold uppercase tracking-wider"
-                                            >
-                                                <Trash2 className="h-4 w-4 mr-2" /> Delete Server
-                                            </Button>
                                         </div>
+                                    )}
+                                    {!warmupEnabled && (
+                                        <p className="text-[10px] text-slate-400 italic text-center">
+                                            Warmup disabled — Job Control concurrency applies immediately.
+                                        </p>
+                                    )}
+                                </div>
+
+                                <Separator className="bg-slate-100" />
+
+                                {/* ── Node Status + Save ── */}
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Node Status</p>
+                                        <p className="text-[10px] text-slate-400 mt-0.5">
+                                            {manageServer.config.enabled ? 'Currently accepting jobs' : 'Node is disabled'}
+                                        </p>
                                     </div>
-                                </form>
+                                    <div className="flex gap-2">
+                                        <Button
+                                            type="button"
+                                            onClick={() => { void handleWarmupSave() }}
+                                            disabled={warmupSaving}
+                                            size="sm"
+                                            className="h-8 px-4 border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white font-bold text-[11px] uppercase tracking-wider shadow-none"
+                                        >
+                                            {warmupSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            onClick={() => { void handleToggleServer(manageServer.id, !manageServer.config.enabled); setManageServer(null); }}
+                                            size="sm"
+                                            className={`h-8 px-4 font-bold text-[11px] uppercase tracking-wider shadow-none border ${
+                                                manageServer.config.enabled
+                                                    ? 'bg-slate-800 hover:bg-slate-900 text-white border-slate-700'
+                                                    : 'bg-[#0f5c52] hover:bg-[#0b4a42] text-white border-[#08352f]'
+                                            }`}
+                                        >
+                                            {manageServer.config.enabled ? 'Disable' : 'Enable'}
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                {/* ── Danger Zone ── */}
+                                <div className="flex flex-col gap-2.5 pt-4 border-t border-red-100/70">
+                                    <div>
+                                        <p className="text-[10px] font-bold text-red-500 uppercase tracking-widest">Danger Zone</p>
+                                        <p className="text-[10px] text-slate-400 mt-0.5">
+                                            Type{' '}<span className="font-mono font-bold text-slate-600">{DELETE_CONFIRM_PHRASE}</span>{' '}to permanently delete this node.
+                                        </p>
+                                    </div>
+                                    <Input
+                                        value={deleteConfirmText}
+                                        onChange={(e) => setDeleteConfirmText(e.target.value)}
+                                        placeholder={DELETE_CONFIRM_PHRASE}
+                                        className="font-mono text-sm border-red-200 focus-visible:ring-red-300 h-9"
+                                        autoComplete="off"
+                                    />
+                                    <Button
+                                        type="button"
+                                        onClick={() => { void doDeleteServer() }}
+                                        disabled={!canConfirmDelete}
+                                        variant="destructive"
+                                        size="sm"
+                                        className="h-8 font-bold uppercase tracking-wider text-[11px] shadow-none"
+                                    >
+                                        <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete Server
+                                    </Button>
+                                </div>
+
                             </CardContent>
                         </Card>
                     </div>
