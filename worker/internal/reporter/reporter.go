@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,8 +21,10 @@ import (
 )
 
 var (
-	httpClient *http.Client
-	batchMutex sync.Mutex
+	httpClient  *http.Client
+	batchMutex  sync.Mutex
+	detectedIP  string
+	detectIPOnce sync.Once
 )
 
 func init() {
@@ -33,6 +37,63 @@ func init() {
 			IdleConnTimeout:     90 * time.Second,
 		},
 	}
+}
+
+// detectPublicIP tries to get the public IP from ipify.org.
+// Falls back to first non-loopback local IP on failure.
+func detectPublicIP() string {
+	detectIPOnce.Do(func() {
+		// Try public IP detection first
+		client := &http.Client{Timeout: 5 * time.Second}
+		for _, url := range []string{
+			"https://api.ipify.org",
+			"https://ifconfig.me/ip",
+			"https://icanhazip.com",
+		} {
+			resp, err := client.Get(url)
+			if err != nil {
+				continue
+			}
+			body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+			resp.Body.Close()
+			if err != nil {
+				continue
+			}
+			ip := strings.TrimSpace(string(body))
+			if net.ParseIP(ip) != nil {
+				detectedIP = ip
+				logger.Info("Detected public IP", zap.String("ip", ip), zap.String("source", url))
+				return
+			}
+		}
+
+		// Fallback: first non-loopback LAN IP
+		if ifaces, err := net.Interfaces(); err == nil {
+			for _, iface := range ifaces {
+				addrs, _ := iface.Addrs()
+				for _, addr := range addrs {
+					var ip net.IP
+					switch v := addr.(type) {
+					case *net.IPNet:
+						ip = v.IP
+					case *net.IPAddr:
+						ip = v.IP
+					}
+					if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+						continue
+					}
+					if ip.To4() != nil {
+						detectedIP = ip.String()
+						logger.Warn("Public IP detection failed, using LAN IP", zap.String("ip", detectedIP))
+						return
+					}
+				}
+			}
+		}
+
+		logger.Warn("Could not detect any usable IP address for heartbeat")
+	})
+	return detectedIP
 }
 
 // ReportBatchToAPI sends task results to the backend API
@@ -89,6 +150,7 @@ func StartHeartbeat() {
 		payload := map[string]interface{}{
 			"server_name":  config.Cfg.WorkerServerName,
 			"worker_count": config.GetEffectiveWorkerConcurrency(),
+			"ip_address":   detectPublicIP(),
 		}
 
 		jsonData, _ := json.Marshal(payload)
