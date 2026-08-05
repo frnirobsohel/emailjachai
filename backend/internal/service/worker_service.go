@@ -370,11 +370,9 @@ func (s *workerService) ReportTaskResult(payload *WorkerReportPayload) (*model.J
 			}
 		}
 
-		// 5. Update worker server usage
+		// 5. Update worker server usage (lifetime + UTC daily)
 		if serverName != "" {
-			_ = tx.Model(&model.WorkerServer{}).
-				Where("server_name = ?", serverName).
-				Update("emails_verified", gorm.Expr("emails_verified + ?", processedInc)).Error
+			bumpWorkerVerifiedCount(tx, serverName, processedInc)
 		}
 
 		return nil
@@ -694,9 +692,7 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 		}
 
 		if serverName != "" {
-			_ = tx.Model(&model.WorkerServer{}).
-				Where("server_name = ?", serverName).
-				Update("emails_verified", gorm.Expr("emails_verified + ?", processedIncTotal)).Error
+			bumpWorkerVerifiedCount(tx, serverName, processedIncTotal)
 		}
 
 		// Trigger risky refund check if job completes
@@ -799,3 +795,22 @@ func (s *workerService) UpdateResultFilePath(jobID string, filePath string) erro
 func (s *workerService) checkDomainPolicy(domain string) (isFree, isDisposable, isSpamTrap, isBlacklisted bool) {
 	return s.workerRepo.CheckDomainPolicy(domain)
 }
+
+// bumpWorkerVerifiedCount increments lifetime + UTC-day counters for a worker node.
+func bumpWorkerVerifiedCount(tx *gorm.DB, serverName string, n int) {
+	if tx == nil || serverName == "" || n <= 0 {
+		return
+	}
+	today := time.Now().UTC().Format("2006-01-02")
+	_ = tx.Exec(`
+		UPDATE worker_servers SET
+			emails_verified = emails_verified + ?,
+			emails_verified_today = CASE
+				WHEN verified_on_date = ?::date THEN emails_verified_today + ?
+				ELSE ?
+			END,
+			verified_on_date = ?::date
+		WHERE server_name = ?
+	`, n, today, n, n, today, serverName).Error
+}
+

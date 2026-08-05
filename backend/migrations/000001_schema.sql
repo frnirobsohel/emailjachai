@@ -194,6 +194,8 @@ CREATE TABLE IF NOT EXISTS worker_servers (
     daily_limit     INTEGER DEFAULT 50000,
     worker_count    INTEGER DEFAULT 0,
     emails_verified INTEGER DEFAULT 0,
+    emails_verified_today INTEGER NOT NULL DEFAULT 0,
+    verified_on_date DATE,
     last_ping       TIMESTAMP,
     status          VARCHAR(20) DEFAULT 'offline',    -- online, offline, maintenance
     enabled         BOOLEAN NOT NULL DEFAULT TRUE,

@@ -9,7 +9,11 @@ export function useServerWebSocket() {
 
   useEffect(() => {
     const handleServerUpdate = (event: CustomEvent<WsMessage>) => {
-      setServers(event.detail.data as ServerNode[])
+      const payload = event.detail?.data
+      if (!Array.isArray(payload)) {
+        return
+      }
+      setServers(payload as ServerNode[])
     }
 
     const handleWorkerUpdate = (event: CustomEvent<WsMessage>) => {
