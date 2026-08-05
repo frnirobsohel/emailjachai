@@ -8,8 +8,14 @@ import { BulkUploadForm } from "@/features/bulk-upload/components/form"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Mail, Database, CheckCircle, AlertTriangle } from "lucide-react"
 import { CreditBadge } from "@/features/dashboard/components/credit-badge"
+import { getPublicSettings } from "@/lib/services/settings"
 
-export default function BulkUploadPage() {
+export default async function BulkUploadPage() {
+    const settings = await getPublicSettings()
+    const maxEmailsRaw = Number(settings?.max_emails_per_job)
+    const maxEmailsPerJob = Number.isFinite(maxEmailsRaw) && maxEmailsRaw > 0 ? maxEmailsRaw : 100_000
+    const maxEmailsLabel = maxEmailsPerJob.toLocaleString()
+
     return (
         <div className="flex-1 space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -68,7 +74,7 @@ export default function BulkUploadPage() {
                             <ul className="space-y-2 text-sm text-amber-800/80">
                                 <li className="flex items-center gap-2">
                                     <CheckCircle className="h-4 w-4 text-emerald-600" />
-                                    Maximum 100,000 emails per file
+                                    Maximum {maxEmailsLabel} emails per file
                                 </li>
                                 <li className="flex items-center gap-2">
                                     <CheckCircle className="h-4 w-4 text-emerald-600" />

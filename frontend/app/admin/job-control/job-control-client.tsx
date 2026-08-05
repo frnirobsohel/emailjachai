@@ -30,22 +30,42 @@ import {
 import { cn } from "@/lib/utils"
 
 const settingsSchema = z.object({
-    chunk_size: z
+    chunk_tier1_max_list: z
         .string()
         .min(1, "Required")
-        .regex(/^\d+$/, "Must be a number")
-        .refine((v) => {
-            const n = Number(v)
-            return n >= 10 && n <= 50000
-        }, "Must be between 10 and 50000"),
-    task_timeout: z
+        .regex(/^\d+$/, "Must be a number"),
+    chunk_tier1_size: z
         .string()
         .min(1, "Required")
-        .regex(/^\d+$/, "Must be a number")
-        .refine((v) => {
-            const n = Number(v)
-            return n >= 1 && n <= 1440
-        }, "Must be between 1 and 1440 minutes"),
+        .regex(/^\d+$/, "Must be a number"),
+    chunk_tier1_timeout: z
+        .string()
+        .min(1, "Required")
+        .regex(/^\d+$/, "Must be a number"),
+    chunk_tier2_max_list: z
+        .string()
+        .min(1, "Required")
+        .regex(/^\d+$/, "Must be a number"),
+    chunk_tier2_size: z
+        .string()
+        .min(1, "Required")
+        .regex(/^\d+$/, "Must be a number"),
+    chunk_tier2_timeout: z
+        .string()
+        .min(1, "Required")
+        .regex(/^\d+$/, "Must be a number"),
+    chunk_tier3_max_list: z
+        .string()
+        .min(1, "Required")
+        .regex(/^\d+$/, "Must be a number"),
+    chunk_tier3_size: z
+        .string()
+        .min(1, "Required")
+        .regex(/^\d+$/, "Must be a number"),
+    chunk_tier3_timeout: z
+        .string()
+        .min(1, "Required")
+        .regex(/^\d+$/, "Must be a number"),
     max_emails_per_job: z
         .string()
         .min(1, "Required")
@@ -121,8 +141,15 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
     const settingsForm = useForm<z.infer<typeof settingsSchema>>({
         resolver: zodResolver(settingsSchema),
         defaultValues: {
-            chunk_size: initialSettings.chunk_size || "1000",
-            task_timeout: initialSettings.task_timeout || "60",
+            chunk_tier1_max_list: initialSettings.chunk_tier1_max_list || "50000",
+            chunk_tier1_size: initialSettings.chunk_tier1_size || "100",
+            chunk_tier1_timeout: initialSettings.chunk_tier1_timeout || "15",
+            chunk_tier2_max_list: initialSettings.chunk_tier2_max_list || "100000",
+            chunk_tier2_size: initialSettings.chunk_tier2_size || "500",
+            chunk_tier2_timeout: initialSettings.chunk_tier2_timeout || "60",
+            chunk_tier3_max_list: initialSettings.chunk_tier3_max_list || "500000",
+            chunk_tier3_size: initialSettings.chunk_tier3_size || "1000",
+            chunk_tier3_timeout: initialSettings.chunk_tier3_timeout || "120",
             max_emails_per_job: initialSettings.max_emails_per_job || "100000",
             max_active_jobs_per_user: initialSettings.max_active_jobs_per_user || "0",
             prepare_concurrency: initialSettings.prepare_concurrency || "1",
@@ -158,8 +185,15 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 });
 
                 settingsForm.reset({
-                    chunk_size: mappedSettings.chunk_size || "1000",
-                    task_timeout: mappedSettings.task_timeout || "60",
+                    chunk_tier1_max_list: mappedSettings.chunk_tier1_max_list || "50000",
+                    chunk_tier1_size: mappedSettings.chunk_tier1_size || "100",
+                    chunk_tier1_timeout: mappedSettings.chunk_tier1_timeout || "15",
+                    chunk_tier2_max_list: mappedSettings.chunk_tier2_max_list || "100000",
+                    chunk_tier2_size: mappedSettings.chunk_tier2_size || "500",
+                    chunk_tier2_timeout: mappedSettings.chunk_tier2_timeout || "60",
+                    chunk_tier3_max_list: mappedSettings.chunk_tier3_max_list || "500000",
+                    chunk_tier3_size: mappedSettings.chunk_tier3_size || "1000",
+                    chunk_tier3_timeout: mappedSettings.chunk_tier3_timeout || "120",
                     max_emails_per_job: mappedSettings.max_emails_per_job || "100000",
                     max_active_jobs_per_user: mappedSettings.max_active_jobs_per_user || "0",
                     prepare_concurrency: mappedSettings.prepare_concurrency || "1",
@@ -184,8 +218,15 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
     useEffect(() => {
         if (initialSettings) {
             settingsForm.reset({
-                chunk_size: initialSettings.chunk_size || "1000",
-                task_timeout: initialSettings.task_timeout || "60",
+                chunk_tier1_max_list: initialSettings.chunk_tier1_max_list || "50000",
+                chunk_tier1_size: initialSettings.chunk_tier1_size || "100",
+                chunk_tier1_timeout: initialSettings.chunk_tier1_timeout || "15",
+                chunk_tier2_max_list: initialSettings.chunk_tier2_max_list || "100000",
+                chunk_tier2_size: initialSettings.chunk_tier2_size || "500",
+                chunk_tier2_timeout: initialSettings.chunk_tier2_timeout || "60",
+                chunk_tier3_max_list: initialSettings.chunk_tier3_max_list || "500000",
+                chunk_tier3_size: initialSettings.chunk_tier3_size || "1000",
+                chunk_tier3_timeout: initialSettings.chunk_tier3_timeout || "120",
                 max_emails_per_job: initialSettings.max_emails_per_job || "100000",
                 max_active_jobs_per_user: initialSettings.max_active_jobs_per_user || "0",
                 prepare_concurrency: initialSettings.prepare_concurrency || "1",
@@ -367,45 +408,21 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                 <MiniStat label="Disposable" value={breakdown.disposable || 0} />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden">
-                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
-                        <CardTitle className="text-lg font-semibold text-[#0b1f1c] flex items-center gap-2">
-                            <Settings2 className="h-5 w-5 text-[#0f5c52]" /> Worker Configuration
-                        </CardTitle>
-                        <CardDescription>Adjust how large lists are split and handled.</CardDescription>
-                    </CardHeader>
-                    <form onSubmit={settingsForm.handleSubmit(onSaveSettings)}>
-                        <CardContent className="space-y-5 pt-6">
-                            <div className="space-y-1.5">
-                                <Label htmlFor="chunk_size" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Chunk Size</Label>
-                                <Input
-                                    id="chunk_size"
-                                    type="number"
-                                    min={10}
-                                    max={50000}
-                                    className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.chunk_size ? 'border-red-400' : ''}`}
-                                    {...settingsForm.register("chunk_size")}
-                                />
-                                {settingsForm.formState.errors.chunk_size && <p className="text-xs text-red-500">{settingsForm.formState.errors.chunk_size.message}</p>}
-                                <p className="text-[11px] text-slate-500 leading-relaxed italic">Emails per task (10–50000). Smaller means better distribution, larger means less overhead.</p>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Worker Configuration (Full Width) */}
+            <Card className="shadow-none border-[#0b1f1c]/10 bg-white/90 overflow-hidden w-full">
+                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                    <CardTitle className="text-lg font-semibold text-[#0b1f1c] flex items-center gap-2">
+                        <Settings2 className="h-5 w-5 text-[#0f5c52]" /> Worker Configuration
+                    </CardTitle>
+                    <CardDescription>Adjust how large lists are split, chunked, and processed.</CardDescription>
+                </CardHeader>
+                <form onSubmit={settingsForm.handleSubmit(onSaveSettings)}>
+                    <CardContent className="pt-6">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                            {/* 50% Left: General & Worker Settings */}
+                            <div className="space-y-5">
                                 <div className="space-y-1.5">
-                                    <Label htmlFor="task_timeout" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Timeout (Min)</Label>
-                                    <Input
-                                        id="task_timeout"
-                                        type="number"
-                                        min={1}
-                                        max={1440}
-                                        className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.task_timeout ? 'border-red-400' : ''}`}
-                                        {...settingsForm.register("task_timeout")}
-                                    />
-                                    {settingsForm.formState.errors.task_timeout && <p className="text-xs text-red-500">{settingsForm.formState.errors.task_timeout.message}</p>}
-                                </div>
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="max_emails" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Max Per Job</Label>
+                                    <Label htmlFor="max_emails" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Max Emails Per Job</Label>
                                     <Input
                                         id="max_emails"
                                         type="number"
@@ -415,242 +432,358 @@ export function JobControlClient({ initialSettings, initialStats }: { initialSet
                                         {...settingsForm.register("max_emails_per_job")}
                                     />
                                     {settingsForm.formState.errors.max_emails_per_job && <p className="text-xs text-red-500">{settingsForm.formState.errors.max_emails_per_job.message}</p>}
+                                    <p className="text-[11px] text-slate-500 italic">Max emails allowed per single job upload (10–1,000,000).</p>
                                 </div>
-                            </div>
 
-                            <div className="space-y-1.5">
-                                <Label htmlFor="max_active" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Max Active Jobs Per User</Label>
-                                <Input
-                                    id="max_active"
-                                    type="number"
-                                    min={0}
-                                    max={10000}
-                                    className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.max_active_jobs_per_user ? 'border-red-400' : ''}`}
-                                    {...settingsForm.register("max_active_jobs_per_user")}
-                                />
-                                {settingsForm.formState.errors.max_active_jobs_per_user && <p className="text-xs text-red-500">{settingsForm.formState.errors.max_active_jobs_per_user.message}</p>}
-                                <p className="text-[11px] text-slate-500 italic">Limit concurrent jobs to prevent resource hogging (0 = infinite).</p>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-1.5">
-                                    <Label htmlFor="prepare_concurrency" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Prepare Concurrency</Label>
+                                    <Label htmlFor="max_active" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Max Active Jobs Per User</Label>
                                     <Input
-                                        id="prepare_concurrency"
+                                        id="max_active"
                                         type="number"
-                                        min={1}
-                                        max={10}
-                                        className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.prepare_concurrency ? 'border-red-400' : ''}`}
-                                        {...settingsForm.register("prepare_concurrency")}
+                                        min={0}
+                                        max={10000}
+                                        className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.max_active_jobs_per_user ? 'border-red-400' : ''}`}
+                                        {...settingsForm.register("max_active_jobs_per_user")}
                                     />
-                                    {settingsForm.formState.errors.prepare_concurrency && <p className="text-xs text-red-500">{settingsForm.formState.errors.prepare_concurrency.message}</p>}
-                                    <p className="text-[11px] text-slate-500 italic">How many bulk jobs prepare (shuffle/chunk/queue) at once (1–10). Keep low to protect the API.</p>
+                                    {settingsForm.formState.errors.max_active_jobs_per_user && <p className="text-xs text-red-500">{settingsForm.formState.errors.max_active_jobs_per_user.message}</p>}
+                                    <p className="text-[11px] text-slate-500 italic">Limit concurrent jobs to prevent resource hogging (0 = infinite).</p>
                                 </div>
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="worker_concurrency" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Worker Concurrency</Label>
-                                    <Input
-                                        id="worker_concurrency"
-                                        type="number"
-                                        min={1}
-                                        max={100}
-                                        className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.worker_concurrency ? 'border-red-400' : ''}`}
-                                        {...settingsForm.register("worker_concurrency")}
-                                    />
-                                    {settingsForm.formState.errors.worker_concurrency && <p className="text-xs text-red-500">{settingsForm.formState.errors.worker_concurrency.message}</p>}
-                                    <p className="text-[11px] text-slate-500 italic">Parallel verify chunks across workers (1–100). Applied via heartbeat (~1 min).</p>
-                                </div>
-                            </div>
-                        </CardContent>
-                        <CardFooter className="bg-slate-50/50 border-t border-slate-100 p-4">
-                            <Button
-                                type="submit"
-                                disabled={settingsForm.formState.isSubmitting || isSaved}
-                                className={cn(
-                                    "shadow-md transition-all active:scale-[0.98] h-9 w-full sm:min-w-[180px]",
-                                    isSaved
-                                        ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                                        : "border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white"
-                                )}
-                            >
-                                {settingsForm.formState.isSubmitting ? (
-                                    <>
-                                        <RefreshCcw className="mr-2 h-4 w-4 animate-spin" />
-                                        Saving...
-                                    </>
-                                ) : isSaved ? (
-                                    <>
-                                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                                        Configuration Saved!
-                                    </>
-                                ) : (
-                                    <>
-                                        <Save className="mr-2 h-4 w-4" />
-                                        Apply Configuration
-                                    </>
-                                )}
-                            </Button>
-                        </CardFooter>
-                    </form>
-                </Card>
 
-                <div className="space-y-6">
-                    <Card className="shadow-none border-rose-100 overflow-hidden">
-                        <CardHeader className="bg-rose-50/30 border-b border-rose-100/50">
-                            <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-                                <Trash2 className="h-5 w-5 text-rose-500" /> Job Cleanup Controls
-                            </CardTitle>
-                            <CardDescription>Remove completed/failed jobs and their bulk result files.</CardDescription>
-                        </CardHeader>
-                        <CardContent className="pt-6">
-                            <div className="bg-rose-50 border border-rose-100 rounded-lg p-3 mb-6 flex items-start gap-3">
-                                <AlertCircle className="h-5 w-5 text-rose-600 mt-0.5 flex-shrink-0" />
-                                <div className="text-xs text-rose-800 leading-relaxed">
-                                    <strong>Warning:</strong> Permanent for completed/failed jobs older than the window.
-                                    Pending/processing jobs are skipped. Bulk <code className="font-mono">.ndjson</code> and source files are purged.
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="prepare_concurrency" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Prepare Concurrency</Label>
+                                        <Input
+                                            id="prepare_concurrency"
+                                            type="number"
+                                            min={1}
+                                            max={10}
+                                            className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.prepare_concurrency ? 'border-red-400' : ''}`}
+                                            {...settingsForm.register("prepare_concurrency")}
+                                        />
+                                        {settingsForm.formState.errors.prepare_concurrency && <p className="text-xs text-red-500">{settingsForm.formState.errors.prepare_concurrency.message}</p>}
+                                        <p className="text-[11px] text-slate-500 italic">How many bulk jobs prepare (shuffle/chunk/queue) at once (1–10). Keep low to protect the API.</p>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="worker_concurrency" className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Worker Concurrency</Label>
+                                        <Input
+                                            id="worker_concurrency"
+                                            type="number"
+                                            min={1}
+                                            max={100}
+                                            className={`h-9 focus-visible:ring-[#0f5c52]/30 text-sm ${settingsForm.formState.errors.worker_concurrency ? 'border-red-400' : ''}`}
+                                            {...settingsForm.register("worker_concurrency")}
+                                        />
+                                        {settingsForm.formState.errors.worker_concurrency && <p className="text-xs text-red-500">{settingsForm.formState.errors.worker_concurrency.message}</p>}
+                                        <p className="text-[11px] text-slate-500 italic">Parallel verify chunks across workers (1–100). Applied via heartbeat (~1 min).</p>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="flex flex-col sm:flex-row gap-3">
-                                <div className="relative flex-1">
-                                    <select
-                                        id="cleanup-days"
-                                        name="cleanupDays"
-                                        value={cleanupDays}
-                                        onChange={(e) => setCleanupDays(e.target.value)}
-                                        className="w-full h-10 pl-3 pr-10 text-sm bg-white border border-slate-200 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 text-slate-700 font-medium"
-                                    >
-                                        <option value="7">Older than 7 Days</option>
-                                        <option value="14">Older than 14 Days</option>
-                                        <option value="21">Older than 21 Days</option>
-                                        <option value="30">Older than 30 Days</option>
-                                    </select>
-                                    <ChevronDown className="absolute right-3 top-3 h-4 w-4 text-slate-400 pointer-events-none" />
+                            {/* 50% Right: Chunking Strategy */}
+                            <div className="space-y-4">
+                                <div>
+                                    <Label className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                                        <Layers className="h-4 w-4 text-[#0f5c52]" /> Chunking Strategy
+                                    </Label>
+                                    <p className="text-[11px] text-slate-500">Auto-adjust chunk sizes and timeouts based on uploaded list size.</p>
                                 </div>
-                                <Button
-                                    variant="destructive"
-                                    className="bg-rose-600 hover:bg-rose-700 text-white font-semibold h-10 px-6 gap-2"
-                                    onClick={openCleanupModal}
-                                >
-                                    <Trash2 className="h-4 w-4" />
-                                    Permanently Delete
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
 
-                    {showCleanupModal && (
-                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-                            <div className="w-full max-w-md animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
-                                <Card className="shadow-none border-rose-100 overflow-hidden">
-                                    {cleanupStep === 'confirm' && (
-                                        <>
-                                            <CardHeader className="bg-rose-50/50 border-b border-rose-100/50">
-                                                <CardTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                                                    <AlertCircle className="h-5 w-5 text-rose-600" /> Confirm Deletion
-                                                </CardTitle>
-                                                <CardDescription>
-                                                    Permanently remove completed/failed jobs older than {cleanupDays} days (all users).
-                                                </CardDescription>
-                                            </CardHeader>
-                                            <CardContent className="pt-6 pb-2 space-y-3">
-                                                <p className="text-sm text-slate-600">
-                                                    Type <span className="font-mono font-bold">{DELETE_CONFIRM_PHRASE}</span> to confirm. This cannot be undone.
-                                                </p>
+                                <div className="space-y-3">
+                                    {/* Tier 1 */}
+                                    <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/50 space-y-2">
+                                        <div className="text-xs font-semibold text-slate-800">Tier 1 (Small List)</div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <div className="space-y-1">
+                                                <Label htmlFor="tier1_max" className="text-[11px] text-slate-500">Max List Size</Label>
                                                 <Input
-                                                    value={cleanupConfirmText}
-                                                    onChange={(e) => setCleanupConfirmText(e.target.value)}
-                                                    placeholder={DELETE_CONFIRM_PHRASE}
-                                                    className="font-mono text-sm border-red-200 focus-visible:ring-red-300"
-                                                    autoComplete="off"
+                                                    id="tier1_max"
+                                                    type="number"
+                                                    className="h-8 text-xs bg-white focus-visible:ring-[#0f5c52]/30"
+                                                    {...settingsForm.register("chunk_tier1_max_list")}
                                                 />
-                                            </CardContent>
-                                            <CardFooter className="flex justify-end gap-3 p-4 bg-slate-50/50 border-t border-slate-100">
-                                                <Button variant="outline" onClick={() => setShowCleanupModal(false)} className="px-6 h-9">Cancel</Button>
-                                                <Button
-                                                    onClick={() => { void handleCleanup(); }}
-                                                    disabled={isCleaning || !canConfirmCleanup}
-                                                    className="bg-rose-600 hover:bg-rose-700 text-white px-6 h-9 font-bold"
-                                                >
-                                                    {isCleaning ? "Deleting..." : "Yes, Delete"}
-                                                </Button>
-                                            </CardFooter>
-                                        </>
-                                    )}
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label htmlFor="tier1_size" className="text-[11px] text-slate-500">Chunk Size</Label>
+                                                <Input
+                                                    id="tier1_size"
+                                                    type="number"
+                                                    className="h-8 text-xs font-semibold text-[#0f5c52] bg-white focus-visible:ring-[#0f5c52]/30"
+                                                    {...settingsForm.register("chunk_tier1_size")}
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label htmlFor="tier1_timeout" className="text-[11px] text-slate-500">Timeout (Min)</Label>
+                                                <Input
+                                                    id="tier1_timeout"
+                                                    type="number"
+                                                    className="h-8 text-xs font-medium text-amber-700 bg-white focus-visible:ring-[#0f5c52]/30"
+                                                    {...settingsForm.register("chunk_tier1_timeout")}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
 
-                                    {cleanupStep === 'deleting' && (
-                                        <CardContent className="py-12 flex flex-col items-center justify-center text-center space-y-6">
-                                            <Loader2 className="h-12 w-12 text-rose-500 animate-spin" />
-                                            <div className="space-y-2">
-                                                <h3 className="text-lg font-bold text-slate-900">Deleting Records...</h3>
-                                                <p className="text-sm text-slate-500">Removing database rows and bulk result files. This may take a minute.</p>
+                                    {/* Tier 2 */}
+                                    <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/50 space-y-2">
+                                        <div className="text-xs font-semibold text-slate-800">Tier 2 (Medium List)</div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <div className="space-y-1">
+                                                <Label htmlFor="tier2_max" className="text-[11px] text-slate-500">Max List Size</Label>
+                                                <Input
+                                                    id="tier2_max"
+                                                    type="number"
+                                                    className="h-8 text-xs bg-white focus-visible:ring-[#0f5c52]/30"
+                                                    {...settingsForm.register("chunk_tier2_max_list")}
+                                                />
                                             </div>
-                                        </CardContent>
-                                    )}
+                                            <div className="space-y-1">
+                                                <Label htmlFor="tier2_size" className="text-[11px] text-slate-500">Chunk Size</Label>
+                                                <Input
+                                                    id="tier2_size"
+                                                    type="number"
+                                                    className="h-8 text-xs font-semibold text-[#0f5c52] bg-white focus-visible:ring-[#0f5c52]/30"
+                                                    {...settingsForm.register("chunk_tier2_size")}
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label htmlFor="tier2_timeout" className="text-[11px] text-slate-500">Timeout (Min)</Label>
+                                                <Input
+                                                    id="tier2_timeout"
+                                                    type="number"
+                                                    className="h-8 text-xs font-medium text-amber-700 bg-white focus-visible:ring-[#0f5c52]/30"
+                                                    {...settingsForm.register("chunk_tier2_timeout")}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
 
-                                    {cleanupStep === 'success' && (
-                                        <CardContent className="py-12 flex flex-col items-center justify-center text-center space-y-6">
-                                            <div className="h-16 w-16 bg-emerald-100 rounded-full flex items-center justify-center border-4 border-emerald-50">
-                                                <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+                                    {/* Tier 3 */}
+                                    <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/50 space-y-2">
+                                        <div className="text-xs font-semibold text-slate-800">Tier 3 (Large List)</div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <div className="space-y-1">
+                                                <Label htmlFor="tier3_max" className="text-[11px] text-slate-500">Max List Size</Label>
+                                                <Input
+                                                    id="tier3_max"
+                                                    type="number"
+                                                    className="h-8 text-xs bg-white focus-visible:ring-[#0f5c52]/30"
+                                                    {...settingsForm.register("chunk_tier3_max_list")}
+                                                />
                                             </div>
-                                            <div className="space-y-2">
-                                                <h3 className="text-xl font-bold text-slate-900">Cleanup Successful!</h3>
-                                                <p className="text-sm text-slate-500">
-                                                    Deleted <span className="font-bold text-slate-900">{deletedCount}</span> jobs
-                                                    and purged <span className="font-bold text-slate-900">{filesPurged}</span> result files.
-                                                </p>
+                                            <div className="space-y-1">
+                                                <Label htmlFor="tier3_size" className="text-[11px] text-slate-500">Chunk Size</Label>
+                                                <Input
+                                                    id="tier3_size"
+                                                    type="number"
+                                                    className="h-8 text-xs font-semibold text-[#0f5c52] bg-white focus-visible:ring-[#0f5c52]/30"
+                                                    {...settingsForm.register("chunk_tier3_size")}
+                                                />
                                             </div>
-                                            <Button
-                                                onClick={() => setShowCleanupModal(false)}
-                                                className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[120px] font-bold"
-                                            >
-                                                OK
-                                            </Button>
-                                        </CardContent>
-                                    )}
-                                </Card>
+                                            <div className="space-y-1">
+                                                <Label htmlFor="tier3_timeout" className="text-[11px] text-slate-500">Timeout (Min)</Label>
+                                                <Input
+                                                    id="tier3_timeout"
+                                                    type="number"
+                                                    className="h-8 text-xs font-medium text-amber-700 bg-white focus-visible:ring-[#0f5c52]/30"
+                                                    {...settingsForm.register("chunk_tier3_timeout")}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    )}
+                    </CardContent>
+                    <CardFooter className="bg-slate-50/50 border-t border-slate-100 p-4 flex justify-end">
+                        <Button
+                            type="submit"
+                            disabled={settingsForm.formState.isSubmitting || isSaved}
+                            className={cn(
+                                "shadow-md transition-all active:scale-[0.98] h-9 min-w-[200px]",
+                                isSaved
+                                    ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                    : "border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white"
+                            )}
+                        >
+                            {settingsForm.formState.isSubmitting ? (
+                                <>
+                                    <RefreshCcw className="mr-2 h-4 w-4 animate-spin" />
+                                    Saving...
+                                </>
+                            ) : isSaved ? (
+                                <>
+                                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                                    Configuration Saved!
+                                </>
+                            ) : (
+                                <>
+                                    <Save className="mr-2 h-4 w-4" />
+                                    Apply Configuration
+                                </>
+                            )}
+                        </Button>
+                    </CardFooter>
+                </form>
+            </Card>
 
-                    <Card className="shadow-none border-blue-100 overflow-hidden">
-                        <CardHeader className="bg-blue-50/30 border-b border-blue-100/50">
-                            <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-                                <Database className="h-5 w-5 text-blue-600" /> Results Storage
-                            </CardTitle>
-                            <CardDescription>Export verification logs from the last {EXPORT_DAYS} days.</CardDescription>
-                        </CardHeader>
-                        <CardContent className="pt-6 space-y-4">
-                            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
-                                <div>
-                                    <h4 className="text-sm font-semibold text-slate-800">Single Verification Logs</h4>
-                                    <p className="text-[11px] text-slate-500">History of individual email checks ({EXPORT_DAYS}d).</p>
-                                </div>
-                                <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleDownload('single')}
-                                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 gap-2"
-                                >
-                                    <Download className="h-4 w-4" /> Download
-                                </Button>
+            {/* Bottom Row: Job Cleanup Controls & Results Storage (Side by Side) */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+                <Card className="shadow-none border-rose-100 overflow-hidden flex flex-col justify-between">
+                    <CardHeader className="bg-rose-50/30 border-b border-rose-100/50">
+                        <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                            <Trash2 className="h-5 w-5 text-rose-500" /> Job Cleanup Controls
+                        </CardTitle>
+                        <CardDescription>Remove completed/failed jobs and their bulk result files.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-6 flex-1 flex flex-col justify-between">
+                        <div className="bg-rose-50 border border-rose-100 rounded-lg p-3 mb-6 flex items-start gap-3">
+                            <AlertCircle className="h-5 w-5 text-rose-600 mt-0.5 flex-shrink-0" />
+                            <div className="text-xs text-rose-800 leading-relaxed">
+                                <strong>Warning:</strong> Permanent for completed/failed jobs older than the window.
+                                Pending/processing jobs are skipped. Bulk <code className="font-mono">.ndjson</code> and source files are purged.
                             </div>
-                            <div className="flex items-center justify-between p-3 bg-[#0f5c52]/5 rounded-lg border border-[#0f5c52]/20">
-                                <div>
-                                    <h4 className="text-sm font-semibold text-slate-800">Bulk Verification Logs</h4>
-                                    <p className="text-[11px] text-slate-500">Bulk verification results ({EXPORT_DAYS}d).</p>
-                                </div>
-                                <Button
-                                    size="sm"
-                                    onClick={() => handleDownload('bulk')}
-                                    className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white gap-2 h-8"
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <div className="relative flex-1">
+                                <select
+                                    id="cleanup-days"
+                                    name="cleanupDays"
+                                    value={cleanupDays}
+                                    onChange={(e) => setCleanupDays(e.target.value)}
+                                    className="w-full h-10 pl-3 pr-10 text-sm bg-white border border-slate-200 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 text-slate-700 font-medium"
                                 >
-                                    <Download className="h-4 w-4" /> Export
-                                </Button>
+                                    <option value="7">Older than 7 Days</option>
+                                    <option value="14">Older than 14 Days</option>
+                                    <option value="21">Older than 21 Days</option>
+                                    <option value="30">Older than 30 Days</option>
+                                </select>
+                                <ChevronDown className="absolute right-3 top-3 h-4 w-4 text-slate-400 pointer-events-none" />
                             </div>
-                        </CardContent>
-                    </Card>
-                </div>
+                            <Button
+                                variant="destructive"
+                                className="bg-rose-600 hover:bg-rose-700 text-white font-semibold h-10 px-6 gap-2"
+                                onClick={openCleanupModal}
+                            >
+                                <Trash2 className="h-4 w-4" />
+                                Permanently Delete
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card className="shadow-none border-blue-100 overflow-hidden flex flex-col justify-between">
+                    <CardHeader className="bg-blue-50/30 border-b border-blue-100/50">
+                        <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                            <Database className="h-5 w-5 text-blue-600" /> Results Storage
+                        </CardTitle>
+                        <CardDescription>Export verification logs from the last {EXPORT_DAYS} days.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-6 space-y-4 flex-1 flex flex-col justify-center">
+                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
+                            <div>
+                                <h4 className="text-sm font-semibold text-slate-800">Single Verification Logs</h4>
+                                <p className="text-[11px] text-slate-500">History of individual email checks ({EXPORT_DAYS}d).</p>
+                            </div>
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDownload('single')}
+                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 gap-2"
+                            >
+                                <Download className="h-4 w-4" /> Download
+                            </Button>
+                        </div>
+                        <div className="flex items-center justify-between p-3 bg-[#0f5c52]/5 rounded-lg border border-[#0f5c52]/20">
+                            <div>
+                                <h4 className="text-sm font-semibold text-slate-800">Bulk Verification Logs</h4>
+                                <p className="text-[11px] text-slate-500">Bulk verification results ({EXPORT_DAYS}d).</p>
+                            </div>
+                            <Button
+                                size="sm"
+                                onClick={() => handleDownload('bulk')}
+                                className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white gap-2 h-8"
+                            >
+                                <Download className="h-4 w-4" /> Export
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
+
+            {showCleanupModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="w-full max-w-md animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
+                        <Card className="shadow-none border-rose-100 overflow-hidden">
+                            {cleanupStep === 'confirm' && (
+                                <>
+                                    <CardHeader className="bg-rose-50/50 border-b border-rose-100/50">
+                                        <CardTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                                            <AlertCircle className="h-5 w-5 text-rose-600" /> Confirm Deletion
+                                        </CardTitle>
+                                        <CardDescription>
+                                            Permanently remove completed/failed jobs older than {cleanupDays} days (all users).
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="pt-6 pb-2 space-y-3">
+                                        <p className="text-sm text-slate-600">
+                                            Type <span className="font-mono font-bold">{DELETE_CONFIRM_PHRASE}</span> to confirm. This cannot be undone.
+                                        </p>
+                                        <Input
+                                            value={cleanupConfirmText}
+                                            onChange={(e) => setCleanupConfirmText(e.target.value)}
+                                            placeholder={DELETE_CONFIRM_PHRASE}
+                                            className="font-mono text-sm border-red-200 focus-visible:ring-red-300"
+                                            autoComplete="off"
+                                        />
+                                    </CardContent>
+                                    <CardFooter className="flex justify-end gap-3 p-4 bg-slate-50/50 border-t border-slate-100">
+                                        <Button variant="outline" onClick={() => setShowCleanupModal(false)} className="px-6 h-9">Cancel</Button>
+                                        <Button
+                                            onClick={() => { void handleCleanup(); }}
+                                            disabled={isCleaning || !canConfirmCleanup}
+                                            className="bg-rose-600 hover:bg-rose-700 text-white px-6 h-9 font-bold"
+                                        >
+                                            {isCleaning ? "Deleting..." : "Yes, Delete"}
+                                        </Button>
+                                    </CardFooter>
+                                </>
+                            )}
+
+                            {cleanupStep === 'deleting' && (
+                                <CardContent className="py-12 flex flex-col items-center justify-center text-center space-y-6">
+                                    <Loader2 className="h-12 w-12 text-rose-500 animate-spin" />
+                                    <div className="space-y-2">
+                                        <h3 className="text-lg font-bold text-slate-900">Deleting Records...</h3>
+                                        <p className="text-sm text-slate-500">Removing database rows and bulk result files. This may take a minute.</p>
+                                    </div>
+                                </CardContent>
+                            )}
+
+                            {cleanupStep === 'success' && (
+                                <CardContent className="py-10 flex flex-col items-center justify-center text-center space-y-4">
+                                    <div className="h-12 w-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                                        <CheckCircle2 className="h-6 w-6" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <h3 className="text-lg font-bold text-slate-900">Cleanup Complete</h3>
+                                        <p className="text-sm text-slate-600">
+                                            Purged <span className="font-semibold text-slate-900">{deletedCount}</span> job(s)
+                                            {filesPurged > 0 && <> and <span className="font-semibold text-slate-900">{filesPurged}</span> result file(s)</>}.
+                                        </p>
+                                    </div>
+                                    <Button
+                                        onClick={() => setShowCleanupModal(false)}
+                                        className="bg-slate-900 hover:bg-slate-800 text-white px-8 h-9 text-xs font-bold uppercase tracking-wider"
+                                    >
+                                        OK
+                                    </Button>
+                                </CardContent>
+                            )}
+                        </Card>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

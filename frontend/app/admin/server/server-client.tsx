@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
     Server, RefreshCcw, Activity, Plus, Copy, Check, Trash2, Settings2,
-    ShieldCheck, Zap, Clock, Database, Globe, Signal, Search, Eye, EyeOff, Lock, AlertCircle, Loader2, Flame, TrendingUp
+    ShieldCheck, Zap, Clock, Database, Globe, Signal, Search, Eye, EyeOff, Lock, AlertCircle, Loader2, Flame, TrendingUp, AlertTriangle
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,6 +35,9 @@ export interface ServerNode {
     currentJob: string
     ipReputation: 'Good' | 'Medium' | 'Low' | 'Blacklist' | 'Band' | 'None'
     workerCount: number
+    warmup_enabled?: boolean
+    warmup_mode?: WarmupMode
+    warmup_stage?: string
     config: {
         dailyLimit: number
         rateLimit: number
@@ -90,6 +93,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
     const [manageServer, setManageServer] = useState<ServerNode | null>(null)
     const [searchTerm, setSearchTerm] = useState("")
     const [deleteConfirmText, setDeleteConfirmText] = useState("")
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
     const [warmupMode, setWarmupMode] = useState<WarmupMode>('medium')
     const [warmupEnabled, setWarmupEnabled] = useState(true)
     const [warmupSaving, setWarmupSaving] = useState(false)
@@ -128,9 +132,10 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
 
     useEffect(() => {
         if (manageServer) {
-            setWarmupEnabled(true)
-            setWarmupMode('medium')
+            setWarmupEnabled(manageServer.warmup_enabled ?? true)
+            setWarmupMode(manageServer.warmup_mode || 'medium')
             setDeleteConfirmText("")
+            setShowDeleteConfirm(false)
         }
     }, [manageServer])
 
@@ -329,14 +334,13 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             if (result.status === 'success') {
                 setManageServer(null)
                 void fetchServers()
-                toast.success("Warmup settings saved.")
+                toast.success("Warmup settings saved successfully.")
             } else {
                 toast.error(result.message || "Failed to save warmup settings.")
             }
-        } catch {
-            // Backend endpoint integration pending
-            setManageServer(null)
-            toast.success(`Warmup mode set to "${warmupMode}"${warmupEnabled ? '' : ' (disabled)'}`)
+        } catch (error) {
+            console.error("Failed to save warmup settings:", error)
+            toast.error("Failed to save warmup settings.")
         } finally {
             setWarmupSaving(false)
         }
@@ -450,9 +454,9 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                     {/* 3 Mode Selector Cards */}
                                     <div className="grid grid-cols-3 gap-2">
                                         {([
-                                            { key: 'low'    as WarmupMode, emoji: '🐢', label: 'Low',    speed: '~1k/hr',  activeClass: 'border-blue-400 bg-blue-50/70 shadow-blue-100',    checkBg: 'bg-blue-500',    labelClass: 'text-blue-700'    },
-                                            { key: 'medium' as WarmupMode, emoji: '⚡', label: 'Medium', speed: '~5k/hr',  activeClass: 'border-[#0f5c52] bg-[#0f5c52]/8 shadow-teal-100', checkBg: 'bg-[#0f5c52]',   labelClass: 'text-[#0f5c52]'  },
-                                            { key: 'fast'   as WarmupMode, emoji: '🚀', label: 'Fast',   speed: '~15k/hr', activeClass: 'border-violet-400 bg-violet-50/70 shadow-violet-100', checkBg: 'bg-violet-500', labelClass: 'text-violet-700' },
+                                            { key: 'low'    as WarmupMode, emoji: '🐢', label: 'Low (Safe)',    speed: '1–3 → 3–5 → 5–10', duration: '7 days', activeClass: 'border-blue-400 bg-blue-50/70 shadow-blue-100',    checkBg: 'bg-blue-500',    labelClass: 'text-blue-700'    },
+                                            { key: 'medium' as WarmupMode, emoji: '⚡', label: 'Medium (Std)', speed: '2–4 → 4–8 → 8–15', duration: '7 days', activeClass: 'border-[#0f5c52] bg-[#0f5c52]/8 shadow-teal-100', checkBg: 'bg-[#0f5c52]',   labelClass: 'text-[#0f5c52]'  },
+                                            { key: 'fast'   as WarmupMode, emoji: '🚀', label: 'Fast',         speed: '3–5 → 5–10 → Max',  duration: '5 days', activeClass: 'border-violet-400 bg-violet-50/70 shadow-violet-100', checkBg: 'bg-violet-500', labelClass: 'text-violet-700' },
                                         ] as const).map((mode) => {
                                             const isSelected = warmupMode === mode.key && warmupEnabled
                                             return (
@@ -475,7 +479,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                                     <span className="text-xl leading-none">{mode.emoji}</span>
                                                     <span className={`text-[11px] font-bold mt-1 ${isSelected ? mode.labelClass : 'text-slate-600'}`}>{mode.label}</span>
                                                     <span className="text-[9px] text-slate-500 font-medium">{mode.speed}</span>
-                                                    <span className="text-[9px] text-slate-400">14 days</span>
+                                                    <span className="text-[9px] text-slate-400 font-semibold">{mode.duration}</span>
                                                 </button>
                                             )
                                         })}
@@ -488,12 +492,12 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                             <div className="space-y-0.5 min-w-0">
                                                 <p className="text-[11px] font-semibold text-[#0b1f1c]">
                                                     {warmupMode === 'low'
-                                                        ? 'Low — concurrency ramps 3 → 5 → 10 over 14 days'
+                                                        ? 'Low — Days 1–2: 1–3 conc (Tier 1) • Days 3–5: 3–5 conc (Tier 1+2) • Days 6–7: 5–10 conc (All Tiers)'
                                                         : warmupMode === 'medium'
-                                                        ? 'Medium — concurrency ramps 5 → 10 → 20 over 14 days'
-                                                        : 'Fast — concurrency ramps 8 → 20 → 40 over 14 days'}
+                                                        ? 'Medium — Days 1–2: 2–4 conc (Tier 1) • Days 3–5: 4–8 conc (Tier 1+2) • Days 6–7: 8–15 conc (All Tiers)'
+                                                        : 'Fast — Days 1–2: 3–5 conc (Tier 1+2) • Days 3–4: 5–10 conc (All Tiers)'}
                                                 </p>
-                                                <p className="text-[10px] text-slate-500">After day 14, Job Control settings apply automatically.</p>
+                                                <p className="text-[10px] text-slate-500">After warmup completion, Job Control max settings apply automatically.</p>
                                             </div>
                                         </div>
                                     )}
@@ -540,30 +544,65 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                 </div>
 
                                 {/* ── Danger Zone ── */}
-                                <div className="flex flex-col gap-2.5 pt-4 border-t border-red-100/70">
-                                    <div>
-                                        <p className="text-[10px] font-bold text-red-500 uppercase tracking-widest">Danger Zone</p>
-                                        <p className="text-[10px] text-slate-400 mt-0.5">
-                                            Type{' '}<span className="font-mono font-bold text-slate-600">{DELETE_CONFIRM_PHRASE}</span>{' '}to permanently delete this node.
-                                        </p>
-                                    </div>
-                                    <Input
-                                        value={deleteConfirmText}
-                                        onChange={(e) => setDeleteConfirmText(e.target.value)}
-                                        placeholder={DELETE_CONFIRM_PHRASE}
-                                        className="font-mono text-sm border-red-200 focus-visible:ring-red-300 h-9"
-                                        autoComplete="off"
-                                    />
-                                    <Button
-                                        type="button"
-                                        onClick={() => { void doDeleteServer() }}
-                                        disabled={!canConfirmDelete}
-                                        variant="destructive"
-                                        size="sm"
-                                        className="h-8 font-bold uppercase tracking-wider text-[11px] shadow-none"
-                                    >
-                                        <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete Server
-                                    </Button>
+                                <div className="pt-4 border-t border-red-100/70">
+                                    {!showDeleteConfirm ? (
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <p className="text-[11px] font-bold text-red-600 uppercase tracking-widest flex items-center gap-1.5">
+                                                    <AlertTriangle className="h-3.5 w-3.5 text-red-500" /> Danger Zone
+                                                </p>
+                                                <p className="text-[10px] text-slate-400 mt-0.5">
+                                                    Permanently remove this server node from your cluster.
+                                                </p>
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                onClick={() => setShowDeleteConfirm(true)}
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8 px-3 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 font-bold text-[11px] uppercase tracking-wider shadow-none"
+                                            >
+                                                <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Delete Node
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3 bg-red-50/50 p-3.5 rounded-xl border border-red-200/80">
+                                            <div className="flex items-center justify-between">
+                                                <p className="text-[11px] font-bold text-red-600 uppercase tracking-widest flex items-center gap-1.5">
+                                                    <AlertTriangle className="h-3.5 w-3.5 text-red-500" /> Confirm Deletion
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(""); }}
+                                                    className="text-[11px] font-medium text-slate-500 hover:text-slate-800 underline"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                            <p className="text-[11px] text-slate-600">
+                                                Type <span className="font-mono font-bold text-red-600">{DELETE_CONFIRM_PHRASE}</span> to confirm permanent node deletion:
+                                            </p>
+                                            <div className="flex gap-2">
+                                                <Input
+                                                    value={deleteConfirmText}
+                                                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                                                    placeholder={DELETE_CONFIRM_PHRASE}
+                                                    className="font-mono text-xs border-red-300 focus-visible:ring-red-400 h-8 bg-white"
+                                                    autoComplete="off"
+                                                />
+                                                <Button
+                                                    type="button"
+                                                    onClick={() => { void doDeleteServer() }}
+                                                    disabled={!canConfirmDelete}
+                                                    variant="destructive"
+                                                    size="sm"
+                                                    className="h-8 px-4 font-bold uppercase tracking-wider text-[11px] shadow-none flex-shrink-0"
+                                                >
+                                                    <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Delete
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                             </CardContent>

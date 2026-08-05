@@ -18,6 +18,8 @@ type WorkerServer struct {
 	LastPing       *time.Time `gorm:"column:last_ping" json:"last_ping"`
 	Status         string     `gorm:"type:varchar(20);default:'offline'" json:"status"` // online, offline, maintenance
 	Enabled        bool       `gorm:"column:enabled;not null;default:true" json:"enabled"`
+	WarmupEnabled  bool       `gorm:"column:warmup_enabled;not null;default:true" json:"warmup_enabled"`
+	WarmupMode     string     `gorm:"column:warmup_mode;type:varchar(20);default:'medium'" json:"warmup_mode"`
 	CreatedAt      time.Time  `gorm:"column:created_at;type:timestamp;default:CURRENT_TIMESTAMP" json:"created_at"`
 }
 

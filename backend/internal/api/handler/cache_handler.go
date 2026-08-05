@@ -11,6 +11,7 @@ import (
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
+	"ejp-backend/internal/pipeline"
 	"ejp-backend/internal/repo"
 	"ejp-backend/pkg/logger"
 
@@ -23,17 +24,6 @@ const (
 	cacheUploadMaxBytes   = 20 * 1024 * 1024
 	cacheUploadMaxRows    = 100_000
 )
-
-var cacheFreeDomains = map[string]struct{}{
-	"gmail.com": {}, "googlemail.com": {},
-	"yahoo.com": {}, "yahoo.co.uk": {}, "ymail.com": {}, "rocketmail.com": {},
-	"outlook.com": {}, "hotmail.com": {}, "live.com": {}, "msn.com": {},
-	"icloud.com": {}, "me.com": {}, "mac.com": {},
-	"aol.com": {}, "protonmail.com": {}, "proton.me": {},
-	"zoho.com": {}, "zohomail.com": {}, "gmx.com": {}, "gmx.net": {},
-	"mail.com": {}, "yandex.com": {}, "yandex.ru": {},
-	"mail.ru": {}, "inbox.com": {}, "fastmail.com": {},
-}
 
 type CacheHandler struct {
 	cacheRepo   repo.CacheRepository
@@ -423,8 +413,7 @@ func isCacheFreeDomain(email string) bool {
 	if len(parts) != 2 {
 		return false
 	}
-	_, ok := cacheFreeDomains[strings.ToLower(strings.TrimSpace(parts[1]))]
-	return ok
+	return pipeline.IsKnownFreeDomain(parts[1])
 }
 
 func (h *CacheHandler) getRetentionInts() (b2b, freeV, freeI int) {

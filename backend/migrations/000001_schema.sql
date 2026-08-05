@@ -197,6 +197,8 @@ CREATE TABLE IF NOT EXISTS worker_servers (
     last_ping       TIMESTAMP,
     status          VARCHAR(20) DEFAULT 'offline',    -- online, offline, maintenance
     enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+    warmup_enabled  BOOLEAN NOT NULL DEFAULT TRUE,
+    warmup_mode     VARCHAR(20) NOT NULL DEFAULT 'medium',
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

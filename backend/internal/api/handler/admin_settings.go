@@ -211,6 +211,7 @@ func (h *AdminHandler) GetPublicSettings(c *gin.Context) {
 		"paypal_enabled",
 		"maintenance_mode",
 		"maintenance_message",
+		"max_emails_per_job",
 	}
 
 	settings, err := h.settingsService.GetSettingsByKeys(publicKeys)

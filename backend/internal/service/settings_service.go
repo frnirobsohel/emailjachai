@@ -77,6 +77,9 @@ var WritableSettingKeys = map[string]bool{
 	"chunk_size": true, "task_timeout": true, "task_timeout_minutes": true,
 	"max_emails_per_job": true, "max_active_jobs_per_user": true,
 	"prepare_concurrency": true, "worker_concurrency": true,
+	"chunk_tier1_max_list": true, "chunk_tier1_size": true, "chunk_tier1_timeout": true,
+	"chunk_tier2_max_list": true, "chunk_tier2_size": true, "chunk_tier2_timeout": true,
+	"chunk_tier3_max_list": true, "chunk_tier3_size": true, "chunk_tier3_timeout": true,
 	// maintenance / license page
 	"maintenance_mode": true, "maintenance_message": true,
 	// payment gateways (+ api_base_url for webhook callbacks)
@@ -239,6 +242,15 @@ func (s *settingsService) persist(updates map[string]string, adminID uint, logMs
 		"max_active_jobs_per_user": {0, 10000, 0},
 		"prepare_concurrency":      {1, 10, 1},
 		"worker_concurrency":       {1, 100, 10},
+		"chunk_tier1_max_list":     {10, 500000, 50000},
+		"chunk_tier1_size":         {10, 10000, 100},
+		"chunk_tier1_timeout":      {1, 1440, 15},
+		"chunk_tier2_max_list":     {100, 1000000, 100000},
+		"chunk_tier2_size":         {10, 50000, 500},
+		"chunk_tier2_timeout":      {1, 1440, 60},
+		"chunk_tier3_max_list":     {1000, 5000000, 500000},
+		"chunk_tier3_size":         {10, 50000, 1000},
+		"chunk_tier3_timeout":      {1, 1440, 120},
 	}
 
 	prepared := make(map[string]string, len(updates)+1)
@@ -273,8 +285,9 @@ func (s *settingsService) persist(updates map[string]string, adminID uint, logMs
 		prepared[k] = v
 		changedKeys = append(changedKeys, k)
 
-		if k == "task_timeout" {
-			prepared["task_timeout_minutes"] = v
+		// Keep legacy chunk_size in sync with tier-3 for heartbeat/display consumers.
+		if k == "chunk_tier3_size" {
+			prepared["chunk_size"] = v
 		}
 	}
 

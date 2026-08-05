@@ -121,11 +121,17 @@ func AdaptiveShuffle(emails []string) []string {
 	return out
 }
 
-// knownFreeDomains are used for dynamic chunk sizing without a DB round-trip.
+// knownFreeDomains are used for dynamic chunk sizing and is_free classification.
+// Single shared list for prepare pipeline + cache upload (keep in sync intentionally).
 var knownFreeDomains = map[string]struct{}{
-	"gmail.com": {}, "googlemail.com": {}, "yahoo.com": {}, "ymail.com": {},
+	"gmail.com": {}, "googlemail.com": {},
+	"yahoo.com": {}, "yahoo.co.uk": {}, "ymail.com": {}, "rocketmail.com": {},
 	"outlook.com": {}, "hotmail.com": {}, "live.com": {}, "msn.com": {},
-	"icloud.com": {}, "me.com": {}, "aol.com": {}, "proton.me": {}, "protonmail.com": {},
+	"icloud.com": {}, "me.com": {}, "mac.com": {},
+	"aol.com": {}, "protonmail.com": {}, "proton.me": {},
+	"zoho.com": {}, "zohomail.com": {}, "gmx.com": {}, "gmx.net": {},
+	"mail.com": {}, "yandex.com": {}, "yandex.ru": {},
+	"mail.ru": {}, "inbox.com": {}, "fastmail.com": {},
 }
 
 // IsKnownFreeDomain reports whether domain is a major free mailbox provider.

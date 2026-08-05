@@ -27,6 +27,7 @@ export type PublicSettings = {
     maintenance_message?: string;
     turnstile_site_key?: string;
     turnstile_required?: string;
+    max_emails_per_job?: string;
 };
 
 const SettingsContext = createContext<PublicSettings>({});

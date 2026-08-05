@@ -91,15 +91,10 @@ func adminIDFromContext(c *gin.Context) (uint, bool) {
 	return id, ok
 }
 
+// getChunkSizeSetting returns the Job Control tier-3 chunk size for heartbeat/UI display.
+// Prepare/enqueue use getChunkStrategyForList (tier by list size); this is informational only.
 func getChunkSizeSetting() int {
-	chunkSize := 1000
-	var chunkSettings []model.Setting
-	if err := config.DB.Where("setting_key = ?", "chunk_size").Find(&chunkSettings).Error; err == nil && len(chunkSettings) > 0 {
-		if val, err := strconv.Atoi(chunkSettings[0].SettingValue); err == nil && val > 0 {
-			chunkSize = val
-		}
-	}
-	return chunkSize
+	return getIntSetting("chunk_tier3_size", 1000, 10, 50000)
 }
 
 func getIntSetting(key string, def, min, max int) int {
@@ -194,23 +189,78 @@ func ensureWorkerKeyProvisioned(tx *gorm.DB) (plainKey, maskedKey string, err er
 }
 
 type serverNode struct {
-	ID           uint   `json:"id"`
-	Name         string `json:"name"`
-	Address      string `json:"address"`
-	Port         string `json:"port"`
-	Status       string `json:"status"`
-	Ping         string `json:"ping"`
-	RunningTime  string `json:"runningTime"`
-	EmailsVerified int  `json:"emailsVerified"`
-	CurrentJob   string `json:"currentJob"`
-	IPReputation string `json:"ipReputation"`
-	WorkerCount  int    `json:"workerCount"`
-	Config       struct {
+	ID             uint   `json:"id"`
+	Name           string `json:"name"`
+	Address        string `json:"address"`
+	Port           string `json:"port"`
+	Status         string `json:"status"`
+	Ping           string `json:"ping"`
+	RunningTime    string `json:"runningTime"`
+	EmailsVerified int    `json:"emailsVerified"`
+	CurrentJob     string `json:"currentJob"`
+	IPReputation   string `json:"ipReputation"`
+	WorkerCount    int    `json:"workerCount"`
+	WarmupEnabled  bool   `json:"warmup_enabled"`
+	WarmupMode     string `json:"warmup_mode"`
+	WarmupStage    string `json:"warmup_stage"`
+	Config         struct {
 		DailyLimit int  `json:"dailyLimit"`
 		RateLimit  int  `json:"rateLimit"`
 		ChunkSize  int  `json:"chunkSize"`
 		Enabled    bool `json:"enabled"`
 	} `json:"config"`
+}
+
+// CalculateWarmupStageDescription returns a human readable stage description for server warmup based on server creation age.
+func CalculateWarmupStageDescription(createdAt time.Time, enabled bool, mode string) string {
+	if !enabled {
+		return "Disabled (Full capacity active)"
+	}
+	ageHours := time.Since(createdAt.UTC()).Hours()
+	ageDays := int(ageHours/24) + 1
+
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		mode = "medium"
+	}
+
+	maxDays := 7
+	if mode == "fast" {
+		maxDays = 5
+	}
+
+	if ageDays > maxDays {
+		return "Completed (Full capacity active)"
+	}
+
+	switch mode {
+	case "low":
+		switch {
+		case ageDays <= 2:
+			return "Day " + strconv.Itoa(ageDays) + " of 7: Stage 1 (Conc: 1–3, Tier 1 Only)"
+		case ageDays <= 5:
+			return "Day " + strconv.Itoa(ageDays) + " of 7: Stage 2 (Conc: 3–5, Tier 1+2)"
+		default:
+			return "Day " + strconv.Itoa(ageDays) + " of 7: Stage 3 (Conc: 5–10, All Tiers)"
+		}
+	case "medium":
+		switch {
+		case ageDays <= 2:
+			return "Day " + strconv.Itoa(ageDays) + " of 7: Stage 1 (Conc: 2–4, Tier 1 Only)"
+		case ageDays <= 5:
+			return "Day " + strconv.Itoa(ageDays) + " of 7: Stage 2 (Conc: 4–8, Tier 1+2)"
+		default:
+			return "Day " + strconv.Itoa(ageDays) + " of 7: Stage 3 (Conc: 8–15, All Tiers)"
+		}
+	case "fast":
+		switch {
+		case ageDays <= 2:
+			return "Day " + strconv.Itoa(ageDays) + " of 5: Stage 1 (Conc: 3–5, Tier 1+2)"
+		default:
+			return "Day " + strconv.Itoa(ageDays) + " of 5: Stage 2 (Conc: 5–10, All Tiers)"
+		}
+	}
+	return "Day " + strconv.Itoa(ageDays) + " of " + strconv.Itoa(maxDays) + ": Active Warmup"
 }
 
 func (h *AdminHandler) getServerNodes() ([]serverNode, error) {
@@ -276,6 +326,12 @@ func (h *AdminHandler) getServerNodes() ([]serverNode, error) {
 		}
 
 		n.EmailsVerified = s.EmailsVerified
+		n.WarmupEnabled = s.WarmupEnabled
+		n.WarmupMode = s.WarmupMode
+		if n.WarmupMode == "" {
+			n.WarmupMode = "medium"
+		}
+		n.WarmupStage = CalculateWarmupStageDescription(s.CreatedAt, s.WarmupEnabled, n.WarmupMode)
 
 		n.Config.DailyLimit = s.DailyLimit
 		if n.Config.DailyLimit <= 0 {
@@ -781,4 +837,42 @@ func (h *AdminHandler) RotateWorkerKey(c *gin.Context) {
 		"worker_key": newKey,
 		"masked_key": masked,
 	})
+}
+
+// UpdateServerWarmup saves warmup_enabled and warmup_mode for a server node
+func (h *AdminHandler) UpdateServerWarmup(c *gin.Context) {
+	adminID, ok := adminIDFromContext(c)
+	if !ok {
+		helper.SendError(c, http.StatusUnauthorized, "Unauthorized", "ERR_UNAUTHORIZED")
+		return
+	}
+
+	var input struct {
+		ID            uint   `json:"id" binding:"required"`
+		WarmupEnabled *bool  `json:"warmup_enabled" binding:"required"`
+		WarmupMode    string `json:"warmup_mode"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Invalid warmup payload", "ERR_BAD_REQUEST")
+		return
+	}
+
+	mode := strings.ToLower(strings.TrimSpace(input.WarmupMode))
+	if mode != "low" && mode != "medium" && mode != "fast" {
+		mode = "medium"
+	}
+
+	updates := map[string]interface{}{
+		"warmup_enabled": *input.WarmupEnabled,
+		"warmup_mode":    mode,
+	}
+
+	if err := h.serverService.UpdateFields(input.ID, updates); err != nil {
+		logger.Error("Failed to update server warmup", "error", err, "id", input.ID)
+		helper.SendError(c, http.StatusInternalServerError, "Failed to update server warmup", "ERR_SERVER_WARMUP_UPDATE")
+		return
+	}
+
+	logAction(adminID, "INFO", "Admin", "Updated warmup settings for Server ID #"+strconv.Itoa(int(input.ID)))
+	helper.SendSuccess(c, "Server warmup settings saved successfully", nil)
 }

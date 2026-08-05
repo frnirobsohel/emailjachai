@@ -249,6 +249,7 @@ func SetupRoutes(router *gin.Engine) {
 			admin.POST("/server/update", adminHandler.UpdateServer)
 			admin.POST("/server/toggle", adminHandler.ToggleServer)
 			admin.POST("/server/delete", adminHandler.DeleteServer)
+			admin.POST("/server/warmup", adminHandler.UpdateServerWarmup)
 			admin.POST("/server/worker-key/rotate", adminHandler.RotateWorkerKey)
 
 			// System Management

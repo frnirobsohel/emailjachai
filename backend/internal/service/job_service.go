@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"ejp-backend/internal/storage"
@@ -706,7 +705,7 @@ func (s *jobService) PrepareBulkJob(jobID string) error {
 		return nil
 	}
 
-	baseChunkSize := s.baseChunkSize()
+	baseChunkSize, _ := s.getChunkStrategyForList(len(queueEmails))
 	queueEmails, prepChunks := pipeline.PrepareQueue(queueEmails, baseChunkSize)
 
 	var taskRecords []model.JobTask
@@ -842,88 +841,139 @@ func (s *jobService) FailPreparingJob(jobID, reason string) error {
 }
 
 func (s *jobService) enqueueBulkChunks(job *model.Job, user *model.User, queueEmails []string, savedTasks []model.JobTask) (bool, error) {
-	var enqueuedCount int32
-	var enqueueErrors int32
-	var enqueuedAsynqIDs []string
-	var asynqIDsMu sync.Mutex
-	numWorkers := 10
-	chunksChan := make(chan int, len(savedTasks))
-	var wg sync.WaitGroup
-	chunkTimeout := s.getChunkTaskTimeout()
-	queueName := pipeline.AsynqQueueForRole(user.Role)
+	type chunkPlan struct {
+		task   model.JobTask
+		hits   []model.EmailCache
+		misses []string
+	}
 
+	_, chunkTimeout := s.getChunkStrategyForList(len(queueEmails))
+	queueName := pipeline.AsynqQueueForRole(user.Role)
 	b2bRet, freeValidRet, freeInvalidRet := s.getCacheRetentionPolicies()
 	domainPolicies := s.loadDomainPolicyMap(pipeline.UniqueDomains(queueEmails))
 
-	for w := 0; w < numWorkers; w++ {
-		wg.Add(1)
-		safe.Go(func() {
-			defer wg.Done()
-			for taskIdx := range chunksChan {
-				currentTask := savedTasks[taskIdx]
-				if currentTask.StartIndex >= len(queueEmails) {
-					continue
-				}
-				endIndex := currentTask.EndIndex
-				if endIndex >= len(queueEmails) {
-					endIndex = len(queueEmails) - 1
-				}
-				chunkEmails := queueEmails[currentTask.StartIndex : endIndex+1]
+	// Phase 1: classify only (no DB writes / no enqueue) so a later failure cannot orphan hits.
+	plans := make([]chunkPlan, 0, len(savedTasks))
+	var plannedHits, plannedMisses int
+	for i := range savedTasks {
+		currentTask := savedTasks[i]
+		if currentTask.StartIndex >= len(queueEmails) {
+			continue
+		}
+		endIndex := currentTask.EndIndex
+		if endIndex >= len(queueEmails) {
+			endIndex = len(queueEmails) - 1
+		}
+		chunkEmails := queueEmails[currentTask.StartIndex : endIndex+1]
 
-				cachedResults, err := s.cacheRepo.GetCachedEmailsInBatches(chunkEmails, b2bRet, freeValidRet, freeInvalidRet)
-				if err != nil {
-					logger.Error("Cache check error", "error", err)
-					cachedResults = make(map[string]model.EmailCache)
-				}
-
-				hits, misses := classifyChunkEmails(chunkEmails, cachedResults, domainPolicies)
-				if len(hits) > 0 {
-					if err := s.processCacheHits(job.JobID, job.ID, currentTask.ID, hits); err != nil {
-						logger.Error("Failed to persist cache hits", "job_id", job.JobID, "task_id", currentTask.ID, "error", err)
-						atomic.AddInt32(&enqueueErrors, 1)
-						continue
-					}
-				}
-
-				if len(misses) > 0 {
-					task, err := tasks.NewEmailChunkTask(job.JobID, currentTask.ID, misses)
-					if err != nil {
-						logger.Error("Failed to build chunk task", "job_id", job.JobID, "task_id", currentTask.ID, "error", err)
-						atomic.AddInt32(&enqueueErrors, 1)
-						continue
-					}
-					info, err := config.AsynqClient.Enqueue(task, asynq.MaxRetry(3), asynq.Timeout(chunkTimeout), asynq.Queue(queueName))
-					if err != nil {
-						logger.Error("Failed to enqueue chunk task", "job_id", job.JobID, "task_id", currentTask.ID, "error", err)
-						atomic.AddInt32(&enqueueErrors, 1)
-					} else {
-						if info != nil && info.ID != "" {
-							asynqIDsMu.Lock()
-							enqueuedAsynqIDs = append(enqueuedAsynqIDs, info.ID)
-							asynqIDsMu.Unlock()
-						}
-						atomic.AddInt32(&enqueuedCount, int32(len(misses)))
-					}
-				} else if len(hits) > 0 {
-					atomic.AddInt32(&enqueuedCount, int32(len(hits)))
-				}
-			}
-		})
+		cachedResults, err := s.cacheRepo.GetCachedEmailsInBatches(chunkEmails, b2bRet, freeValidRet, freeInvalidRet)
+		if err != nil {
+			logger.Error("Cache check error", "error", err)
+			cachedResults = make(map[string]model.EmailCache)
+		}
+		hits, misses := classifyChunkEmails(chunkEmails, cachedResults, domainPolicies)
+		plans = append(plans, chunkPlan{task: currentTask, hits: hits, misses: misses})
+		plannedHits += len(hits)
+		plannedMisses += len(misses)
 	}
 
-	for i := 0; i < len(savedTasks); i++ {
-		chunksChan <- i
-	}
-	close(chunksChan)
-	wg.Wait()
-
-	queuedCount := len(queueEmails)
-	if int(enqueueErrors) > 0 || int(enqueuedCount) == 0 {
-		s.cancelAsynqTasks(enqueuedAsynqIDs)
-		_ = s.RefundJob(job.UserID, job.JobID, queuedCount, fmt.Sprintf("%d/%d failed to queue", enqueueErrors, queuedCount))
+	if plannedHits+plannedMisses == 0 {
+		_ = s.RefundJob(job.UserID, job.JobID, len(queueEmails), "prepare: nothing to queue")
 		return false, nil
 	}
+
+	// Phase 2: enqueue all misses first. On any failure, cancel and refund — no hits written yet.
+	var enqueuedAsynqIDs []string
+	for _, plan := range plans {
+		if len(plan.misses) == 0 {
+			continue
+		}
+		task, err := tasks.NewEmailChunkTask(job.JobID, plan.task.ID, plan.misses)
+		if err != nil {
+			logger.Error("Failed to build chunk task", "job_id", job.JobID, "task_id", plan.task.ID, "error", err)
+			s.cancelAsynqTasks(enqueuedAsynqIDs)
+			_ = s.RefundJob(job.UserID, job.JobID, len(queueEmails), fmt.Sprintf("failed to build chunk task %d", plan.task.ID))
+			return false, nil
+		}
+		info, err := config.AsynqClient.Enqueue(task, asynq.MaxRetry(3), asynq.Timeout(chunkTimeout), asynq.Queue(queueName))
+		if err != nil {
+			logger.Error("Failed to enqueue chunk task", "job_id", job.JobID, "task_id", plan.task.ID, "error", err)
+			s.cancelAsynqTasks(enqueuedAsynqIDs)
+			_ = s.RefundJob(job.UserID, job.JobID, len(queueEmails), fmt.Sprintf("failed to enqueue chunk task %d", plan.task.ID))
+			return false, nil
+		}
+		if info != nil && info.ID != "" {
+			enqueuedAsynqIDs = append(enqueuedAsynqIDs, info.ID)
+		}
+	}
+
+	// Phase 3: persist cache/domain hits only after all misses are safely queued.
+	var writtenHitEmails []string
+	for _, plan := range plans {
+		if len(plan.hits) == 0 {
+			continue
+		}
+		if err := s.processCacheHits(job.JobID, job.ID, plan.task.ID, plan.hits); err != nil {
+			logger.Error("Failed to persist cache hits after enqueue", "job_id", job.JobID, "task_id", plan.task.ID, "error", err)
+			s.cancelAsynqTasks(enqueuedAsynqIDs)
+			_ = s.rollbackPrepareHitEmails(job, writtenHitEmails, len(queueEmails), fmt.Sprintf("failed to persist cache hits for task %d", plan.task.ID))
+			return false, nil
+		}
+		for _, h := range plan.hits {
+			writtenHitEmails = append(writtenHitEmails, h.Email)
+		}
+	}
+
 	return true, nil
+}
+
+// rollbackPrepareHitEmails removes only hits written in this prepare/retry attempt (preserves prior verified rows on retry).
+func (s *jobService) rollbackPrepareHitEmails(job *model.Job, hitEmails []string, refundCredits int, reason string) error {
+	if len(hitEmails) > 0 {
+		const batch = 500
+		for i := 0; i < len(hitEmails); i += batch {
+			end := i + batch
+			if end > len(hitEmails) {
+				end = len(hitEmails)
+			}
+			_ = s.jobRepo.DB().Where("job_internal_id = ? AND email IN ?", job.ID, hitEmails[i:end]).
+				Delete(&model.JobResult{}).Error
+		}
+	}
+
+	var agg struct {
+		Total        int64
+		Deliverable  int64
+		Undeliverable int64
+		Risky        int64
+		CatchAll     int64
+		Disposable   int64
+		RoleAccounts int64
+	}
+	_ = s.jobRepo.DB().Model(&model.JobResult{}).
+		Select(`COUNT(*) AS total,
+			COALESCE(SUM(CASE WHEN status = 'valid' THEN 1 ELSE 0 END), 0) AS deliverable,
+			COALESCE(SUM(CASE WHEN status = 'invalid' THEN 1 ELSE 0 END), 0) AS undeliverable,
+			COALESCE(SUM(CASE WHEN status = 'unknown' THEN 1 ELSE 0 END), 0) AS risky,
+			COALESCE(SUM(CASE WHEN status = 'catch_all' OR is_catch_all = TRUE THEN 1 ELSE 0 END), 0) AS catch_all,
+			COALESCE(SUM(CASE WHEN status = 'disposable' OR is_disposable = TRUE THEN 1 ELSE 0 END), 0) AS disposable,
+			COALESCE(SUM(CASE WHEN is_role = TRUE THEN 1 ELSE 0 END), 0) AS role_accounts`).
+		Where("job_internal_id = ?", job.ID).
+		Scan(&agg).Error
+
+	processed := int(agg.Total) + job.InvalidSyntax
+	_ = s.jobRepo.DB().Model(&model.Job{}).Where("id = ?", job.ID).Updates(map[string]interface{}{
+		"processed_count": processed,
+		"deliverable":     int(agg.Deliverable),
+		"undeliverable":   int(agg.Undeliverable) + job.InvalidSyntax,
+		"risky":           int(agg.Risky),
+		"catch_all":       int(agg.CatchAll),
+		"disposable":      int(agg.Disposable),
+		"role_accounts":   int(agg.RoleAccounts),
+		"status":          "failed",
+	}).Error
+	_ = s.jobRepo.DB().Model(&model.JobTask{}).Where("job_id = ?", job.JobID).Update("status", "failed").Error
+	return s.RefundJob(job.UserID, job.JobID, refundCredits, reason)
 }
 
 func (s *jobService) cancelAsynqTasks(taskIDs []string) {
@@ -953,39 +1003,132 @@ func (s *jobService) cancelAsynqTasks(taskIDs []string) {
 	}
 }
 
-// getChunkTaskTimeout returns the Asynq per-chunk processing deadline from job-control
-// settings (task_timeout / task_timeout_minutes). Default 60m — same as admin seed.
-func (s *jobService) getChunkTaskTimeout() time.Duration {
-	const defaultMinutes = 60
-	minutes := defaultMinutes
+// getChunkStrategyForList returns dynamic (chunkSize, timeoutDuration) based on list size and 3-Tier Job Control settings.
+func (s *jobService) getChunkStrategyForList(totalEmails int) (int, time.Duration) {
+	t1Max, t1Size, t1Timeout := 50000, 100, 15
+	t2Max, t2Size, t2Timeout := 100000, 500, 60
+	t3Max, t3Size, t3Timeout := 500000, 1000, 120
 
-	if setting, err := s.settingsRepo.GetByKey("task_timeout"); err == nil {
-		if v, convErr := strconv.Atoi(setting.SettingValue); convErr == nil && v > 0 {
-			minutes = v
-		}
-	} else if setting, err := s.settingsRepo.GetByKey("task_timeout_minutes"); err == nil {
-		if v, convErr := strconv.Atoi(setting.SettingValue); convErr == nil && v > 0 {
-			minutes = v
+	if set, err := s.settingsRepo.GetByKey("chunk_tier1_max_list"); err == nil {
+		if v, convErr := strconv.Atoi(set.SettingValue); convErr == nil && v > 0 {
+			t1Max = v
 		}
 	}
+	if set, err := s.settingsRepo.GetByKey("chunk_tier1_size"); err == nil {
+		if v, convErr := strconv.Atoi(set.SettingValue); convErr == nil && v > 0 {
+			t1Size = v
+		}
+	}
+	if set, err := s.settingsRepo.GetByKey("chunk_tier1_timeout"); err == nil {
+		if v, convErr := strconv.Atoi(set.SettingValue); convErr == nil && v > 0 {
+			t1Timeout = v
+		}
+	}
 
-	if minutes < 1 {
-		minutes = 1
+	if set, err := s.settingsRepo.GetByKey("chunk_tier2_max_list"); err == nil {
+		if v, convErr := strconv.Atoi(set.SettingValue); convErr == nil && v > 0 {
+			t2Max = v
+		}
 	}
-	if minutes > 1440 {
-		minutes = 1440
+	if set, err := s.settingsRepo.GetByKey("chunk_tier2_size"); err == nil {
+		if v, convErr := strconv.Atoi(set.SettingValue); convErr == nil && v > 0 {
+			t2Size = v
+		}
 	}
-	return time.Duration(minutes) * time.Minute
+	if set, err := s.settingsRepo.GetByKey("chunk_tier2_timeout"); err == nil {
+		if v, convErr := strconv.Atoi(set.SettingValue); convErr == nil && v > 0 {
+			t2Timeout = v
+		}
+	}
+
+	if set, err := s.settingsRepo.GetByKey("chunk_tier3_max_list"); err == nil {
+		if v, convErr := strconv.Atoi(set.SettingValue); convErr == nil && v > 0 {
+			t3Max = v
+		}
+	}
+	if set, err := s.settingsRepo.GetByKey("chunk_tier3_size"); err == nil {
+		if v, convErr := strconv.Atoi(set.SettingValue); convErr == nil && v > 0 {
+			t3Size = v
+		}
+	}
+	if set, err := s.settingsRepo.GetByKey("chunk_tier3_timeout"); err == nil {
+		if v, convErr := strconv.Atoi(set.SettingValue); convErr == nil && v > 0 {
+			t3Timeout = v
+		}
+	}
+
+	_ = t3Max
+	selectedSize := t3Size
+	selectedTimeout := t3Timeout
+
+	switch {
+	case totalEmails <= t1Max:
+		selectedSize = t1Size
+		selectedTimeout = t1Timeout
+	case totalEmails <= t2Max:
+		selectedSize = t2Size
+		selectedTimeout = t2Timeout
+	default:
+		selectedSize = t3Size
+		selectedTimeout = t3Timeout
+	}
+
+	// Warmup: only throttle prepare chunks when EVERY enabled worker is warming up.
+	// If any full-capacity server exists, use the tier size unchanged.
+	// When the whole fleet is warming, use the MAX cap (least restrictive) — never the global min.
+	var enabledServers []model.WorkerServer
+	if err := config.DB.Where("enabled = ?", true).Find(&enabledServers).Error; err == nil && len(enabledServers) > 0 {
+		allWarming := true
+		bestWarmupCap := 0
+		for _, srv := range enabledServers {
+			if !srv.WarmupEnabled {
+				allWarming = false
+				break
+			}
+			cap := warmupChunkCap(srv, t1Size, t2Size, t3Size)
+			if cap > bestWarmupCap {
+				bestWarmupCap = cap
+			}
+		}
+		if allWarming && bestWarmupCap > 0 && selectedSize > bestWarmupCap {
+			selectedSize = bestWarmupCap
+		}
+	}
+
+	if selectedSize < 10 {
+		selectedSize = 10
+	}
+	if selectedTimeout < 1 {
+		selectedTimeout = 1
+	}
+	return selectedSize, time.Duration(selectedTimeout) * time.Minute
 }
 
-func (s *jobService) baseChunkSize() int {
-	chunkSize := 1000
-	if chunkSetting, err := s.settingsRepo.GetByKey("chunk_size"); err == nil {
-		if v, convErr := strconv.Atoi(chunkSetting.SettingValue); convErr == nil && v > 0 {
-			chunkSize = v
-		}
+func warmupChunkCap(srv model.WorkerServer, t1Size, t2Size, t3Size int) int {
+	ageHours := time.Since(srv.CreatedAt.UTC()).Hours()
+	ageDays := int(ageHours/24) + 1
+	mode := strings.ToLower(strings.TrimSpace(srv.WarmupMode))
+	if mode == "" {
+		mode = "medium"
 	}
-	return chunkSize
+	switch mode {
+	case "low", "medium":
+		switch {
+		case ageDays <= 2:
+			return t1Size
+		case ageDays <= 5:
+			return t2Size
+		default:
+			return t3Size
+		}
+	case "fast":
+		if ageDays <= 2 {
+			return t2Size
+		}
+		return t3Size
+	default:
+		return t3Size
+	}
 }
 
 // loadDomainPolicyMap loads domain intelligence rows for a bulk job (one query).
@@ -1301,69 +1444,42 @@ func (s *jobService) getCacheRetentionPolicies() (b2b, freeValid, freeInvalid in
 }
 
 func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
-	// 1. Get job
 	job, err := s.jobRepo.GetJobForUser(userID, jobID)
 	if err != nil {
 		return nil, errors.New("job not found")
 	}
-
-	// Only failed jobs can be retried
 	if job.Status != "failed" {
 		return nil, errors.New("only failed jobs can be retried")
 	}
 
-	// 2. Read source emails
-	sourcePath := os.Getenv("BULK_SOURCE_PATH")
-	if sourcePath == "" {
-		sourcePath = "./storage/jobs/bulk"
-	}
-	sourceFilePath := filepath.Join(sourcePath, job.JobID+"_source.txt")
-
-	// Check if source file exists
-	if _, err := os.Stat(sourceFilePath); os.IsNotExist(err) {
+	sourceEmails, srcErr := s.loadBulkSourceEmails(job.JobID)
+	if srcErr != nil {
 		return nil, errors.New("original source file not found, cannot retry job. Please re-upload your list.")
 	}
 
-	file, err := os.Open(sourceFilePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open source file: %v", err)
-	}
-	defer file.Close()
-
-	var sourceEmails []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		email := strings.TrimSpace(scanner.Text())
-		if email != "" {
-			sourceEmails = append(sourceEmails, email)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading source file: %v", err)
-	}
-
-	// 3. Find already verified emails
 	var verifiedEmails []string
-	err = s.jobRepo.DB().Model(&model.JobResult{}).Where("job_internal_id = ?", job.ID).Pluck("email", &verifiedEmails).Error
-	if err != nil {
+	if err := s.jobRepo.DB().Model(&model.JobResult{}).Where("job_internal_id = ?", job.ID).Pluck("email", &verifiedEmails).Error; err != nil {
 		return nil, fmt.Errorf("failed to fetch existing results: %v", err)
 	}
-
-	verifiedMap := make(map[string]bool)
+	verifiedMap := make(map[string]bool, len(verifiedEmails))
 	for _, e := range verifiedEmails {
-		verifiedMap[e] = true
+		verifiedMap[strings.ToLower(strings.TrimSpace(e))] = true
 	}
 
-	// Filter remaining emails
-	var remainingEmails []string
-	for _, e := range sourceEmails {
-		if !verifiedMap[e] {
-			remainingEmails = append(remainingEmails, e)
+	// Remaining = unverified + valid syntax only (do not re-queue invalid syntax).
+	queueEmails := make([]string, 0)
+	for _, raw := range sourceEmails {
+		email := strings.ToLower(strings.TrimSpace(raw))
+		if email == "" || verifiedMap[email] {
+			continue
 		}
+		if !strings.Contains(email, "@") || len(email) < 5 {
+			continue
+		}
+		queueEmails = append(queueEmails, email)
 	}
 
-	if len(remainingEmails) == 0 {
-		// All emails already verified, just mark as completed
+	if len(queueEmails) == 0 {
 		job.Status = "completed"
 		if err := s.jobRepo.DB().Save(job).Error; err != nil {
 			return nil, err
@@ -1371,34 +1487,17 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 		return job, nil
 	}
 
-	// 4. Calculate credit deduction
-	// Check if any refund transactions exist for this job
-	var refundTxns []model.Transaction
-	refundSearch := "%" + job.JobID + "%"
-	s.jobRepo.DB().Where("user_id = ? AND type = 'refund' AND description LIKE ?", userID, refundSearch).Find(&refundTxns)
-
-	refundedCredits := 0
-	for _, tx := range refundTxns {
-		// CreditsAdded is positive for refund transactions
-		refundedCredits += tx.CreditsAdded
-	}
-
+	creditsToDeduct := len(queueEmails)
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
 		return nil, errors.New("user not found")
 	}
-
-	creditsToDeduct := refundedCredits
-	if creditsToDeduct > 0 {
-		if user.Credits < creditsToDeduct {
-			return nil, errors.New("insufficient credits")
-		}
+	if user.Credits < creditsToDeduct {
+		return nil, errors.New("insufficient credits")
 	}
 
-	// 5. Database transaction to update job and recreate tasks
-	var savedTasks []model.JobTask
-	baseChunkSize := s.baseChunkSize()
-	remainingEmails, prepChunks := pipeline.PrepareQueue(remainingEmails, baseChunkSize)
+	baseChunkSize, _ := s.getChunkStrategyForList(len(queueEmails))
+	queueEmails, prepChunks := pipeline.PrepareQueue(queueEmails, baseChunkSize)
 
 	var taskRecords []model.JobTask
 	for _, ch := range prepChunks {
@@ -1410,41 +1509,35 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 		})
 	}
 
+	var savedTasks []model.JobTask
 	err = s.jobRepo.DB().Transaction(func(tx *gorm.DB) error {
-		// Deduct credits if necessary
-		if creditsToDeduct > 0 {
-			res := tx.Model(&model.User{}).
-				Where("id = ? AND credits >= ?", userID, creditsToDeduct).
-				Update("credits", gorm.Expr("credits - ?", creditsToDeduct))
-			if res.Error != nil {
-				return res.Error
-			}
-			if res.RowsAffected == 0 {
-				return fmt.Errorf("insufficient credits")
-			}
-
-			// Add transaction log
-			txnID := fmt.Sprintf("TXN_%x%s", time.Now().Unix(), helper.GenerateRandomHex(6))
-			transaction := model.Transaction{
-				UserID:        userID,
-				TransactionID: txnID,
-				Amount:        0,
-				CreditsAdded:  -creditsToDeduct,
-				Type:          "bulk_verify_retry",
-				Status:        "completed",
-				Description:   fmt.Sprintf("Retry Job: %s (%d emails resumed)", job.Filename, len(remainingEmails)),
-			}
-			if err := tx.Create(&transaction).Error; err != nil {
-				return err
-			}
+		res := tx.Model(&model.User{}).
+			Where("id = ? AND credits >= ?", userID, creditsToDeduct).
+			Update("credits", gorm.Expr("credits - ?", creditsToDeduct))
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return fmt.Errorf("insufficient credits")
 		}
 
-		// Hard delete old job tasks
-		if err := tx.Unscoped().Where("job_id = ?", job.JobID).Delete(&model.JobTask{}).Error; err != nil {
+		txnID := fmt.Sprintf("TXN_%x%s", time.Now().Unix(), helper.GenerateRandomHex(6))
+		transaction := model.Transaction{
+			UserID:        userID,
+			TransactionID: txnID,
+			Amount:        0,
+			CreditsAdded:  -creditsToDeduct,
+			Type:          "bulk_verify_retry",
+			Status:        "completed",
+			Description:   fmt.Sprintf("Retry Job: %s (%d emails resumed)", job.Filename, creditsToDeduct),
+		}
+		if err := tx.Create(&transaction).Error; err != nil {
 			return err
 		}
 
-		// Save new job tasks
+		if err := tx.Unscoped().Where("job_id = ?", job.JobID).Delete(&model.JobTask{}).Error; err != nil {
+			return err
+		}
 		for i := range taskRecords {
 			if err := tx.Create(&taskRecords[i]).Error; err != nil {
 				return err
@@ -1452,126 +1545,35 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 			savedTasks = append(savedTasks, taskRecords[i])
 		}
 
-		// Update Job status and processed count
-		// processed_count is set to (Total - remaining)
-		processedCount := job.TotalEmails - len(remainingEmails)
-		if err := tx.Model(job).Updates(map[string]interface{}{
+		// verified + invalid_syntax remain counted; resume work is creditsToDeduct.
+		processedCount := job.TotalEmails - creditsToDeduct
+		if processedCount < job.InvalidSyntax {
+			processedCount = job.InvalidSyntax
+		}
+		return tx.Model(job).Updates(map[string]interface{}{
 			"status":          "pending",
 			"processed_count": processedCount,
-		}).Error; err != nil {
-			return err
-		}
-
-		return nil
+		}).Error
 	})
-
 	if err != nil {
 		return nil, err
 	}
 
-	// 6. Enqueue tasks in parallel (same weighted queue + domain intel as submit)
-	var enqueuedCount int32
-	var enqueueErrors int32
-	var enqueuedAsynqIDs []string
-	var asynqIDsMu sync.Mutex
-	numWorkers := 10
-	chunksChan := make(chan int, len(savedTasks))
-	var wg sync.WaitGroup
-	chunkTimeout := s.getChunkTaskTimeout()
-	queueName := pipeline.AsynqQueueForRole(user.Role)
-
-	b2bRet, freeValidRet, freeInvalidRet := s.getCacheRetentionPolicies()
-	domainPolicies := s.loadDomainPolicyMap(pipeline.UniqueDomains(remainingEmails))
-
-	for w := 0; w < numWorkers; w++ {
-		wg.Add(1)
-		safe.Go(func() {
-			defer wg.Done()
-			for taskIdx := range chunksChan {
-				currentTask := savedTasks[taskIdx]
-
-				if currentTask.StartIndex >= len(remainingEmails) {
-					continue
-				}
-				endIndex := currentTask.EndIndex
-				if endIndex >= len(remainingEmails) {
-					endIndex = len(remainingEmails) - 1
-				}
-				chunkEmails := remainingEmails[currentTask.StartIndex : endIndex+1]
-
-				// Cache Check
-				cachedResults, err := s.cacheRepo.GetCachedEmailsInBatches(chunkEmails, b2bRet, freeValidRet, freeInvalidRet)
-				if err != nil {
-					cachedResults = make(map[string]model.EmailCache)
-				}
-
-				hits, misses := classifyChunkEmails(chunkEmails, cachedResults, domainPolicies)
-
-				// Process Hits
-				if len(hits) > 0 {
-					if err := s.processCacheHits(job.JobID, job.ID, currentTask.ID, hits); err != nil {
-						logger.Error("Failed to persist cache hits on retry", "job_id", job.JobID, "task_id", currentTask.ID, "error", err)
-						atomic.AddInt32(&enqueueErrors, 1)
-						continue
-					}
-				}
-
-				// Enqueue Misses
-				if len(misses) > 0 {
-					task, err := tasks.NewEmailChunkTask(job.JobID, currentTask.ID, misses)
-					if err != nil {
-						logger.Error("Failed to build chunk task on retry", "job_id", job.JobID, "task_id", currentTask.ID, "error", err)
-						atomic.AddInt32(&enqueueErrors, 1)
-						continue
-					}
-					info, err := config.AsynqClient.Enqueue(task, asynq.MaxRetry(3), asynq.Timeout(chunkTimeout), asynq.Queue(queueName))
-					if err != nil {
-						logger.Error("Failed to enqueue chunk task on retry", "job_id", job.JobID, "task_id", currentTask.ID, "error", err)
-						atomic.AddInt32(&enqueueErrors, 1)
-					} else {
-						if info != nil && info.ID != "" {
-							asynqIDsMu.Lock()
-							enqueuedAsynqIDs = append(enqueuedAsynqIDs, info.ID)
-							asynqIDsMu.Unlock()
-						}
-						atomic.AddInt32(&enqueuedCount, int32(len(misses)))
-					}
-				} else if len(hits) > 0 {
-					atomic.AddInt32(&enqueuedCount, int32(len(hits)))
-				}
-			}
-		})
+	enqueuedOK, err := s.enqueueBulkChunks(job, user, queueEmails, savedTasks)
+	if err != nil {
+		return nil, err
 	}
-
-	for i := 0; i < len(savedTasks); i++ {
-		chunksChan <- i
-	}
-	close(chunksChan)
-	wg.Wait()
-
-	finalEnqueuedCount := int(enqueuedCount)
-	finalEnqueueErrors := int(enqueueErrors)
-
-	if finalEnqueueErrors > 0 || finalEnqueuedCount == 0 {
-		s.cancelAsynqTasks(enqueuedAsynqIDs)
-		if creditsToDeduct > 0 {
-			_ = s.RefundJob(userID, job.JobID, creditsToDeduct, fmt.Sprintf("retry %d/%d failed to queue", finalEnqueueErrors, len(savedTasks)))
-		}
-		if updErr := s.jobRepo.DB().Model(job).Update("status", "failed").Error; updErr != nil {
-			logger.Error("Failed to mark job failed after retry enqueue failure", "job_id", job.JobID, "error", updErr)
-		}
+	if !enqueuedOK {
+		// Credits already refunded inside enqueueBulkChunks
 		return nil, errors.New("failed to queue some emails for processing. The entire job has been cancelled and credits refunded.")
 	}
 
 	job.Status = "pending"
-
-	// Update user credit update broadcast
 	if updatedUser, err := s.userRepo.GetByID(userID); err == nil {
 		ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", gin.H{
 			"credits": updatedUser.Credits,
 		})
 	}
 	InvalidateAndRefreshDashboardStats(userID)
-
 	return job, nil
 }
