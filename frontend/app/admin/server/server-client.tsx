@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
-import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -32,6 +31,7 @@ export interface ServerNode {
     ping: string
     runningTime: string
     emailsVerified: number
+    emailsVerifiedToday?: number
     currentJob: string
     ipReputation: 'Good' | 'Medium' | 'Low' | 'Blacklist' | 'Band' | 'None'
     workerCount: number
@@ -77,8 +77,10 @@ const passwordSchema = z.object({
 const DELETE_CONFIRM_PHRASE = "DELETE"
 
 export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
-    const servers = useServerStore(state => state.servers)
+    const storeServers = useServerStore(state => state.servers)
     const setServers = useServerStore(state => state.setServers)
+    // Same pattern as JobsClient: fall back to SSR data until the store hydrates
+    const servers = storeServers.length > 0 ? storeServers : initialData
     
     // Connect to WebSocket to receive real-time server_list_update events
     useServerWebSocket()
@@ -110,20 +112,19 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
     })
 
     useEffect(() => {
-        if (initialData && initialData.length > 0) {
+        if (initialData.length > 0) {
             setServers(initialData)
         }
     }, [initialData, setServers])
 
-    // Always refetch on mount — previous isFirstMount gate never ran fetchServers at all
     useEffect(() => {
-        void fetchServers()
+        void fetchServers(true)
         // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only refresh
     }, [])
 
     useEffect(() => {
         const onFocus = () => {
-            void fetchServers()
+            void fetchServers(true)
         }
         window.addEventListener("focus", onFocus)
         return () => window.removeEventListener("focus", onFocus)
@@ -164,8 +165,12 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
         })
     }, [servers, searchTerm])
 
-    const fetchServers = async () => {
-        setIsLoading(true);
+    const fetchServers = async (silent = true) => {
+        const current = useServerStore.getState().servers
+        const hasVisibleRows = (current.length > 0 ? current : initialData).length > 0
+        if (!silent || !hasVisibleRows) {
+            setIsLoading(true)
+        }
         try {
             const result = await ApiClient.get<ServerNode[]>('/admin/server/list');
             if (result.status === 'success') {
@@ -348,27 +353,75 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
 
     const canConfirmDelete = deleteConfirmText.trim().toUpperCase() === DELETE_CONFIRM_PHRASE
 
-    const statusBadge = (status: string) => {
-        if (status === "active") {
-            return {
-                label: "Active",
-                className: "bg-green-100 text-green-700 hover:bg-green-100 border-green-200",
-                dot: "bg-green-500 animate-pulse",
-            }
-        }
-        if (status === "disabled") {
-            return {
-                label: "Disabled",
-                className: "bg-amber-50 text-amber-800 hover:bg-amber-50 border-amber-200",
-                dot: "bg-amber-500",
-            }
-        }
-        return {
-            label: "Offline",
-            className: "bg-slate-100 text-slate-600 border-slate-200",
-            dot: "bg-slate-400",
+    type DisplayStatus = "active" | "warmup" | "offline" | "inactive"
+
+    const isWarmupInProgress = (server: ServerNode) => {
+        if (!server.warmup_enabled) return false
+        const stage = (server.warmup_stage || "").toLowerCase()
+        if (stage.startsWith("completed") || stage.startsWith("disabled")) return false
+        return true
+    }
+
+    const resolveDisplayStatus = (server: ServerNode): DisplayStatus => {
+        if (server.status === "disabled" || server.config?.enabled === false) return "inactive"
+        if (server.status === "offline") return "offline"
+        if (server.status === "active" && isWarmupInProgress(server)) return "warmup"
+        if (server.status === "active") return "active"
+        return "offline"
+    }
+
+    const statusBadge = (display: DisplayStatus) => {
+        switch (display) {
+            case "active":
+                return {
+                    label: "Active",
+                    className: "bg-green-100 text-green-700 hover:bg-green-100 border-green-200",
+                    dot: "bg-green-500 animate-pulse",
+                }
+            case "warmup":
+                return {
+                    label: "Warmup",
+                    className: "bg-orange-50 text-orange-700 hover:bg-orange-50 border-orange-200",
+                    dot: "bg-orange-500 animate-pulse",
+                }
+            case "inactive":
+                return {
+                    label: "Disabled",
+                    className: "bg-amber-50 text-amber-800 hover:bg-amber-50 border-amber-200",
+                    dot: "bg-amber-500",
+                }
+            default:
+                return {
+                    label: "Offline",
+                    className: "bg-slate-100 text-slate-600 border-slate-200",
+                    dot: "bg-slate-400",
+                }
         }
     }
+
+    const statusCounts = useMemo(() => {
+        let active = 0
+        let warmup = 0
+        let offline = 0
+        let inactive = 0
+        for (const s of filteredServers) {
+            switch (resolveDisplayStatus(s)) {
+                case "active":
+                    active++
+                    break
+                case "warmup":
+                    warmup++
+                    break
+                case "inactive":
+                    inactive++
+                    break
+                default:
+                    offline++
+            }
+        }
+        return { active, warmup, offline, inactive }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveDisplayStatus is stable pure helper
+    }, [filteredServers])
 
     return (
         <div className="flex-1 space-y-4">
@@ -382,7 +435,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                     <Button
                         type="button"
                         variant="outline"
-                        onClick={() => { void fetchServers(); }}
+                        onClick={() => { void fetchServers(false); }}
                         disabled={isLoading}
                         className="border-[#0b1f1c]/15 text-[#0b1f1c]"
                     >
@@ -497,13 +550,19 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                                         ? 'Medium — Days 1–2: 2–4 conc (Tier 1) • Days 3–5: 4–8 conc (Tier 1+2) • Days 6–7: 8–15 conc (All Tiers)'
                                                         : 'Fast — Days 1–2: 3–5 conc (Tier 1+2) • Days 3–4: 5–10 conc (All Tiers)'}
                                                 </p>
-                                                <p className="text-[10px] text-slate-500">After warmup completion, Job Control max settings apply automatically.</p>
+                                                {manageServer.warmup_stage && (
+                                                    <p className="text-[10px] font-semibold text-orange-700 flex items-center gap-1">
+                                                        <Flame className="h-3 w-3" />
+                                                        Current: {manageServer.warmup_stage}
+                                                    </p>
+                                                )}
+                                                <p className="text-[10px] text-slate-500">When warmup finishes or is turned off, Status column shows Active.</p>
                                             </div>
                                         </div>
                                     )}
                                     {!warmupEnabled && (
                                         <p className="text-[10px] text-slate-400 italic text-center">
-                                            Warmup disabled — Job Control concurrency applies immediately.
+                                            Warmup disabled — status shows Active while the node is online.
                                         </p>
                                     )}
                                 </div>
@@ -515,7 +574,13 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                     <div>
                                         <p className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Node Status</p>
                                         <p className="text-[10px] text-slate-400 mt-0.5">
-                                            {manageServer.config.enabled ? 'Currently accepting jobs' : 'Node is disabled'}
+                                            {(() => {
+                                                const d = resolveDisplayStatus(manageServer)
+                                                if (d === "warmup") return `Warmup · ${manageServer.warmup_stage || "in progress"}`
+                                                if (d === "active") return "Active — full capacity"
+                                                if (d === "inactive") return "Disabled — admin turned off"
+                                                return "Offline — no recent heartbeat"
+                                            })()}
                                         </p>
                                     </div>
                                     <div className="flex gap-2">
@@ -803,15 +868,21 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                             className="pl-9 h-9 text-sm bg-white focus-visible:ring-[#0f5c52]/30 border-[#0b1f1c]/10"
                         />
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
                         <Badge variant="outline" className="bg-white text-slate-600 font-medium border-[#0b1f1c]/10">
-                            Total Server: {filteredServers.length}
+                            Total: {filteredServers.length}
                         </Badge>
                         <Badge variant="outline" className="bg-green-50 text-green-700 border-green-100 font-medium">
-                            Online: {filteredServers.filter(s => s.status === "active").length}
+                            Active: {statusCounts.active}
+                        </Badge>
+                        <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-100 font-medium">
+                            Warmup: {statusCounts.warmup}
+                        </Badge>
+                        <Badge variant="outline" className="bg-slate-50 text-slate-600 border-slate-200 font-medium">
+                            Offline: {statusCounts.offline}
                         </Badge>
                         <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-100 font-medium">
-                            Disabled: {filteredServers.filter(s => s.status === "disabled").length}
+                            Disabled: {statusCounts.inactive}
                         </Badge>
                     </div>
                 </div>
@@ -821,7 +892,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                             <TableRow className="bg-[#f0f4f2]/60 hover:bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                                 <TableHead className="w-[300px] font-semibold text-slate-900">Server Node</TableHead>
                                 <TableHead className="w-[100px] font-semibold text-slate-900 text-center">Status</TableHead>
-                                <TableHead className="w-[180px] font-semibold text-slate-900">Capacity Usage</TableHead>
+                                <TableHead className="w-[160px] font-semibold text-slate-900">Verified Today</TableHead>
                                 <TableHead className="min-w-[150px] font-semibold text-slate-900">Current Activity</TableHead>
                                 <TableHead className="w-[150px] font-semibold text-slate-900 text-center">IP Reputation</TableHead>
                                 <TableHead className="w-[120px] font-semibold text-slate-900 text-center">Worker Count</TableHead>
@@ -830,11 +901,12 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                         </TableHeader>
                         <TableBody>
                             {filteredServers.map((server) => {
-                                const dailyLimit = Math.max(1, server.config?.dailyLimit || 50000)
-                                const usagePercent = Math.min(100, Math.round(((server.emailsVerified || 0) / dailyLimit) * 100))
-                                const badge = statusBadge(server.status)
-                                const isActive = server.status === "active"
-                                const isDisabled = server.status === "disabled"
+                                const verifiedToday = Math.max(0, server.emailsVerifiedToday ?? 0)
+                                const displayStatus = resolveDisplayStatus(server)
+                                const badge = statusBadge(displayStatus)
+                                const isOnline = displayStatus === "active" || displayStatus === "warmup"
+                                const isInactive = displayStatus === "inactive"
+                                const isWarmup = displayStatus === "warmup"
 
                                 return (
                                 <TableRow key={server.id} className="group hover:bg-slate-50/30 transition-colors border-b border-slate-50">
@@ -857,50 +929,52 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                     </TableCell>
                                     <TableCell className="text-center">
                                         <div className="flex flex-col items-center gap-1">
-                                            <Badge variant={isActive ? "default" : "secondary"} className={badge.className}>
+                                            <Badge variant={isOnline ? "default" : "secondary"} className={badge.className}>
                                                 <div className={`h-1.5 w-1.5 rounded-full mr-1.5 ${badge.dot}`} />
+                                                {isWarmup && <Flame className="h-3 w-3 mr-1" />}
                                                 {badge.label}
                                             </Badge>
-                                            {isActive && (
+                                            {displayStatus === "active" && (
                                                 <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
                                                     <Signal className="h-2.5 w-2.5" /> {server.ping === "live" ? "Live" : server.ping}
                                                 </span>
                                             )}
-                                            {isDisabled && (
+                                            {isWarmup && (
+                                                <span className="text-[10px] text-orange-700/80 font-medium max-w-[140px] truncate" title={server.warmup_stage}>
+                                                    {(server.warmup_mode || "medium").toUpperCase()} · {server.warmup_stage || "In progress"}
+                                                </span>
+                                            )}
+                                            {isInactive && (
                                                 <span className="text-[10px] text-amber-700/80 font-medium">Admin off</span>
                                             )}
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <div className="space-y-1.5">
-                                            <div className="flex justify-between items-center text-[11px]">
-                                                <div className="flex items-center gap-1.5">
-                                                    <Database className="h-3 w-3 text-[#0f5c52]" />
-                                                    <span className="text-slate-700 font-bold">{(server.emailsVerified || 0).toLocaleString()}</span>
-                                                </div>
-                                                <span className="font-bold text-[#0f5c52]">
-                                                    {usagePercent}%
+                                        <div className="flex flex-col gap-0.5">
+                                            <div className="flex items-center gap-1.5">
+                                                <Database className="h-3.5 w-3.5 text-[#0f5c52]" />
+                                                <span className="text-sm font-bold text-slate-800 tabular-nums">
+                                                    {verifiedToday.toLocaleString()}
                                                 </span>
                                             </div>
-                                            <Progress value={usagePercent} className="h-1.5 bg-slate-100 rounded-full overflow-hidden" />
-                                            <p className="text-[9px] text-slate-400 text-right uppercase tracking-wider font-bold">Limit: {(server.config?.dailyLimit || 50000).toLocaleString()}</p>
+                                            <p className="text-[10px] text-slate-400">emails verified today (UTC)</p>
                                         </div>
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2 max-w-[220px] bg-slate-50/50 p-2 rounded border border-slate-100 group-hover:border-[#0f5c52]/20 group-hover:bg-[#0f5c52]/5 transition-all">
-                                            <Zap className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? "text-amber-500 animate-pulse" : "text-slate-300"}`} />
+                                            <Zap className={`h-3.5 w-3.5 flex-shrink-0 ${isOnline ? "text-amber-500 animate-pulse" : "text-slate-300"}`} />
                                             <div className="overflow-hidden">
                                                 <p className="text-[10px] font-bold text-slate-700 truncate uppercase tracking-tighter">
-                                                    {isActive ? "Processing" : isDisabled ? "Disabled" : "Idle"}
+                                                    {isOnline ? "Processing" : isInactive ? "Disabled" : "Idle"}
                                                 </p>
                                                 <p className="text-[10px] text-slate-500 truncate italic">
-                                                    {isActive ? server.currentJob : isDisabled ? "Not accepting jobs" : "--"}
+                                                    {isOnline ? server.currentJob : isInactive ? "Not accepting jobs" : "--"}
                                                 </p>
                                             </div>
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-center">
-                                        {isActive ? (
+                                        {isOnline ? (
                                             <Badge variant="outline" className={`
                                                 ${server.ipReputation === 'Good' ? 'bg-green-50 text-green-700 border-green-200' :
                                                     server.ipReputation === 'Medium' ? 'bg-amber-50 text-amber-700 border-amber-200' :
@@ -917,8 +991,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
                                     </TableCell>
                                     <TableCell className="text-center">
                                         <div className="flex flex-col items-center">
-                                            <span className={`text-sm font-bold ${isActive ? 'text-slate-700' : 'text-slate-300'}`}>
-                                                {isActive ? server.workerCount : 0}
+                                            <span className={`text-sm font-bold ${isOnline ? 'text-slate-700' : 'text-slate-300'}`}>
+                                                {isOnline ? server.workerCount : 0}
                                             </span>
                                         </div>
                                     </TableCell>

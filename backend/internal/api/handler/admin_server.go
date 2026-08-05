@@ -196,14 +196,15 @@ type serverNode struct {
 	Status         string `json:"status"`
 	Ping           string `json:"ping"`
 	RunningTime    string `json:"runningTime"`
-	EmailsVerified int    `json:"emailsVerified"`
-	CurrentJob     string `json:"currentJob"`
-	IPReputation   string `json:"ipReputation"`
-	WorkerCount    int    `json:"workerCount"`
-	WarmupEnabled  bool   `json:"warmup_enabled"`
-	WarmupMode     string `json:"warmup_mode"`
-	WarmupStage    string `json:"warmup_stage"`
-	Config         struct {
+	EmailsVerified      int    `json:"emailsVerified"`
+	EmailsVerifiedToday int    `json:"emailsVerifiedToday"`
+	CurrentJob          string `json:"currentJob"`
+	IPReputation        string `json:"ipReputation"`
+	WorkerCount         int    `json:"workerCount"`
+	WarmupEnabled       bool   `json:"warmup_enabled"`
+	WarmupMode          string `json:"warmup_mode"`
+	WarmupStage         string `json:"warmup_stage"`
+	Config              struct {
 		DailyLimit int  `json:"dailyLimit"`
 		RateLimit  int  `json:"rateLimit"`
 		ChunkSize  int  `json:"chunkSize"`
@@ -326,6 +327,11 @@ func (h *AdminHandler) getServerNodes() ([]serverNode, error) {
 		}
 
 		n.EmailsVerified = s.EmailsVerified
+		n.EmailsVerifiedToday = 0
+		today := time.Now().UTC().Format("2006-01-02")
+		if s.VerifiedOnDate != nil && s.VerifiedOnDate.UTC().Format("2006-01-02") == today {
+			n.EmailsVerifiedToday = s.EmailsVerifiedToday
+		}
 		n.WarmupEnabled = s.WarmupEnabled
 		n.WarmupMode = s.WarmupMode
 		if n.WarmupMode == "" {
