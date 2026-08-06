@@ -2,6 +2,7 @@ package handler
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -186,10 +187,45 @@ func (h *AdminHandler) UploadUpdate(c *gin.Context) {
 		return
 	}
 
-	zipReader, err := zip.NewReader(file, header.Size)
+	raw, err := io.ReadAll(io.LimitReader(file, maxUpdateSize+1))
 	if err != nil {
 		helper.SendError(c, http.StatusBadRequest, "Failed to read zip archive", "ERR_UPDATE_ZIP")
 		return
+	}
+	if int64(len(raw)) > maxUpdateSize {
+		helper.SendError(c, http.StatusBadRequest, "Update package size exceeds maximum limit of 50MB", "ERR_UPDATE_SIZE")
+		return
+	}
+
+	meta, err := registerReleaseMetadataFromZip(raw)
+	if err != nil {
+		helper.SendError(c, http.StatusBadRequest, err.Error(), "ERR_UPDATE_MANIFEST")
+		return
+	}
+
+	logAction(adminID, "INFO", "Admin", fmt.Sprintf(
+		"Release metadata registered: %s (%s)", meta.Version, meta.ReleaseDate,
+	))
+
+	helper.SendSuccess(c, "Release metadata registered (code package is not applied automatically)", gin.H{
+		"version":             meta.Version,
+		"release_date":        meta.ReleaseDate,
+		"release_notes":       meta.Notes,
+		"update_applies_code": false,
+		"kind":                "release_metadata",
+	})
+}
+
+type releaseManifestMeta struct {
+	Version     string
+	ReleaseDate string
+	Notes       string
+}
+
+func registerReleaseMetadataFromZip(raw []byte) (*releaseManifestMeta, error) {
+	zipReader, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read zip archive")
 	}
 
 	var manifestFound bool
@@ -200,36 +236,30 @@ func (h *AdminHandler) UploadUpdate(c *gin.Context) {
 	}
 
 	for _, f := range zipReader.File {
-		base := filepath.Base(f.Name)
-		if base != "manifest.json" {
+		if filepath.Base(f.Name) != "manifest.json" {
 			continue
 		}
 		manifestFound = true
 		rc, err := f.Open()
 		if err != nil {
-			helper.SendError(c, http.StatusBadRequest, "Failed to open manifest.json", "ERR_UPDATE_MANIFEST")
-			return
+			return nil, fmt.Errorf("failed to open manifest.json")
 		}
 		manifestBytes, err := io.ReadAll(io.LimitReader(rc, 1*1024*1024))
 		_ = rc.Close()
 		if err != nil {
-			helper.SendError(c, http.StatusBadRequest, "Failed to read manifest.json", "ERR_UPDATE_MANIFEST")
-			return
+			return nil, fmt.Errorf("failed to read manifest.json")
 		}
 		if err := json.Unmarshal(manifestBytes, &manifestData); err != nil {
-			helper.SendError(c, http.StatusBadRequest, "Invalid manifest.json content", "ERR_UPDATE_MANIFEST")
-			return
+			return nil, fmt.Errorf("invalid manifest.json content")
 		}
 		break
 	}
 
 	if !manifestFound {
-		helper.SendError(c, http.StatusBadRequest, "manifest.json not found in package", "ERR_UPDATE_MANIFEST")
-		return
+		return nil, fmt.Errorf("manifest.json not found in package")
 	}
 	if strings.TrimSpace(manifestData.Version) == "" || strings.TrimSpace(manifestData.ReleaseDate) == "" {
-		helper.SendError(c, http.StatusBadRequest, "manifest.json requires version and release_date", "ERR_UPDATE_MANIFEST")
-		return
+		return nil, fmt.Errorf("manifest.json requires version and release_date")
 	}
 
 	notes := strings.TrimSpace(manifestData.Description)
@@ -237,20 +267,56 @@ func (h *AdminHandler) UploadUpdate(c *gin.Context) {
 		notes = string([]rune(notes)[:maxMaintMsgLen])
 	}
 
-	saveSettingUnscoped("system_version", strings.TrimSpace(manifestData.Version))
-	saveSettingUnscoped("system_release_date", strings.TrimSpace(manifestData.ReleaseDate))
+	version := strings.TrimSpace(manifestData.Version)
+	releaseDate := strings.TrimSpace(manifestData.ReleaseDate)
+	saveSettingUnscoped("system_version", version)
+	saveSettingUnscoped("system_release_date", releaseDate)
 	saveSettingUnscoped("system_release_notes", notes)
 
-	logAction(adminID, "INFO", "Admin", fmt.Sprintf(
-		"Release metadata registered: %s (%s)", manifestData.Version, manifestData.ReleaseDate,
-	))
+	return &releaseManifestMeta{
+		Version:     version,
+		ReleaseDate: releaseDate,
+		Notes:       notes,
+	}, nil
+}
 
-	helper.SendSuccess(c, "Release metadata registered (code package is not applied automatically)", gin.H{
-		"version":             manifestData.Version,
-		"release_date":        manifestData.ReleaseDate,
-		"release_notes":       notes,
-		"update_applies_code": false,
-	})
+func zipContainsManifest(raw []byte) bool {
+	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		return false
+	}
+	for _, f := range zr.File {
+		if filepath.Base(f.Name) == "manifest.json" {
+			return true
+		}
+	}
+	return false
+}
+
+func zipFileContainsManifest(path string) bool {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return false
+	}
+	defer zr.Close()
+	for _, f := range zr.File {
+		if filepath.Base(f.Name) == "manifest.json" {
+			return true
+		}
+	}
+	return false
+}
+
+func registerReleaseMetadataFromZipFile(path string) (*releaseManifestMeta, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read zip archive")
+	}
+	// Release packages are expected to be small; refuse huge "manifest" zips.
+	if int64(len(raw)) > maxUpdateSize {
+		return nil, fmt.Errorf("release package exceeds maximum limit of 50MB")
+	}
+	return registerReleaseMetadataFromZip(raw)
 }
 
 // ListBackups returns files in the backups directory.
@@ -450,6 +516,7 @@ func (h *AdminHandler) RestoreBackup(c *gin.Context) {
 }
 
 // UploadBackup saves an uploaded backup file into the backups directory (restore is a separate step).
+// Zip packages that contain manifest.json are treated as release metadata (version/notes), not storage backups.
 func (h *AdminHandler) UploadBackup(c *gin.Context) {
 	adminID, ok := systemAdminID(c)
 	if !ok {
@@ -476,12 +543,52 @@ func (h *AdminHandler) UploadBackup(c *gin.Context) {
 
 	backupType := classifyBackupName(origName)
 	if backupType == "" {
-		helper.SendError(c, http.StatusBadRequest, "Unsupported file. Use .sql (DB), .zip (Storage), or .json (User Details).", "ERR_BACKUP_TYPE")
+		helper.SendError(c, http.StatusBadRequest, "Unsupported file. Use .sql (DB), .zip (Storage or Release), or .json (User Details).", "ERR_BACKUP_TYPE")
 		return
 	}
 
 	if err := os.MkdirAll(BackupDir, 0750); err != nil {
 		helper.SendError(c, http.StatusInternalServerError, "Failed to create backups directory", "ERR_BACKUP_DIR")
+		return
+	}
+
+	tmp, err := os.CreateTemp(BackupDir, "upload_tmp_*")
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Failed to save backup file", "ERR_BACKUP_SAVE")
+		return
+	}
+	tmpPath := tmp.Name()
+	written, copyErr := io.Copy(tmp, io.LimitReader(file, maxBackupUpload+1))
+	_ = tmp.Close()
+	if copyErr != nil {
+		_ = os.Remove(tmpPath)
+		helper.SendError(c, http.StatusInternalServerError, "Failed to save backup file", "ERR_BACKUP_SAVE")
+		return
+	}
+	if written > maxBackupUpload {
+		_ = os.Remove(tmpPath)
+		helper.SendError(c, http.StatusBadRequest, "Backup file exceeds maximum size of 500MB", "ERR_BACKUP_SIZE")
+		return
+	}
+
+	// Release metadata zip (manifest.json) — register version info, do not store as storage backup.
+	if backupType == "Storage Data" && zipFileContainsManifest(tmpPath) {
+		meta, regErr := registerReleaseMetadataFromZipFile(tmpPath)
+		_ = os.Remove(tmpPath)
+		if regErr != nil {
+			helper.SendError(c, http.StatusBadRequest, regErr.Error(), "ERR_UPDATE_MANIFEST")
+			return
+		}
+		logAction(adminID, "INFO", "Admin", fmt.Sprintf(
+			"Release metadata registered via Upload & Restore: %s (%s)", meta.Version, meta.ReleaseDate,
+		))
+		helper.SendSuccess(c, "Release metadata registered (code package is not applied automatically)", gin.H{
+			"kind":                "release_metadata",
+			"version":             meta.Version,
+			"release_date":        meta.ReleaseDate,
+			"release_notes":       meta.Notes,
+			"update_applies_code": false,
+		})
 		return
 	}
 
@@ -495,31 +602,29 @@ func (h *AdminHandler) UploadBackup(c *gin.Context) {
 	case "User Details":
 		storedName = fmt.Sprintf("user_details_export_upload_%s.json", timestamp)
 	default:
+		_ = os.Remove(tmpPath)
 		helper.SendError(c, http.StatusBadRequest, "Unsupported backup type", "ERR_BACKUP_TYPE")
 		return
 	}
 
 	dest := filepath.Join(BackupDir, storedName)
-	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
-	if err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Failed to save backup file", "ERR_BACKUP_SAVE")
-		return
-	}
-	written, copyErr := io.Copy(out, io.LimitReader(file, maxBackupUpload+1))
-	_ = out.Close()
-	if copyErr != nil {
-		_ = os.Remove(dest)
-		helper.SendError(c, http.StatusInternalServerError, "Failed to save backup file", "ERR_BACKUP_SAVE")
-		return
-	}
-	if written > maxBackupUpload {
-		_ = os.Remove(dest)
-		helper.SendError(c, http.StatusBadRequest, "Backup file exceeds maximum size of 500MB", "ERR_BACKUP_SIZE")
-		return
+	if err := os.Rename(tmpPath, dest); err != nil {
+		// Cross-device fallback
+		data, readErr := os.ReadFile(tmpPath)
+		_ = os.Remove(tmpPath)
+		if readErr != nil {
+			helper.SendError(c, http.StatusInternalServerError, "Failed to save backup file", "ERR_BACKUP_SAVE")
+			return
+		}
+		if writeErr := os.WriteFile(dest, data, 0640); writeErr != nil {
+			helper.SendError(c, http.StatusInternalServerError, "Failed to save backup file", "ERR_BACKUP_SAVE")
+			return
+		}
 	}
 
 	logAction(adminID, "INFO", "Admin", fmt.Sprintf("Uploaded %s backup: %s (from %s)", backupType, storedName, origName))
 	helper.SendSuccess(c, "Backup uploaded. Click Restore when ready.", gin.H{
+		"kind": "backup",
 		"name": storedName,
 		"type": backupType,
 	})

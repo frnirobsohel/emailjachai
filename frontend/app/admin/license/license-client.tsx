@@ -7,12 +7,11 @@ import * as z from "zod"
 import { toast } from "react-hot-toast"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-    ShieldCheck, ArrowUpCircle, Key, RefreshCcw, CheckCircle, Download, UploadCloud,
+    ShieldCheck, Key, RefreshCcw, CheckCircle, Download, UploadCloud,
     FileArchive, Database, History, HardDriveDownload, RotateCcw, AlertCircle, Loader2,
     Trash2, Wrench, AlertTriangle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -38,8 +37,6 @@ export type BackupFile = {
     date: string
 }
 
-type UpdateStatus = "idle" | "dragging" | "uploading" | "done" | "error"
-
 const licenseSchema = z.object({
     license_key: z.string()
         .min(1, "License key is required")
@@ -62,10 +59,6 @@ export function LicenseClient({
     initialMaintenanceMode: boolean
     initialMaintenanceMessage: string
 }) {
-    const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle")
-    const [uploadProgress, setUploadProgress] = useState(0)
-    const [uploadedFile, setUploadedFile] = useState<File | null>(null)
-    const fileInputRef = useRef<HTMLInputElement>(null)
     const [isBackingUp, setIsBackingUp] = useState(false)
     const [isRestoring, setIsRestoring] = useState(false)
     const [isUploadingBackup, setIsUploadingBackup] = useState(false)
@@ -147,51 +140,6 @@ export function LicenseClient({
         }
     }
 
-    const handleFileSelect = async (file: File) => {
-        if (!file.name.toLowerCase().endsWith(".zip")) {
-            toast.error("Only .zip packages are supported")
-            return
-        }
-        setUploadedFile(file)
-        setUpdateStatus("uploading")
-        setUploadProgress(30)
-
-        const formData = new FormData()
-        formData.append("file", file)
-
-        try {
-            setUploadProgress(60)
-            const res = await ApiClient.post<LicenseInfo>("/admin/system/update", formData)
-            setUploadProgress(100)
-            if (res.status === "success") {
-                setUpdateStatus("done")
-                toast.success(res.message || "Release metadata registered")
-                if (res.data) {
-                    setLicenseInfo(prev => ({
-                        ...(prev || {
-                            version: "",
-                            license_status: "",
-                            license_key: "",
-                            release_date: "",
-                        }),
-                        version: res.data!.version || prev?.version || "",
-                        release_date: res.data!.release_date || prev?.release_date || "",
-                        release_notes: res.data!.release_notes ?? prev?.release_notes,
-                        update_applies_code: false,
-                    }))
-                } else {
-                    void fetchSystemStatus()
-                }
-            } else {
-                toast.error(res.message || "Upload failed")
-                setUpdateStatus("error")
-            }
-        } catch (error: unknown) {
-            toast.error(error instanceof Error ? error.message : "Failed to upload package")
-            setUpdateStatus("error")
-        }
-    }
-
     const generateBackup = async (type: string) => {
         setIsBackingUp(true)
         const toastId = toast.loading(`Creating ${type} backup...`)
@@ -233,7 +181,7 @@ export function LicenseClient({
     const uploadBackupFile = async (file: File) => {
         const lower = file.name.toLowerCase()
         if (!lower.endsWith(".sql") && !lower.endsWith(".zip") && !lower.endsWith(".json")) {
-            toast.error("Supported: .sql (DB), .zip (Storage), .json (User Details)")
+            toast.error("Supported: .sql (DB), .zip (Storage / Release), .json (User Details)")
             return
         }
         setIsUploadingBackup(true)
@@ -242,14 +190,38 @@ export function LicenseClient({
         const formData = new FormData()
         formData.append("file", file)
         try {
-            const res = await ApiClient.post<{ name: string; type: string }>(
+            const res = await ApiClient.post<{
+                kind?: string
+                name?: string
+                type?: string
+                version?: string
+                release_date?: string
+                release_notes?: string
+            }>(
                 "/admin/system/backups/upload",
                 formData,
                 { timeout: 300_000 },
             )
             if (res.status === "success") {
-                toast.success(res.message || "Backup uploaded. Click Restore when ready.", { id: toastId })
-                void fetchBackups()
+                if (res.data?.kind === "release_metadata") {
+                    toast.success(res.message || "Release metadata registered", { id: toastId })
+                    setLicenseInfo((prev) => ({
+                        ...(prev || {
+                            version: "",
+                            license_status: "",
+                            license_key: "",
+                            release_date: "",
+                        }),
+                        version: res.data!.version || prev?.version || "",
+                        release_date: res.data!.release_date || prev?.release_date || "",
+                        release_notes: res.data!.release_notes ?? prev?.release_notes,
+                        update_applies_code: false,
+                    }))
+                    void fetchSystemStatus()
+                } else {
+                    toast.success(res.message || "Backup uploaded. Click Restore when ready.", { id: toastId })
+                    void fetchBackups()
+                }
             } else {
                 toast.error(res.message || "Upload failed", { id: toastId })
             }
@@ -298,25 +270,6 @@ export function LicenseClient({
                 ? "Existing users update by email; new users are created; duplicate transactions are skipped."
                 : "This will apply the selected backup."
 
-    const resetUpdate = () => {
-        setUpdateStatus("idle")
-        setUploadProgress(0)
-        setUploadedFile(null)
-    }
-
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault()
-        if (updateStatus === "idle") setUpdateStatus("dragging")
-    }
-    const handleDragLeave = () => {
-        if (updateStatus === "dragging") setUpdateStatus("idle")
-    }
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault()
-        const files = e.dataTransfer.files
-        if (files?.length) void handleFileSelect(files[0])
-    }
-
     const backupList = Array.isArray(backups) ? backups : []
 
     return (
@@ -363,7 +316,7 @@ export function LicenseClient({
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-2xl font-semibold tracking-tight text-[#0b1f1c] sm:text-3xl">Update and Licence</h2>
-                    <p className="mt-1 text-sm text-[#5a736c]">Manage release metadata, licenses, maintenance, and backups.</p>
+                    <p className="mt-1 text-sm text-[#5a736c]">Manage license, maintenance, uploads, and backups.</p>
                 </div>
             </div>
 
@@ -377,142 +330,69 @@ export function LicenseClient({
                 </div>
             )}
 
-            <div className="grid gap-6 md:grid-cols-2">
-                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden h-full">
-                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
-                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
-                            <ShieldCheck className="h-5 w-5 text-emerald-500" /> Licence Information
-                        </CardTitle>
-                        <CardDescription className="text-[#5a736c]">Manage your application license key.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6 pt-6">
-                        <div className="flex justify-between items-center p-4 rounded-xl bg-[#f0f4f2]/60 border border-[#0b1f1c]/8">
-                            <div>
-                                <p className="text-xs text-[#5a736c] uppercase font-bold tracking-wider mb-1">Subscription Status</p>
-                                <p className="text-base font-bold text-emerald-600 flex items-center gap-1.5">
-                                    <CheckCircle className="h-4 w-4" /> {licenseInfo?.license_status || "Checking..."}
-                                </p>
-                            </div>
-                            <Button size="sm" variant="outline" className="bg-white hover:bg-[#f0f4f2]/60" onClick={() => void fetchSystemStatus()}>
-                                <RefreshCcw className="h-3.5 w-3.5 mr-1.5 text-[#5a736c]" /> Refresh
-                            </Button>
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                    <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                        <ShieldCheck className="h-5 w-5 text-emerald-500" /> Licence Information
+                    </CardTitle>
+                    <CardDescription className="text-[#5a736c]">Manage your application license key.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6 pt-6">
+                    <div className="flex justify-between items-center p-4 rounded-xl bg-[#f0f4f2]/60 border border-[#0b1f1c]/8">
+                        <div>
+                            <p className="text-xs text-[#5a736c] uppercase font-bold tracking-wider mb-1">Subscription Status</p>
+                            <p className="text-base font-bold text-emerald-600 flex items-center gap-1.5">
+                                <CheckCircle className="h-4 w-4" /> {licenseInfo?.license_status || "Checking..."}
+                            </p>
                         </div>
+                        <Button size="sm" variant="outline" className="bg-white hover:bg-[#f0f4f2]/60" onClick={() => void fetchSystemStatus()}>
+                            <RefreshCcw className="h-3.5 w-3.5 mr-1.5 text-[#5a736c]" /> Refresh
+                        </Button>
+                    </div>
 
-                        <div className="space-y-3">
-                            <label className="text-xs font-bold text-[#5a736c] uppercase tracking-wider">Licence Key</label>
-                            {isEditingLicense ? (
-                                <form onSubmit={licenseForm.handleSubmit(onLicenseSubmit)} className="space-y-2">
-                                    <div className="flex gap-2">
-                                        <Input
-                                            {...licenseForm.register("license_key")}
-                                            placeholder="XXXX-XXXX-XXXX-XXXX"
-                                            className={cn("flex-1 font-mono uppercase", licenseForm.formState.errors.license_key && "border-red-400")}
-                                            disabled={licenseForm.formState.isSubmitting}
-                                        />
-                                        <Button type="submit" disabled={licenseForm.formState.isSubmitting} className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none shrink-0">
-                                            {licenseForm.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
-                                        </Button>
-                                        <Button type="button" variant="outline" onClick={() => { setIsEditingLicense(false); licenseForm.reset() }} disabled={licenseForm.formState.isSubmitting} className="bg-white shrink-0">
-                                            Cancel
-                                        </Button>
-                                    </div>
-                                    {licenseForm.formState.errors.license_key && (
-                                        <p className="text-xs font-semibold text-red-500 flex items-center gap-1">
-                                            <AlertCircle className="h-3.5 w-3.5" />
-                                            {licenseForm.formState.errors.license_key.message}
-                                        </p>
-                                    )}
-                                </form>
-                            ) : (
+                    <div className="space-y-3">
+                        <label className="text-xs font-bold text-[#5a736c] uppercase tracking-wider">Licence Key</label>
+                        {isEditingLicense ? (
+                            <form onSubmit={licenseForm.handleSubmit(onLicenseSubmit)} className="space-y-2">
                                 <div className="flex gap-2">
-                                    <div className="flex-1 px-4 py-2.5 rounded-lg border border-[#0b1f1c]/10 bg-[#f0f4f2]/60 font-mono text-sm text-[#0b1f1c] flex items-center shadow-inner">
-                                        {licenseInfo?.license_key ? licenseInfo.license_key : "XXXX-XXXX-XXXX-XXXX"}
-                                    </div>
-                                    <Button size="icon" variant="outline" className="h-10 w-10 shrink-0 bg-white" onClick={() => { setIsEditingLicense(true); licenseForm.reset() }}>
-                                        <Key className="h-4 w-4 text-[#0f5c52]" />
+                                    <Input
+                                        {...licenseForm.register("license_key")}
+                                        placeholder="XXXX-XXXX-XXXX-XXXX"
+                                        className={cn("flex-1 font-mono uppercase", licenseForm.formState.errors.license_key && "border-red-400")}
+                                        disabled={licenseForm.formState.isSubmitting}
+                                    />
+                                    <Button type="submit" disabled={licenseForm.formState.isSubmitting} className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none shrink-0">
+                                        {licenseForm.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+                                    </Button>
+                                    <Button type="button" variant="outline" onClick={() => { setIsEditingLicense(false); licenseForm.reset() }} disabled={licenseForm.formState.isSubmitting} className="bg-white shrink-0">
+                                        Cancel
                                     </Button>
                                 </div>
-                            )}
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden h-full flex flex-col">
-                    <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
-                        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
-                            <ArrowUpCircle className="h-5 w-5 text-[#0f5c52]" /> Release Metadata
-                        </CardTitle>
-                        <CardDescription className="text-[#5a736c]">
-                            Upload a .zip with manifest.json to register version notes. This does not replace application code.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex-1 pt-6 flex flex-col justify-center">
-                        {updateStatus === "idle" || updateStatus === "dragging" ? (
-                            <div
-                                onDragOver={handleDragOver}
-                                onDragLeave={handleDragLeave}
-                                onDrop={handleDrop}
-                                onClick={() => fileInputRef.current?.click()}
-                                className={cn(
-                                    "relative group cursor-pointer border-2 border-dashed rounded-xl p-8 transition-all duration-200 flex flex-col items-center justify-center text-center",
-                                    updateStatus === "dragging"
-                                        ? "border-[#0f5c52] bg-[#0f5c52]/5 scale-[0.99]"
-                                        : "border-[#0b1f1c]/10 hover:border-[#0f5c52]/40 hover:bg-[#f0f4f2]/40"
+                                {licenseForm.formState.errors.license_key && (
+                                    <p className="text-xs font-semibold text-red-500 flex items-center gap-1">
+                                        <AlertCircle className="h-3.5 w-3.5" />
+                                        {licenseForm.formState.errors.license_key.message}
+                                    </p>
                                 )}
-                            >
-                                <input type="file" ref={fileInputRef} onChange={(e) => e.target.files && void handleFileSelect(e.target.files[0])} className="hidden" accept=".zip" />
-                                <div className="h-12 w-12 rounded-full bg-[#0f5c52]/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-200">
-                                    <UploadCloud className="h-6 w-6 text-[#0f5c52]" />
-                                </div>
-                                <h3 className="text-sm font-semibold text-[#0b1f1c] mb-1">Drop release package here</h3>
-                                <p className="text-xs text-[#5a736c]">Must include manifest.json (version, release_date)</p>
-                                <p className="text-[10px] text-[#6b857c] mt-4 uppercase font-bold tracking-tighter">Supported: .ZIP only</p>
-                            </div>
+                            </form>
                         ) : (
-                            <div className="space-y-4 py-4">
-                                {updateStatus === "uploading" && (
-                                    <div className="space-y-3">
-                                        <div className="flex items-center gap-3">
-                                            <div className="h-10 w-10 rounded-lg bg-[#0f5c52]/10 flex items-center justify-center">
-                                                <FileArchive className="h-5 w-5 text-[#0f5c52]" />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-semibold text-[#0b1f1c] truncate">{uploadedFile?.name}</p>
-                                                <p className="text-xs text-[#5a736c]">Registering release metadata…</p>
-                                            </div>
-                                        </div>
-                                        <Progress value={uploadProgress} className="h-2" indicatorClassName="bg-[#0f5c52]" />
-                                    </div>
-                                )}
-                                {updateStatus === "done" && (
-                                    <div className="p-6 rounded-xl bg-emerald-50 border border-emerald-100 flex flex-col items-center text-center gap-3">
-                                        <CheckCircle className="h-6 w-6 text-emerald-600" />
-                                        <div>
-                                            <p className="text-sm font-bold text-emerald-900">Release metadata registered</p>
-                                            <p className="text-xs text-emerald-700">Version strings updated. Deploy code separately if needed.</p>
-                                        </div>
-                                        <Button size="sm" variant="outline" className="mt-2 bg-white" onClick={resetUpdate}>Done</Button>
-                                    </div>
-                                )}
-                                {updateStatus === "error" && (
-                                    <div className="p-6 rounded-xl bg-rose-50 border border-rose-100 flex flex-col items-center text-center gap-3">
-                                        <AlertCircle className="h-6 w-6 text-rose-600" />
-                                        <div>
-                                            <p className="text-sm font-bold text-rose-900">Upload failed</p>
-                                            <p className="text-xs text-rose-700">Check the zip contains a valid manifest.json.</p>
-                                        </div>
-                                        <Button size="sm" variant="outline" className="mt-2 bg-white" onClick={resetUpdate}>Try Again</Button>
-                                    </div>
-                                )}
+                            <div className="flex gap-2">
+                                <div className="flex-1 px-4 py-2.5 rounded-lg border border-[#0b1f1c]/10 bg-[#f0f4f2]/60 font-mono text-sm text-[#0b1f1c] flex items-center shadow-inner">
+                                    {licenseInfo?.license_key ? licenseInfo.license_key : "XXXX-XXXX-XXXX-XXXX"}
+                                </div>
+                                <Button size="icon" variant="outline" className="h-10 w-10 shrink-0 bg-white" onClick={() => { setIsEditingLicense(true); licenseForm.reset() }}>
+                                    <Key className="h-4 w-4 text-[#0f5c52]" />
+                                </Button>
                             </div>
                         )}
-                        <div className="flex items-center justify-between text-[10px] text-[#6b857c] pt-4 uppercase font-bold tracking-widest">
-                            <span>Author: {licenseInfo?.author || "—"}</span>
-                            <span>Version: {licenseInfo?.version || "—"}</span>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-[#6b857c] pt-1 uppercase font-bold tracking-widest border-t border-[#0b1f1c]/8">
+                        <span>Author: {licenseInfo?.author || "—"}</span>
+                        <span>Version: {licenseInfo?.version || "—"}</span>
+                    </div>
+                </CardContent>
+            </Card>
 
             <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                 <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8 flex flex-row items-center justify-between space-y-0">
@@ -578,7 +458,7 @@ export function LicenseClient({
                         <UploadCloud className="h-5 w-5 text-[#0f5c52]" /> Upload & Restore
                     </CardTitle>
                     <CardDescription className="text-[#5a736c]">
-                        Upload a backup file into history, then click Restore and confirm. Does not run restore on upload.
+                        Upload backups (.sql / storage .zip / user .json) or a release zip with manifest.json. Restore is confirm-only for backups.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6">
@@ -616,13 +496,13 @@ export function LicenseClient({
                                 : <HardDriveDownload className="h-6 w-6 text-[#0f5c52]" />}
                         </div>
                         <h3 className="text-sm font-semibold text-[#0b1f1c] mb-1">
-                            {isUploadingBackup ? "Uploading backup…" : "Drop backup file here"}
+                            {isUploadingBackup ? "Uploading…" : "Drop file here"}
                         </h3>
                         <p className="text-xs text-[#5a736c]">
-                            .sql (Database) · .zip (Storage Data) · .json (User Details)
+                            .sql (DB) · .zip (Storage or Release metadata) · .json (User Details)
                         </p>
                         <p className="text-[10px] text-[#6b857c] mt-4 uppercase font-bold tracking-tighter">
-                            Step 1 upload · Step 2 Restore from list below
+                            Backups: upload then Restore · Release zip: updates Version instantly
                         </p>
                     </div>
                 </CardContent>
@@ -708,7 +588,7 @@ export function LicenseClient({
                                 <span className="text-xs text-[#6b857c]">{licenseInfo?.release_date || "—"}</span>
                             </div>
                             <p className="text-sm text-[#5a736c]">
-                                {licenseInfo?.release_notes?.trim() || "No release notes registered yet. Upload a package with manifest description."}
+                                {licenseInfo?.release_notes?.trim() || "No release notes registered yet. Upload a release zip with manifest.json via Upload & Restore."}
                             </p>
                         </div>
                     </div>

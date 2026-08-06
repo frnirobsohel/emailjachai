@@ -13,6 +13,7 @@ import {
   buildShareMetadata,
   getPublicBrandMeta,
 } from "@/lib/public-metadata"
+import { resolveSiteBaseUrl } from "@/lib/site-url"
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1'
 
@@ -104,27 +105,61 @@ export default async function Home() {
     ]
   }
 
-  const jsonLd = {
+  const baseUrl = await resolveSiteBaseUrl(settings)
+  let siteHost = "emailjachai.com"
+  try {
+    if (baseUrl) siteHost = new URL(baseUrl).hostname.replace(/^www\./, "").toLowerCase()
+  } catch {
+    // keep default host fallback
+  }
+
+  const canonicalOrigin = (baseUrl || `https://${siteHost}`).replace(/\/$/, "")
+  const logoAbsolute = logoUrl.startsWith("http")
+    ? logoUrl
+    : `${canonicalOrigin}${logoUrl.startsWith("/") ? logoUrl : `/${logoUrl}`}`
+
+  // Google site name prefers WebSite schema on the homepage root.
+  const websiteJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: siteTitle,
+    alternateName: [siteTitle.replace(/\s+/g, ""), siteHost],
+    url: `${canonicalOrigin}/`,
+    description: siteTagline,
+    publisher: {
+      "@type": "Organization",
+      name: siteTitle,
+      url: `${canonicalOrigin}/`,
+      logo: logoAbsolute,
+    },
+  }
+
+  const appJsonLd = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    "name": siteTitle,
-    "operatingSystem": "All",
-    "applicationCategory": "BusinessApplication",
-    "description": siteTagline,
-    "offers": {
+    name: siteTitle,
+    operatingSystem: "All",
+    applicationCategory: "BusinessApplication",
+    description: siteTagline,
+    url: `${canonicalOrigin}/`,
+    offers: {
       "@type": "AggregateOffer",
-      "priceCurrency": "USD",
-      "lowPrice": "5",
-      "highPrice": "99",
-      "offerCount": "3"
-    }
+      priceCurrency: "USD",
+      lowPrice: "5",
+      highPrice: "99",
+      offerCount: "3",
+    },
   }
 
   return (
     <div className="flex min-h-screen flex-col overflow-x-hidden bg-[#f0f4f2] text-[#0b1f1c] selection:bg-[#0f5c52]/20">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(appJsonLd) }}
       />
 
       <Navbar siteTitle={siteTitle} logoUrl={logoUrl} />

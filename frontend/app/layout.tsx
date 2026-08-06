@@ -57,6 +57,13 @@ export async function generateMetadata(): Promise<Metadata> {
     ...(baseUrl ? { metadataBase: new URL(baseUrl) } : {}),
     title: { default: title, template: "%s | " + title },
     description: tagline,
+    applicationName: title,
+    openGraph: {
+      type: "website",
+      siteName: title,
+      title,
+      description: tagline,
+    },
     icons: {
       icon: iconList,
       shortcut: favicon,
