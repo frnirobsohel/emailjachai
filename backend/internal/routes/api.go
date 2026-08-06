@@ -262,6 +262,7 @@ func SetupRoutes(router *gin.Engine) {
 			admin.POST("/system/update", adminHandler.UploadUpdate)
 			admin.GET("/system/backups", adminHandler.ListBackups)
 			admin.POST("/system/backups", adminHandler.CreateBackup)
+			admin.POST("/system/backups/upload", adminHandler.UploadBackup)
 			admin.DELETE("/system/backups", adminHandler.DeleteBackup)
 			admin.GET("/system/backups/download", adminHandler.DownloadBackup)
 			admin.POST("/system/backups/restore", adminHandler.RestoreBackup)

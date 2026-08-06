@@ -68,7 +68,10 @@ export function LicenseClient({
     const fileInputRef = useRef<HTMLInputElement>(null)
     const [isBackingUp, setIsBackingUp] = useState(false)
     const [isRestoring, setIsRestoring] = useState(false)
-    const [showRestoreConfirm, setShowRestoreConfirm] = useState<{ id: number; name: string } | null>(null)
+    const [isUploadingBackup, setIsUploadingBackup] = useState(false)
+    const [backupUploadStatus, setBackupUploadStatus] = useState<"idle" | "dragging">("idle")
+    const backupFileInputRef = useRef<HTMLInputElement>(null)
+    const [showRestoreConfirm, setShowRestoreConfirm] = useState<{ id: number; name: string; type: string } | null>(null)
 
     const [backups, setBackups] = useState<BackupFile[]>(initialBackups)
     const [licenseInfo, setLicenseInfo] = useState<LicenseInfo | null>(initialLicenseInfo)
@@ -227,6 +230,37 @@ export function LicenseClient({
         window.open(url, "_blank", "noopener,noreferrer")
     }
 
+    const uploadBackupFile = async (file: File) => {
+        const lower = file.name.toLowerCase()
+        if (!lower.endsWith(".sql") && !lower.endsWith(".zip") && !lower.endsWith(".json")) {
+            toast.error("Supported: .sql (DB), .zip (Storage), .json (User Details)")
+            return
+        }
+        setIsUploadingBackup(true)
+        setBackupUploadStatus("idle")
+        const toastId = toast.loading(`Uploading ${file.name}…`)
+        const formData = new FormData()
+        formData.append("file", file)
+        try {
+            const res = await ApiClient.post<{ name: string; type: string }>(
+                "/admin/system/backups/upload",
+                formData,
+                { timeout: 300_000 },
+            )
+            if (res.status === "success") {
+                toast.success(res.message || "Backup uploaded. Click Restore when ready.", { id: toastId })
+                void fetchBackups()
+            } else {
+                toast.error(res.message || "Upload failed", { id: toastId })
+            }
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Upload failed", { id: toastId })
+        } finally {
+            setIsUploadingBackup(false)
+            if (backupFileInputRef.current) backupFileInputRef.current.value = ""
+        }
+    }
+
     const startRestore = async () => {
         if (!showRestoreConfirm) return
         const target = showRestoreConfirm
@@ -235,10 +269,11 @@ export function LicenseClient({
         try {
             const res = await ApiClient.post("/admin/system/backups/restore", { name: target.name }, { timeout: 300_000 })
             if (res.status === "success") {
-                toast.success("Database restored successfully")
+                toast.success(res.message || `${target.type} restored successfully`)
                 void fetchSystemStatus()
+                void fetchBackups()
             } else {
-                toast.error(res.message || "Failed to restore database")
+                toast.error(res.message || "Failed to restore backup")
             }
         } catch (err: unknown) {
             toast.error(err instanceof Error ? err.message : "Connection error during restore")
@@ -246,6 +281,22 @@ export function LicenseClient({
             setIsRestoring(false)
         }
     }
+
+    const restoreOverlayTitle = showRestoreConfirm?.type === "Database"
+        ? "Restore database"
+        : showRestoreConfirm?.type === "Storage Data"
+            ? "Restore storage files"
+            : showRestoreConfirm?.type === "User Details"
+                ? "Restore user details (hybrid)"
+                : "Restore backup"
+
+    const restoreOverlayHint = showRestoreConfirm?.type === "Database"
+        ? "This overwrites the live database via SQL restore."
+        : showRestoreConfirm?.type === "Storage Data"
+            ? "Files will be written into configured storage paths from the zip."
+            : showRestoreConfirm?.type === "User Details"
+                ? "Existing users update by email; new users are created; duplicate transactions are skipped."
+                : "This will apply the selected backup."
 
     const resetUpdate = () => {
         setUpdateStatus("idle")
@@ -278,7 +329,7 @@ export function LicenseClient({
                                 <RefreshCcw className="h-8 w-8 text-[#0f5c52] animate-spin" />
                             </div>
                             <div className="space-y-2">
-                                <h3 className="text-xl font-bold text-[#0b1f1c]">Database restore in progress</h3>
+                                <h3 className="text-xl font-bold text-[#0b1f1c]">Restore in progress</h3>
                                 <p className="text-sm text-[#5a736c]">Please wait — do not refresh the page.</p>
                             </div>
                         </CardContent>
@@ -296,9 +347,9 @@ export function LicenseClient({
                         </CardHeader>
                         <CardContent className="pt-6 space-y-4 text-center">
                             <p className="text-sm text-slate-600 leading-relaxed">
-                                Restore <span className="font-bold text-[#0b1f1c]">{showRestoreConfirm.name}</span>?
+                                {restoreOverlayTitle}: <span className="font-bold text-[#0b1f1c]">{showRestoreConfirm.name}</span>?
                                 <br /><br />
-                                <span className="text-red-500 font-semibold text-xs">Current database data will be overwritten.</span>
+                                <span className="text-amber-800/90 font-medium text-xs">{restoreOverlayHint}</span>
                             </p>
                             <div className="flex gap-3 justify-center">
                                 <Button variant="outline" size="sm" onClick={() => setShowRestoreConfirm(null)}>Cancel</Button>
@@ -522,12 +573,68 @@ export function LicenseClient({
             </Card>
 
             <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                    <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                        <UploadCloud className="h-5 w-5 text-[#0f5c52]" /> Upload & Restore
+                    </CardTitle>
+                    <CardDescription className="text-[#5a736c]">
+                        Upload a backup file into history, then click Restore and confirm. Does not run restore on upload.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6">
+                    <div
+                        onDragOver={(e) => {
+                            e.preventDefault()
+                            if (!isUploadingBackup) setBackupUploadStatus("dragging")
+                        }}
+                        onDragLeave={() => setBackupUploadStatus("idle")}
+                        onDrop={(e) => {
+                            e.preventDefault()
+                            setBackupUploadStatus("idle")
+                            const files = e.dataTransfer.files
+                            if (files?.length) void uploadBackupFile(files[0])
+                        }}
+                        onClick={() => !isUploadingBackup && backupFileInputRef.current?.click()}
+                        className={cn(
+                            "relative group cursor-pointer border-2 border-dashed rounded-xl p-8 transition-all duration-200 flex flex-col items-center justify-center text-center",
+                            isUploadingBackup && "pointer-events-none opacity-70",
+                            backupUploadStatus === "dragging"
+                                ? "border-[#0f5c52] bg-[#0f5c52]/5 scale-[0.99]"
+                                : "border-[#0b1f1c]/10 hover:border-[#0f5c52]/40 hover:bg-[#f0f4f2]/40"
+                        )}
+                    >
+                        <input
+                            type="file"
+                            ref={backupFileInputRef}
+                            onChange={(e) => e.target.files?.[0] && void uploadBackupFile(e.target.files[0])}
+                            className="hidden"
+                            accept=".sql,.zip,.json,application/json,application/zip"
+                        />
+                        <div className="h-12 w-12 rounded-full bg-[#0f5c52]/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-200">
+                            {isUploadingBackup
+                                ? <Loader2 className="h-6 w-6 text-[#0f5c52] animate-spin" />
+                                : <HardDriveDownload className="h-6 w-6 text-[#0f5c52]" />}
+                        </div>
+                        <h3 className="text-sm font-semibold text-[#0b1f1c] mb-1">
+                            {isUploadingBackup ? "Uploading backup…" : "Drop backup file here"}
+                        </h3>
+                        <p className="text-xs text-[#5a736c]">
+                            .sql (Database) · .zip (Storage Data) · .json (User Details)
+                        </p>
+                        <p className="text-[10px] text-[#6b857c] mt-4 uppercase font-bold tracking-tighter">
+                            Step 1 upload · Step 2 Restore from list below
+                        </p>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                 <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8 flex flex-row items-center justify-between space-y-0">
                     <div>
                         <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
                             <Database className="h-5 w-5 text-[#0f5c52]" /> System Backup & Recovery
                         </CardTitle>
-                        <CardDescription className="text-[#5a736c]">Database, configured storage paths, or user export. Restore is SQL-only.</CardDescription>
+                        <CardDescription className="text-[#5a736c]">Create backups, upload files, then restore with confirmation. SQL / Storage / Users supported.</CardDescription>
                     </div>
                     <div className="flex gap-2 flex-wrap justify-end">
                         <Button onClick={() => void generateBackup("Storage Data")} disabled={isBackingUp} size="sm" className="border border-[#08352f] bg-[#0f5c52] hover:bg-[#0b4a42] text-white shadow-none">
@@ -561,11 +668,15 @@ export function LicenseClient({
                                         </div>
                                     </div>
                                     <div className="flex gap-1 shrink-0">
-                                        {backup.type === "Database" && (
-                                            <Button size="icon" variant="ghost" title="Restore" className="h-8 w-8 text-[#6b857c] hover:text-[#0f5c52]" onClick={() => setShowRestoreConfirm({ id: backup.id, name: backup.name })}>
-                                                <RotateCcw className="h-4 w-4" />
-                                            </Button>
-                                        )}
+                                        <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            title="Restore"
+                                            className="h-8 w-8 text-[#6b857c] hover:text-[#0f5c52]"
+                                            onClick={() => setShowRestoreConfirm({ id: backup.id, name: backup.name, type: backup.type })}
+                                        >
+                                            <RotateCcw className="h-4 w-4" />
+                                        </Button>
                                         <Button size="icon" variant="ghost" title="Download" className="h-8 w-8 text-[#6b857c] hover:text-[#0f5c52]" onClick={() => downloadBackup(backup.name)}>
                                             <Download className="h-4 w-4" />
                                         </Button>

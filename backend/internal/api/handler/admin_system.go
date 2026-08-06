@@ -25,10 +25,11 @@ import (
 )
 
 const (
-	BackupDir      = "backups"
-	Version        = config.Version
-	maxUpdateSize  = 50 * 1024 * 1024 // 50MB
-	maxMaintMsgLen = 2000
+	BackupDir       = "backups"
+	Version         = config.Version
+	maxUpdateSize   = 50 * 1024 * 1024  // 50MB — release metadata zip
+	maxBackupUpload = 500 * 1024 * 1024 // 500MB — backup upload
+	maxMaintMsgLen  = 2000
 )
 
 type BackupFile struct {
@@ -389,7 +390,8 @@ func (h *AdminHandler) DownloadBackup(c *gin.Context) {
 	c.FileAttachment(path, cleanFileName)
 }
 
-// RestoreBackup restores a database backup SQL file.
+// RestoreBackup restores a backup from the backups directory.
+// Supports Database (.sql), Storage Data (.zip), and User Details (.json — hybrid).
 func (h *AdminHandler) RestoreBackup(c *gin.Context) {
 	adminID, ok := systemAdminID(c)
 	if !ok {
@@ -408,10 +410,6 @@ func (h *AdminHandler) RestoreBackup(c *gin.Context) {
 		helper.SendError(c, http.StatusBadRequest, "Invalid backup file name", "ERR_BACKUP_NAME")
 		return
 	}
-	if !strings.HasSuffix(cleanFileName, ".sql") {
-		helper.SendError(c, http.StatusBadRequest, "Only SQL database backups can be restored online", "ERR_BACKUP_TYPE")
-		return
-	}
 
 	path := filepath.Join(BackupDir, cleanFileName)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -419,13 +417,130 @@ func (h *AdminHandler) RestoreBackup(c *gin.Context) {
 		return
 	}
 
-	if err := restoreDatabase(path); err != nil {
-		helper.SendError(c, http.StatusInternalServerError, "Database restore failed. Ensure psql is on PATH or set PSQL_PATH.", "ERR_BACKUP_RESTORE")
+	backupType := classifyBackupName(cleanFileName)
+	var restoreErr error
+	var detail string
+
+	switch backupType {
+	case "Database":
+		restoreErr = restoreDatabase(path)
+		detail = "Database restored successfully."
+	case "Storage Data":
+		restoreErr = restoreStorageData(path)
+		detail = "Storage data restored successfully."
+	case "User Details":
+		var stats userRestoreStats
+		stats, restoreErr = restoreUsersHybrid(path)
+		detail = fmt.Sprintf(
+			"User details restored (hybrid): updated=%d created=%d history_added=%d skipped_tx=%d",
+			stats.Updated, stats.Created, stats.HistoryAdded, stats.HistorySkipped,
+		)
+	default:
+		helper.SendError(c, http.StatusBadRequest, "Unsupported backup type for restore", "ERR_BACKUP_TYPE")
 		return
 	}
 
-	logAction(adminID, "WARN", "Admin", fmt.Sprintf("Restored database from backup: %s", cleanFileName))
-	helper.SendSuccess(c, "Database restored successfully.", nil)
+	if restoreErr != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Restore failed: "+restoreErr.Error(), "ERR_BACKUP_RESTORE")
+		return
+	}
+
+	logAction(adminID, "WARN", "Admin", fmt.Sprintf("Restored %s backup: %s (%s)", backupType, cleanFileName, detail))
+	helper.SendSuccess(c, detail, gin.H{"type": backupType, "file": cleanFileName})
+}
+
+// UploadBackup saves an uploaded backup file into the backups directory (restore is a separate step).
+func (h *AdminHandler) UploadBackup(c *gin.Context) {
+	adminID, ok := systemAdminID(c)
+	if !ok {
+		return
+	}
+
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		helper.SendError(c, http.StatusBadRequest, "File is required", "ERR_BACKUP_FILE")
+		return
+	}
+	defer file.Close()
+
+	if header.Size > maxBackupUpload {
+		helper.SendError(c, http.StatusBadRequest, "Backup file exceeds maximum size of 500MB", "ERR_BACKUP_SIZE")
+		return
+	}
+
+	origName, err := safeBackupName(header.Filename)
+	if err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Invalid backup file name", "ERR_BACKUP_NAME")
+		return
+	}
+
+	backupType := classifyBackupName(origName)
+	if backupType == "" {
+		helper.SendError(c, http.StatusBadRequest, "Unsupported file. Use .sql (DB), .zip (Storage), or .json (User Details).", "ERR_BACKUP_TYPE")
+		return
+	}
+
+	if err := os.MkdirAll(BackupDir, 0750); err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Failed to create backups directory", "ERR_BACKUP_DIR")
+		return
+	}
+
+	timestamp := time.Now().Format("2006_01_02_150405")
+	var storedName string
+	switch backupType {
+	case "Database":
+		storedName = fmt.Sprintf("db_backup_upload_%s.sql", timestamp)
+	case "Storage Data":
+		storedName = fmt.Sprintf("storage_data_upload_%s.zip", timestamp)
+	case "User Details":
+		storedName = fmt.Sprintf("user_details_export_upload_%s.json", timestamp)
+	default:
+		helper.SendError(c, http.StatusBadRequest, "Unsupported backup type", "ERR_BACKUP_TYPE")
+		return
+	}
+
+	dest := filepath.Join(BackupDir, storedName)
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
+	if err != nil {
+		helper.SendError(c, http.StatusInternalServerError, "Failed to save backup file", "ERR_BACKUP_SAVE")
+		return
+	}
+	written, copyErr := io.Copy(out, io.LimitReader(file, maxBackupUpload+1))
+	_ = out.Close()
+	if copyErr != nil {
+		_ = os.Remove(dest)
+		helper.SendError(c, http.StatusInternalServerError, "Failed to save backup file", "ERR_BACKUP_SAVE")
+		return
+	}
+	if written > maxBackupUpload {
+		_ = os.Remove(dest)
+		helper.SendError(c, http.StatusBadRequest, "Backup file exceeds maximum size of 500MB", "ERR_BACKUP_SIZE")
+		return
+	}
+
+	logAction(adminID, "INFO", "Admin", fmt.Sprintf("Uploaded %s backup: %s (from %s)", backupType, storedName, origName))
+	helper.SendSuccess(c, "Backup uploaded. Click Restore when ready.", gin.H{
+		"name": storedName,
+		"type": backupType,
+	})
+}
+
+func classifyBackupName(name string) string {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.HasSuffix(lower, ".sql"):
+		return "Database"
+	case strings.Contains(lower, "user_details") && strings.HasSuffix(lower, ".json"):
+		return "User Details"
+	case strings.HasSuffix(lower, ".json"):
+		return "User Details"
+	case strings.HasPrefix(lower, "storage_data") && strings.HasSuffix(lower, ".zip"):
+		return "Storage Data"
+	case strings.HasSuffix(lower, ".zip"):
+		return "Storage Data"
+	default:
+		return ""
+	}
 }
 
 func formatSize(size int64) string {
@@ -633,4 +748,220 @@ func exportUsers(targetPath string) error {
 		return err
 	}
 	return os.WriteFile(targetPath, fileContent, 0640)
+}
+
+type userRestoreStats struct {
+	Updated        int
+	Created        int
+	HistoryAdded   int
+	HistorySkipped int
+}
+
+type userBackupPayload struct {
+	ID        uint                `json:"id"`
+	Name      string              `json:"name"`
+	Email     string              `json:"email"`
+	Role      string              `json:"role"`
+	Credits   int                 `json:"credits"`
+	Status    string              `json:"status"`
+	CreatedAt time.Time           `json:"created_at"`
+	History   []model.Transaction `json:"history"`
+}
+
+// restoreUsersHybrid updates existing users by email, creates missing users with a random
+// unusable password hash, and inserts history rows whose transaction_id is not already present.
+func restoreUsersHybrid(path string) (userRestoreStats, error) {
+	var stats userRestoreStats
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return stats, err
+	}
+
+	var payload []userBackupPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return stats, fmt.Errorf("invalid user details JSON: %w", err)
+	}
+	if len(payload) == 0 {
+		return stats, fmt.Errorf("user details file is empty")
+	}
+
+	err = config.DB.Transaction(func(tx *gorm.DB) error {
+		for _, entry := range payload {
+			email := strings.ToLower(strings.TrimSpace(entry.Email))
+			if email == "" || !strings.Contains(email, "@") {
+				continue
+			}
+			name := strings.TrimSpace(entry.Name)
+			if name == "" {
+				name = email
+			}
+			role := strings.TrimSpace(entry.Role)
+			if role == "" {
+				role = "user"
+			}
+			status := strings.TrimSpace(entry.Status)
+			if status == "" {
+				status = "Active"
+			}
+
+			var user model.User
+			findErr := tx.Where("LOWER(email) = ?", email).First(&user).Error
+			if findErr == nil {
+				updates := map[string]interface{}{
+					"name":    name,
+					"role":    role,
+					"credits": entry.Credits,
+					"status":  status,
+				}
+				if err := tx.Model(&user).Updates(updates).Error; err != nil {
+					return err
+				}
+				stats.Updated++
+			} else if errors.Is(findErr, gorm.ErrRecordNotFound) {
+				plain := "restore_" + helper.GenerateRandomHex(24)
+				hashed, hashErr := helper.HashPassword(plain)
+				if hashErr != nil {
+					return hashErr
+				}
+				user = model.User{
+					Name:     name,
+					Email:    email,
+					Password: hashed,
+					Role:     role,
+					Credits:  entry.Credits,
+					Status:   status,
+				}
+				if !entry.CreatedAt.IsZero() {
+					user.CreatedAt = entry.CreatedAt
+				}
+				if err := tx.Create(&user).Error; err != nil {
+					return err
+				}
+				stats.Created++
+			} else {
+				return findErr
+			}
+
+			for _, hist := range entry.History {
+				txnID := strings.TrimSpace(hist.TransactionID)
+				if txnID == "" {
+					stats.HistorySkipped++
+					continue
+				}
+				var existing model.Transaction
+				qErr := tx.Where("transaction_id = ?", txnID).First(&existing).Error
+				if qErr == nil {
+					stats.HistorySkipped++
+					continue
+				}
+				if !errors.Is(qErr, gorm.ErrRecordNotFound) {
+					return qErr
+				}
+				row := model.Transaction{
+					UserID:        user.ID,
+					TransactionID: txnID,
+					ExternalID:    hist.ExternalID,
+					Amount:        hist.Amount,
+					CreditsAdded:  hist.CreditsAdded,
+					PaymentMethod: hist.PaymentMethod,
+					Type:          hist.Type,
+					Status:        hist.Status,
+					Provider:      hist.Provider,
+					Package:       hist.Package,
+					Description:   hist.Description,
+				}
+				if row.Type == "" {
+					row.Type = "purchase"
+				}
+				if row.Status == "" {
+					row.Status = "completed"
+				}
+				if row.Provider == "" {
+					row.Provider = "system"
+				}
+				if !hist.CreatedAt.IsZero() {
+					row.CreatedAt = hist.CreatedAt
+				}
+				if err := tx.Create(&row).Error; err != nil {
+					return err
+				}
+				stats.HistoryAdded++
+			}
+		}
+		return nil
+	})
+	return stats, err
+}
+
+// restoreStorageData extracts a storage_data zip into configured storage directories only.
+func restoreStorageData(zipPath string) error {
+	dirs := storageBackupDirs()
+	if len(dirs) == 0 {
+		return fmt.Errorf("no storage directories configured for restore")
+	}
+
+	byBase := map[string]string{}
+	for _, d := range dirs {
+		byBase[filepath.Base(d)] = d
+	}
+
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("invalid storage zip: %w", err)
+	}
+	defer zr.Close()
+
+	written := 0
+	for _, f := range zr.File {
+		name := filepath.ToSlash(f.Name)
+		if name == "" || strings.HasSuffix(name, "/") {
+			continue
+		}
+		// Reject absolute / traversal paths
+		if strings.HasPrefix(name, "/") || strings.Contains(name, "..") {
+			return fmt.Errorf("unsafe path in zip: %s", f.Name)
+		}
+		parts := strings.SplitN(name, "/", 2)
+		if len(parts) < 2 || parts[0] == "" {
+			continue // skip entries not under a storage root folder
+		}
+		root, ok := byBase[parts[0]]
+		if !ok {
+			continue // unknown root — ignore (other envs may differ)
+		}
+		rel := parts[1]
+		if rel == "" || strings.Contains(rel, "..") {
+			return fmt.Errorf("unsafe relative path in zip: %s", f.Name)
+		}
+		dest := filepath.Join(root, filepath.FromSlash(rel))
+		cleanRoot := filepath.Clean(root) + string(os.PathSeparator)
+		cleanDest := filepath.Clean(dest)
+		if cleanDest != filepath.Clean(root) && !strings.HasPrefix(cleanDest+string(os.PathSeparator), cleanRoot) {
+			return fmt.Errorf("path escapes storage root: %s", f.Name)
+		}
+
+		if err := os.MkdirAll(filepath.Dir(dest), 0750); err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
+		if err != nil {
+			_ = rc.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, rc)
+		_ = out.Close()
+		_ = rc.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		written++
+	}
+	if written == 0 {
+		return fmt.Errorf("no matching storage files found in zip for configured paths")
+	}
+	return nil
 }
