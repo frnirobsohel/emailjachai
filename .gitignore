@@ -73,6 +73,7 @@ frontend/coverage/
 .vscode/
 .idea/
 .agents/
+.cursor/
 *.swp
 *.swo
 *~

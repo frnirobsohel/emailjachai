@@ -1,6 +1,5 @@
 "use client"
 
-import { useRef } from "react"
 import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -19,10 +18,20 @@ type TransferResponse = {
     already_processed?: boolean
 }
 
+function newIdempotencyKey(): string {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+        return crypto.randomUUID()
+    }
+    return `xfer-${Math.random().toString(36).slice(2)}`
+}
+
+function markCreditsFetched(): void {
+    useCreditStore.getState().setLastFetched(Date.now())
+}
+
 export function ResellerTransferForm() {
     const settings = useSettings()
     const isMaintenance = settings?.maintenance_mode === "1"
-    const idempotencyKeyRef = useRef<string | null>(null)
     const {
         register,
         handleSubmit,
@@ -46,12 +55,8 @@ export function ResellerTransferForm() {
             return
         }
 
-        const idempotencyKey =
-            idempotencyKeyRef.current ||
-            (typeof crypto !== "undefined" && "randomUUID" in crypto
-                ? crypto.randomUUID()
-                : `${email}:${amount}:${Date.now()}`)
-        idempotencyKeyRef.current = idempotencyKey
+        // Button is disabled while isSubmitting; fresh key per confirmed submit.
+        const idempotencyKey = newIdempotencyKey()
 
         try {
             const result = await ApiClient.post<TransferResponse>("/reseller/transfer", {
@@ -63,7 +68,6 @@ export function ResellerTransferForm() {
             if (result.status === "success") {
                 toast.success(result.message || "Credits transferred successfully.")
                 reset()
-                idempotencyKeyRef.current = null
 
                 const dash = useDashboardStore.getState()
                 const alreadyProcessed = Boolean(result.data?.already_processed)
@@ -71,7 +75,7 @@ export function ResellerTransferForm() {
 
                 if (typeof remaining === "number" && Number.isFinite(remaining)) {
                     useCreditStore.getState().setBalance(remaining)
-                    useCreditStore.getState().setLastFetched(Date.now())
+                    markCreditsFetched()
                     if (dash.stats) {
                         dash.setStats({
                             ...dash.stats,

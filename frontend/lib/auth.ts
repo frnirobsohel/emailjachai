@@ -12,6 +12,8 @@ export type AuthTokenPayload = {
     role: string;
 };
 
+const SESSION_MAX_AGE_SEC = 60 * 60 * 24 // 24 hours
+
 export async function authorizeUser(user: { id: number, role: string }, apiKey?: string) {
     const payload = {
         userId: user.id,
@@ -21,7 +23,7 @@ export async function authorizeUser(user: { id: number, role: string }, apiKey?:
     const token = await new SignJWT(payload)
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
-        .setExpirationTime('7d')
+        .setExpirationTime('24h')
         .sign(secretKey);
 
     const cookieStore = await cookies();
@@ -29,7 +31,7 @@ export async function authorizeUser(user: { id: number, role: string }, apiKey?:
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
-        maxAge: 60 * 60 * 24 * 7, // 7 days
+        maxAge: SESSION_MAX_AGE_SEC,
         path: '/',
     });
 
@@ -38,7 +40,7 @@ export async function authorizeUser(user: { id: number, role: string }, apiKey?:
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
-            maxAge: 60 * 60 * 24 * 7,
+            maxAge: SESSION_MAX_AGE_SEC,
             path: '/',
         });
     }

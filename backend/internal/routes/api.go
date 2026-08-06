@@ -80,14 +80,15 @@ func SetupRoutes(router *gin.Engine) {
 		// 1. PUBLIC / GENERAL ROUTES
 		// ==========================================
 		v1.GET("/", middleware.RateLimiter(), systemHandler.Ping)
-		v1.GET("/health", middleware.RateLimiter(), systemHandler.HealthCheck)
+		// Deep health is unauthenticated and not rate-limited so orchestrators can probe freely.
+		v1.GET("/health", systemHandler.HealthCheck)
 		v1.GET("/ping", middleware.RateLimiter(), systemHandler.Ping)
 		v1.GET("/settings/public", middleware.RateLimiter(), adminHandler.GetPublicSettings)
 		v1.GET("/packages/list", middleware.RateLimiter(), adminHandler.GetActivePackages)
 		v1.POST("/contact", middleware.PublicRateLimiter(), middleware.MaintenanceMiddleware(), contactHandler.SubmitContact)
 		// Public email verify (no auth, no credits, strict IP rate limit)
 		v1.POST("/jobs/verify-public", middleware.PublicRateLimiter(), middleware.MaintenanceMiddleware(), publicVerifyHandler.VerifyPublic)
-		v1.GET("/jobs/verify-public/status", publicVerifyHandler.GetPublicStatus)
+		v1.GET("/jobs/verify-public/status", middleware.PublicRateLimiter(), publicVerifyHandler.GetPublicStatus)
 		// WebSocket Route
 		v1.GET("/ws", middleware.WSAuthMiddleware(), systemHandler.ServeWS)
 

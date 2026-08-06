@@ -1,12 +1,16 @@
 package handler
 
 import (
-	"ejp-backend/internal/helper"
-	"ejp-backend/internal/ws"
+	"context"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	"ejp-backend/internal/helper"
+	"ejp-backend/internal/ws"
+	"ejp-backend/pkg/config"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -44,8 +48,51 @@ func (h *SystemHandler) Ping(c *gin.Context) {
 	helper.SendSuccess(c, "pong", nil)
 }
 
+// HealthCheck probes Postgres and Redis. Returns 503 when any dependency is down
+// so orchestrators stop routing traffic to a broken API process.
 func (h *SystemHandler) HealthCheck(c *gin.Context) {
-	helper.SendSuccess(c, "OK", nil)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	defer cancel()
+
+	checks := gin.H{
+		"postgres": "ok",
+		"redis":    "ok",
+	}
+	healthy := true
+
+	if config.DB == nil {
+		checks["postgres"] = "unavailable"
+		healthy = false
+	} else {
+		sqlDB, err := config.DB.DB()
+		if err != nil {
+			checks["postgres"] = "unavailable"
+			healthy = false
+		} else if err := sqlDB.PingContext(ctx); err != nil {
+			checks["postgres"] = "down"
+			healthy = false
+		}
+	}
+
+	if config.Redis == nil {
+		checks["redis"] = "unavailable"
+		healthy = false
+	} else if err := config.Redis.Ping(ctx).Err(); err != nil {
+		checks["redis"] = "down"
+		healthy = false
+	}
+
+	if !healthy {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"status":    "error",
+			"message":   "unhealthy",
+			"data":      checks,
+			"timestamp": time.Now().Unix(),
+		})
+		return
+	}
+
+	helper.SendSuccess(c, "OK", checks)
 }
 
 func (h *SystemHandler) ServeWS(c *gin.Context) {

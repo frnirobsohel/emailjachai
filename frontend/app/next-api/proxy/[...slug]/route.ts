@@ -3,6 +3,7 @@ import { verifyUser } from '@/lib/auth';
 import { cookies } from 'next/headers';
 import { revalidateTag } from 'next/cache';
 import { applyClientIpHeaders } from '@/lib/client-ip';
+import { reportError } from '@/lib/observability';
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
 // M2 Fix: packages/list added — backend serves it without auth (pricing page for guests)
@@ -186,11 +187,19 @@ async function proxyRequest(request: NextRequest, { params }: { params: Promise<
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Unknown proxy error';
         console.error('Proxy Error:', error);
-        return NextResponse.json({
+        void reportError({
+            message: 'BFF proxy failure',
+            error,
+            tags: { surface: 'next-api-proxy' },
+        });
+        const body: { status: string; message: string; details?: string } = {
             status: 'error',
             message: 'Internal Proxy Error',
-            details: message
-        }, { status: 500 });
+        };
+        if (process.env.NODE_ENV !== 'production') {
+            body.details = message;
+        }
+        return NextResponse.json(body, { status: 500 });
     }
 }
 

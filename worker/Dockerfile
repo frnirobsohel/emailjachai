@@ -33,5 +33,9 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
 
 USER appuser
 
+# Process-level check — worker has no HTTP server; Admin → Servers shows heartbeats.
+HEALTHCHECK --interval=60s --timeout=5s --start-period=20s --retries=3 \
+  CMD pidof worker || exit 1
+
 # Run binary
 CMD ["./worker"]

@@ -50,9 +50,14 @@ export async function POST(request: NextRequest) {
         }
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Unknown upload proxy error';
-        return NextResponse.json(
-            { status: 'error', message: 'Upload proxy failed', details: message },
-            { status: 500 }
-        );
+        console.error('Upload proxy error:', error);
+        const body: { status: string; message: string; details?: string } = {
+            status: 'error',
+            message: 'Upload proxy failed',
+        };
+        if (process.env.NODE_ENV !== 'production') {
+            body.details = message;
+        }
+        return NextResponse.json(body, { status: 500 });
     }
 }

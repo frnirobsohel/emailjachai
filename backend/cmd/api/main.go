@@ -17,6 +17,7 @@ import (
 	"ejp-backend/internal/ws"
 	"ejp-backend/pkg/config"
 	"ejp-backend/pkg/logger"
+	"ejp-backend/pkg/observability"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,12 +25,14 @@ import (
 func main() {
 	// Initialize Logger
 	logger.Init()
+	observability.Init()
 
 	// Register custom validation tags (not_disposable, valid_domain, ipv4_or_ipv6, etc.)
 	validator.Init()
 
 	// 1. Load Configuration
 	config.LoadConfig()
+	config.ValidateProductionConfig()
 
 	// 2. Connect to Database & Redis
 	config.ConnectDB()
@@ -126,6 +129,7 @@ func main() {
 	router.Use(middleware.PreserveBFFClientIP())
 	router.Use(middleware.Logger()) // Custom Zap logger middleware
 	router.Use(gin.Recovery())      // Panic recovery middleware
+	router.Use(observability.Middleware())
 
 	// 6. Setup Routes
 	routes.SetupRoutes(router)

@@ -21,7 +21,8 @@ FROM alpine:latest
 
 # Install runtime dependencies (ca-certificates are critical for outbound HTTPS calls)
 # postgresql-client is used to run the idempotent SQL migrations at startup.
-RUN apk add --no-cache ca-certificates tzdata postgresql-client
+# wget is used by HEALTHCHECK against /api/v1/health.
+RUN apk add --no-cache ca-certificates tzdata postgresql-client wget
 
 WORKDIR /app
 
@@ -41,6 +42,9 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
 USER appuser
 
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8000/api/v1/health || exit 1
 
 # By default, wait for PostgreSQL to be ready, run idempotent SQL migrations, and then start the API.
 CMD ["sh", "-c", "echo 'Waiting for database...' && i=0; while [ $i -lt 15 ]; do pg_isready -d \"$DATABASE_URL\" -t 1 && break; i=$((i+1)); echo 'Database not ready, sleeping 2s...'; sleep 2; done && for f in ./migrations/*.sql; do echo \"Running migration $f\"; psql \"$DATABASE_URL\" -q -v ON_ERROR_STOP=1 -f \"$f\"; done && ./api"]

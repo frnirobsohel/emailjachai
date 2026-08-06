@@ -20,9 +20,10 @@ func Ping(c *gin.Context) {
 	})
 }
 
-// HealthCheck matches the legacy PHP HealthController logic and hardens telemetry
+// HealthCheck matches the legacy PHP HealthController telemetry shape and
+// returns HTTP 503 when Postgres or Redis is down (orchestrator-safe).
 func HealthCheck(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 	defer cancel()
 
 	// 1. Database Check
@@ -30,14 +31,16 @@ func HealthCheck(c *gin.Context) {
 	dbOpen := 0
 	dbInUse := 0
 	dbIdle := 0
-	sqlDB, err := config.DB.DB()
-	if err == nil {
-		if err = sqlDB.Ping(); err == nil {
-			dbStatus = "online"
-			stats := sqlDB.Stats()
-			dbOpen = stats.OpenConnections
-			dbInUse = stats.InUse
-			dbIdle = stats.Idle
+	if config.DB != nil {
+		sqlDB, err := config.DB.DB()
+		if err == nil {
+			if err = sqlDB.PingContext(ctx); err == nil {
+				dbStatus = "online"
+				stats := sqlDB.Stats()
+				dbOpen = stats.OpenConnections
+				dbInUse = stats.InUse
+				dbIdle = stats.Idle
+			}
 		}
 	}
 
@@ -46,7 +49,7 @@ func HealthCheck(c *gin.Context) {
 	var redisLatencyMs int64 = -1
 	if config.Redis != nil {
 		start := time.Now()
-		if _, err = config.Redis.Ping(ctx).Result(); err == nil {
+		if _, err := config.Redis.Ping(ctx).Result(); err == nil {
 			redisStatus = "online"
 			redisLatencyMs = time.Since(start).Milliseconds()
 		}
@@ -57,10 +60,15 @@ func HealthCheck(c *gin.Context) {
 	var totalLag int64 = 0
 	queueBreakdown := make(map[string]interface{})
 
-	if config.Redis != nil {
-		// Redis must be online to inspect queues
+	if config.Redis != nil && redisStatus == "online" {
 		addr := config.Redis.Options().Addr
-		inspector := asynq.NewInspector(asynq.RedisClientOpt{Addr: addr})
+		password := config.Redis.Options().Password
+		db := config.Redis.Options().DB
+		inspector := asynq.NewInspector(asynq.RedisClientOpt{
+			Addr:     addr,
+			Password: password,
+			DB:       db,
+		})
 		defer inspector.Close()
 
 		queues, err := inspector.Queues()
@@ -83,14 +91,8 @@ func HealthCheck(c *gin.Context) {
 		}
 	}
 
-	// Determine overall system health status
-	overallStatus := "online"
-	if dbStatus == "offline" || redisStatus == "offline" {
-		overallStatus = "degraded"
-	}
-
-	helper.SendSuccess(c, "System health telemetry", gin.H{
-		"status": overallStatus,
+	payload := gin.H{
+		"status": "online",
 		"database": gin.H{
 			"status":           dbStatus,
 			"open_connections": dbOpen,
@@ -109,8 +111,18 @@ func HealthCheck(c *gin.Context) {
 		"time":    time.Now().Format("2006-01-02 15:04:05"),
 		"version": config.Version,
 		"author":  config.AuthorName,
-	})
+	}
+
+	if dbStatus == "offline" || redisStatus == "offline" {
+		payload["status"] = "degraded"
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"status":    "error",
+			"message":   "unhealthy",
+			"data":      payload,
+			"timestamp": time.Now().Unix(),
+		})
+		return
+	}
+
+	helper.SendSuccess(c, "System health telemetry", payload)
 }
-
-
-

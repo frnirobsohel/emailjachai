@@ -2,11 +2,12 @@ import { NextResponse } from 'next/server'
 import { getClientIpDebug } from '@/lib/client-ip'
 
 /**
- * Temporary Dokploy/Traefik IP diagnosis.
- * Enable with DEBUG_CLIENT_IP=1 on the frontend service, then open /next-api/debug-ip
+ * Temporary Dokploy/Traefik IP diagnosis (non-production only).
+ * Enable with DEBUG_CLIENT_IP=1, then open /next-api/debug-ip.
+ * Hard-disabled when NODE_ENV=production even if the flag is set.
  */
 export async function GET(request: Request) {
-    if (process.env.DEBUG_CLIENT_IP !== '1') {
+    if (process.env.NODE_ENV === 'production' || process.env.DEBUG_CLIENT_IP !== '1') {
         return NextResponse.json({ status: 'error', message: 'Not found' }, { status: 404 })
     }
 

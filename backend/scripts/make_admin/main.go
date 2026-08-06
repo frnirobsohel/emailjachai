@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	_ "github.com/lib/pq"
 )
 
 func main() {
-	connStr := os.Getenv("DATABASE_URL")
+	connStr := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	if connStr == "" {
-		connStr = "postgres://postgres:Pass321@localhost:5432/emailjachaipro?sslmode=disable"
+		log.Fatal("DATABASE_URL is required (no local password fallback)")
 	}
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {

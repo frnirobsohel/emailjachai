@@ -9,10 +9,16 @@ import (
 )
 
 func CORSMiddleware() gin.HandlerFunc {
-	// Read allowed origins from env, default to localhost for development
+	// Read allowed origins from env. Localhost default is development-only;
+	// production must set CORS_ORIGINS (enforced by config.ValidateProductionConfig).
 	allowedOriginsEnv := os.Getenv("CORS_ORIGINS")
 	if allowedOriginsEnv == "" {
-		allowedOriginsEnv = "http://localhost:3000,http://localhost:8000"
+		if strings.EqualFold(os.Getenv("GO_ENV"), "production") ||
+			strings.EqualFold(os.Getenv("ENVIRONMENT"), "production") {
+			allowedOriginsEnv = ""
+		} else {
+			allowedOriginsEnv = "http://localhost:3000,http://localhost:8000"
+		}
 	}
 	allowedOrigins := strings.Split(allowedOriginsEnv, ",")
 	originSet := make(map[string]struct{}, len(allowedOrigins))

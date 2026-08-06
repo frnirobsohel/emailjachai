@@ -1,0 +1,94 @@
+# Local / staging full-stack smoke environment for EmailJachai-Pro.
+# Not a hardened production compose — use Dokploy/Coolify (or similar) for prod.
+#
+#   cp backend/.env.example backend/.env   # fill secrets
+#   cp frontend/.env.example frontend/.env
+#   cp worker/.env.example worker/.env
+#   docker compose up --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ejp
+      POSTGRES_PASSWORD: ejp
+      POSTGRES_DB: ejp
+    ports:
+      - "5432:5432"
+    volumes:
+      - ejp_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ejp -d ejp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      GO_ENV: production
+      ENVIRONMENT: production
+      PORT: "8000"
+      DATABASE_URL: postgres://ejp:ejp@postgres:5432/ejp?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: local-dev-jwt-secret-change-me
+      WORKER_API_KEY: local-dev-worker-key-change-me
+      FRONTEND_URL: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3000
+      BULK_RESULTS_PATH: /app/storage/results/bulk
+      BULK_SOURCE_PATH: /app/storage/jobs/bulk
+      SINGLE_RESULTS_PATH: /app/storage/results/single
+    volumes:
+      - ejp_storage:/app/storage
+    ports:
+      - "8000:8000"
+
+  worker:
+    build: ./worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    environment:
+      GO_ENV: production
+      REDIS_URL: redis://redis:6379/0
+      API_BASE_URL: http://backend:8000/api/v1/internal
+      WORKER_API_KEY: local-dev-worker-key-change-me
+      WORKER_SERVER_NAME: compose-worker-1
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        JWT_SECRET: local-dev-jwt-secret-change-me
+        NEXT_PUBLIC_WS_URL: ws://localhost:8000/api/v1/ws
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: production
+      JWT_SECRET: local-dev-jwt-secret-change-me
+      API_BASE_URL: http://backend:8000/api/v1
+      FRONTEND_URL: http://localhost:3000
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000/api/v1/ws
+    ports:
+      - "3000:3000"
+
+volumes:
+  ejp_pg:
+  ejp_storage:
