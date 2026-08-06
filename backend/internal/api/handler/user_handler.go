@@ -87,7 +87,7 @@ func (h *UserHandler) DashboardHistory(c *gin.Context) {
 			"date":        tx.CreatedAt.In(loc).Format("2006-01-02 15:04:05"),
 			"amount":      fmt.Sprintf("%s%d Credits", amountPrefix, tx.CreditsAdded),
 			"type":        toTitleCase(strings.ReplaceAll(tx.Type, "_", " ")),
-			"status":      toTitleCase(tx.Status),
+			"status":      formatTransactionStatus(tx.Status),
 			"cost":        cost,
 			"package":     tx.Package,
 			"description": tx.Description,
@@ -210,6 +210,24 @@ func (h *UserHandler) TransferCredits(c *gin.Context) {
 		msg = "Transfer already processed."
 	}
 	helper.SendSuccess(c, msg, result)
+}
+
+// formatTransactionStatus maps DB statuses to history UI labels.
+func formatTransactionStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "completed":
+		return "Success"
+	case "pending":
+		return "Pending"
+	case "expired":
+		return "Expired"
+	case "cancelled", "canceled":
+		return "Cancelled"
+	case "failed":
+		return "Failed"
+	default:
+		return toTitleCase(status)
+	}
 }
 
 // toTitleCase converts "transfer_out" → "Transfer Out" without using

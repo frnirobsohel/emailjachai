@@ -26,7 +26,7 @@ export interface Transaction {
     id: string;
     amount: number;
     credits: number;
-    status: 'pending' | 'completed' | 'failed';
+    status: 'pending' | 'completed' | 'failed' | 'expired' | 'cancelled';
     gateway: string;
     created_at: string;
 }

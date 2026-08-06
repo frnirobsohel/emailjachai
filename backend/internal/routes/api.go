@@ -70,6 +70,9 @@ func SetupRoutes(router *gin.Engine) {
 	// Serial bulk prepare consumer (accept fast → prepare one-by-one → verify parallel)
 	service.StartBulkPrepareWorker(jobService)
 
+	// Expire abandoned credit-purchase checkouts left in pending status
+	paymentService.StartPendingPurchaseExpiryWorker()
+
 	// Global API v1 Group
 	v1 := router.Group("/api/v1")
 	{
@@ -186,6 +189,7 @@ func SetupRoutes(router *gin.Engine) {
 			protected.POST("/payment/paypal/create", paymentHandler.CreateSession)
 			protected.POST("/payment/paypal/capture", paymentHandler.CapturePayPal)
 			protected.POST("/payment/cryptomus/create", paymentHandler.CreateSession)
+			protected.POST("/payment/cancel", paymentHandler.CancelPayment)
 
 			// Reseller
 			protected.POST("/reseller/transfer", middleware.MaintenanceMiddleware(), middleware.ResellerOrAdminMiddleware(), userHandler.TransferCredits)

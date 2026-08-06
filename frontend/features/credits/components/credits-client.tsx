@@ -82,6 +82,12 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
         }
 
         if (status === "cancelled") {
+            const txid = params.get("txid")
+            if (txid) {
+                void ApiClient.post("/payment/cancel", { transaction_id: txid }).catch(() => {
+                    // Best-effort; background expiry still cleans abandoned rows.
+                })
+            }
             toast.error("Payment was cancelled.")
             clearParams()
             return

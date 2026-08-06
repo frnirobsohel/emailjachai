@@ -31,6 +31,25 @@ interface CreditsHistoryProps {
     initialTotal: number;
 }
 
+function transactionStatusBadgeClass(status: string): string {
+    const base = "border ring-1 ring-inset shadow-none text-[10px]"
+    switch (status) {
+        case "Success":
+        case "Completed":
+            return `${base} bg-green-50 text-green-700 border-green-200 ring-green-600/20`
+        case "Pending":
+            return `${base} bg-amber-50 text-amber-700 border-amber-200 ring-amber-600/20`
+        case "Expired":
+            return `${base} bg-slate-50 text-slate-600 border-slate-200 ring-slate-500/20`
+        case "Cancelled":
+        case "Canceled":
+            return `${base} bg-orange-50 text-orange-700 border-orange-200 ring-orange-600/20`
+        case "Failed":
+        default:
+            return `${base} bg-red-50 text-red-700 border-red-200 ring-red-600/20`
+    }
+}
+
 export function CreditsHistoryClient({ initialStats, initialTransactions, initialTotal }: CreditsHistoryProps) {
     const [stats, setStats] = useState(initialStats)
     const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions)
@@ -197,11 +216,7 @@ export function CreditsHistoryClient({ initialStats, initialTransactions, initia
                                     </TableCell>
                                     <TableCell className="text-slate-500 text-xs">{txn.cost}</TableCell>
                                     <TableCell>
-                                        <Badge variant="outline" className={
-                                            txn.status === 'Success' ? 'bg-green-50 text-green-700 border-green-200 ring-1 ring-inset ring-green-600/20 shadow-none text-[10px]' :
-                                                txn.status === 'Pending' ? 'bg-amber-50 text-amber-700 border-amber-200 ring-1 ring-inset ring-amber-600/20 shadow-none text-[10px]' :
-                                                    'bg-red-50 text-red-700 border-red-200 ring-1 ring-inset ring-red-600/20 shadow-none text-[10px]'
-                                        }>
+                                        <Badge variant="outline" className={transactionStatusBadgeClass(txn.status)}>
                                             {txn.status}
                                         </Badge>
                                     </TableCell>

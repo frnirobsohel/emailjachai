@@ -13,7 +13,7 @@ type Transaction struct {
 	CreditsAdded  int       `gorm:"column:credits_added;not null" json:"credits_added"`
 	PaymentMethod string    `gorm:"column:payment_method;type:varchar(100);default:'manual'" json:"payment_method"`
 	Type          string    `gorm:"type:varchar(50);default:'purchase'" json:"type"` // purchase, usage, adjustment
-	Status        string    `gorm:"type:varchar(20);default:'completed'" json:"status"` // completed, failed, pending
+	Status        string    `gorm:"type:varchar(20);default:'completed'" json:"status"` // completed, failed, pending, expired, cancelled
 	Provider      string    `gorm:"type:varchar(50);default:'system'" json:"provider"`
 	Package       string    `gorm:"column:package;type:varchar(100)" json:"package"`
 	Description   string    `gorm:"type:text" json:"description"`

@@ -127,6 +127,31 @@ func (h *PaymentHandler) HandleWebhook(c *gin.Context) {
 	helper.SendSuccess(c, "Webhook processed", nil)
 }
 
+func (h *PaymentHandler) CancelPayment(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	var input struct {
+		TransactionID string `json:"transaction_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Transaction ID is required", "ERR_MISSING_TXID")
+		return
+	}
+
+	if err := h.paymentService.CancelPayment(userID.(uint), input.TransactionID); err != nil {
+		errStr := err.Error()
+		switch {
+		case errStr == "transaction id required" || errStr == "payment not found":
+			helper.SendError(c, http.StatusNotFound, "Payment not found", "ERR_PAYMENT_NOT_FOUND")
+		default:
+			logger.Error("CancelPayment failed", "error", err)
+			helper.SendError(c, http.StatusInternalServerError, "Failed to cancel payment", "ERR_CANCEL_PAYMENT")
+		}
+		return
+	}
+
+	helper.SendSuccess(c, "Payment cancelled", nil)
+}
+
 func (h *PaymentHandler) VerifyPayment(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	txid := c.Query("txid")

@@ -29,13 +29,21 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// pendingPurchaseTTL is how long an unpaid checkout may stay "pending"
+// before it is marked expired. Late gateway webhooks can still fulfill
+// expired rows; intentional cancellations cannot.
+const pendingPurchaseTTL = 60 * time.Minute
+
 type PaymentService interface {
 	ProcessWebhook(provider string, rawBody []byte, headers map[string]string) error
 	CreatePaymentSession(userID uint, packageID uint, provider string) (string, error)
+	CancelPayment(userID uint, transactionID string) error
 	VerifyPayment(userID uint, transactionID string) (string, error)
 	CapturePayPalOrder(userID uint, orderID string) error
 	GetTransactionHistory(userID uint, limit, offset int) ([]model.Transaction, int64, error)
 	GetTransactionSummary(userID uint) (int64, int64, error)
+	ExpireAbandonedPendingTransactions() (int64, error)
+	StartPendingPurchaseExpiryWorker()
 }
 
 type paymentService struct {
@@ -85,13 +93,18 @@ func (s *paymentService) ProcessWebhook(provider string, rawBody []byte, headers
 			return fmt.Errorf("failed to decode Stripe webhook JSON: %v", err)
 		}
 
-		if event.Type == "checkout.session.completed" {
-			session := event.Data.Object
-			sessionID, _ := session["id"].(string)
-			paymentStatus, _ := session["payment_status"].(string)
+		session := event.Data.Object
+		sessionID, _ := session["id"].(string)
 
+		switch event.Type {
+		case "checkout.session.completed":
+			paymentStatus, _ := session["payment_status"].(string)
 			if sessionID != "" && paymentStatus == "paid" {
 				return s.fulfillPaymentMapping("stripe_session_"+sessionID, "Stripe")
+			}
+		case "checkout.session.expired":
+			if sessionID != "" {
+				return s.abandonPaymentMapping("stripe_session_"+sessionID, "expired")
 			}
 		}
 		return nil
@@ -198,14 +211,24 @@ func (s *paymentService) ProcessWebhook(provider string, rawBody []byte, headers
 		if event.EventType == "PAYMENT.CAPTURE.COMPLETED" {
 			status, _ := event.Resource["status"].(string)
 			if status == "COMPLETED" {
-				if sup, ok := event.Resource["supplementary_data"].(map[string]interface{}); ok {
-					if rel, ok := sup["related_ids"].(map[string]interface{}); ok {
-						orderID, _ := rel["order_id"].(string)
-						if orderID != "" {
-							return s.fulfillPaymentMapping("paypal_order_"+orderID, "PayPal")
-						}
-					}
+				if orderID := paypalRelatedOrderID(event.Resource); orderID != "" {
+					return s.fulfillPaymentMapping("paypal_order_"+orderID, "PayPal")
 				}
+			}
+		}
+
+		// Buyer denied / approval reversed — mark abandoned (user cancel usually hits cancel_url instead).
+		if event.EventType == "PAYMENT.CAPTURE.DENIED" || event.EventType == "CHECKOUT.PAYMENT-APPROVAL.REVERSED" {
+			orderID, _ := event.Resource["id"].(string)
+			if orderID == "" {
+				orderID = paypalRelatedOrderID(event.Resource)
+			}
+			if orderID != "" {
+				status := "failed"
+				if event.EventType == "CHECKOUT.PAYMENT-APPROVAL.REVERSED" {
+					status = "cancelled"
+				}
+				return s.abandonPaymentMapping("paypal_order_"+orderID, status)
 			}
 		}
 		return nil
@@ -253,9 +276,19 @@ func (s *paymentService) ProcessWebhook(provider string, rawBody []byte, headers
 
 		status, _ := data["status"].(string)
 		orderID, _ := data["order_id"].(string)
+		if orderID == "" {
+			return nil
+		}
 
-		if (status == "paid" || status == "paid_over") && orderID != "" {
+		switch status {
+		case "paid", "paid_over":
 			return s.fulfillPaymentMapping("cryptomus_order_"+orderID, "Cryptomus")
+		case "cancel", "cancelled":
+			return s.abandonPaymentMapping("cryptomus_order_"+orderID, "cancelled")
+		case "expire", "expired":
+			return s.abandonPaymentMapping("cryptomus_order_"+orderID, "expired")
+		case "fail", "failed", "wrong_amount", "system_fail":
+			return s.abandonPaymentMapping("cryptomus_order_"+orderID, "failed")
 		}
 		return nil
 
@@ -286,10 +319,9 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		return "", errors.New("package not available for paid checkout")
 	}
 
-	// Expire abandoned pending purchase rows (24h+)
-	_ = s.txRepo.DB().Model(&model.Transaction{}).
-		Where("user_id = ? AND type = 'purchase' AND status = 'pending' AND created_at < ?", userID, time.Now().Add(-24*time.Hour)).
-		Update("status", "expired").Error
+	// Expire abandoned pending purchase rows for this user
+	uid := userID
+	s.expirePendingPurchases(&uid)
 
 	txnID := fmt.Sprintf("st_%d_%d_%d", userID, packageID, time.Now().UnixNano())
 	transaction := &model.Transaction{
@@ -308,6 +340,8 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		logger.Error("Failed to initialize payment transaction", "user_id", userID, "error", err)
 		return "", errors.New("failed to initialize transaction")
 	}
+
+	cancelURL := s.getBaseURL() + "/dashboard/credits?status=cancelled&txid=" + url.QueryEscape(txnID)
 
 	switch provider {
 	case "stripe":
@@ -329,7 +363,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		form.Add("line_items[0][quantity]", "1")
 		form.Add("mode", "payment")
 		form.Add("success_url", s.getBaseURL()+"/dashboard/credits?status=success&session_id={CHECKOUT_SESSION_ID}")
-		form.Add("cancel_url", s.getBaseURL()+"/dashboard/credits?status=cancelled")
+		form.Add("cancel_url", cancelURL)
 		form.Add("client_reference_id", txnID)
 		form.Add("metadata[user_id]", fmt.Sprintf("%d", userID))
 		form.Add("metadata[pkg_id]", fmt.Sprintf("%d", packageID))
@@ -429,7 +463,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 			},
 			ApplicationContext: ApplicationContext{
 				ReturnURL:  s.getBaseURL() + "/dashboard/credits?status=success&provider=paypal",
-				CancelURL:  s.getBaseURL() + "/dashboard/credits?status=cancelled",
+				CancelURL:  cancelURL,
 				UserAction: "PAY_NOW",
 			},
 		}
@@ -516,7 +550,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 			OrderID:           orderID,
 			URLCallback:       s.getBaseURL() + "/api/v1/payment/cryptomus/webhook",
 			URLSuccess:        s.getBaseURL() + "/dashboard/credits?status=success&provider=cryptomus",
-			URLReturn:         s.getBaseURL() + "/dashboard/credits?status=cancelled",
+			URLReturn:         s.getBaseURL() + "/dashboard/credits?status=cancelled&txid=" + url.QueryEscape(orderID),
 			IsPaymentMultiple: false,
 			Lifetime:          3600,
 			ToCurrency:        "USDT",
@@ -581,6 +615,38 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 
 	default:
 		return "", errors.New("payment provider is not configured")
+	}
+}
+
+func (s *paymentService) CancelPayment(userID uint, transactionID string) error {
+	transactionID = strings.TrimSpace(transactionID)
+	if transactionID == "" {
+		return errors.New("transaction id required")
+	}
+
+	res := s.txRepo.DB().Model(&model.Transaction{}).
+		Where("user_id = ? AND transaction_id = ? AND type = 'purchase' AND status = 'pending'", userID, transactionID).
+		Update("status", "cancelled")
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		return nil
+	}
+
+	// Idempotent: already terminal for this user is OK.
+	var txn model.Transaction
+	err := s.txRepo.DB().
+		Where("user_id = ? AND transaction_id = ? AND type = 'purchase'", userID, transactionID).
+		First(&txn).Error
+	if err != nil {
+		return errors.New("payment not found")
+	}
+	switch txn.Status {
+	case "cancelled", "expired", "completed", "failed":
+		return nil
+	default:
+		return errors.New("payment not found")
 	}
 }
 
@@ -741,6 +807,9 @@ func (s *paymentService) completeManualPayment(payload interface{}) error {
 }
 
 func (s *paymentService) GetTransactionHistory(userID uint, limit, offset int) ([]model.Transaction, int64, error) {
+	uid := userID
+	s.expirePendingPurchases(&uid)
+
 	total, err := s.txRepo.Count(userID)
 	if err != nil {
 		return nil, 0, err
@@ -756,6 +825,43 @@ func (s *paymentService) GetTransactionHistory(userID uint, limit, offset int) (
 
 func (s *paymentService) GetTransactionSummary(userID uint) (int64, int64, error) {
 	return s.txRepo.GetUserSummary(userID)
+}
+
+// ExpireAbandonedPendingTransactions marks system-wide abandoned checkout rows as expired.
+func (s *paymentService) ExpireAbandonedPendingTransactions() (int64, error) {
+	return s.expirePendingPurchases(nil), nil
+}
+
+// StartPendingPurchaseExpiryWorker periodically expires abandoned pending purchases.
+func (s *paymentService) StartPendingPurchaseExpiryWorker() {
+	go func() {
+		time.Sleep(20 * time.Second)
+		for {
+			n, err := s.ExpireAbandonedPendingTransactions()
+			if err != nil {
+				logger.Error("Failed to expire abandoned pending purchases", "error", err)
+			} else if n > 0 {
+				logger.Info("Expired abandoned pending purchases", "count", n)
+			}
+			time.Sleep(15 * time.Minute)
+		}
+	}()
+}
+
+// expirePendingPurchases sets status=expired for stale pending purchase rows.
+// If userID is nil, applies to all users.
+func (s *paymentService) expirePendingPurchases(userID *uint) int64 {
+	q := s.txRepo.DB().Model(&model.Transaction{}).
+		Where("type = ? AND status = ? AND created_at < ?", "purchase", "pending", time.Now().Add(-pendingPurchaseTTL))
+	if userID != nil {
+		q = q.Where("user_id = ?", *userID)
+	}
+	res := q.Update("status", "expired")
+	if res.Error != nil {
+		logger.Error("Failed to expire pending purchases", "error", res.Error)
+		return 0
+	}
+	return res.RowsAffected
 }
 
 // Private Helpers
@@ -1026,6 +1132,33 @@ func (s *paymentService) fulfillPaymentMapping(mapKey, gateway string) error {
 	})
 
 	return nil
+}
+
+// abandonPaymentMapping marks a pending checkout as cancelled/expired/failed (no credit change).
+func (s *paymentService) abandonPaymentMapping(mapKey, status string) error {
+	switch status {
+	case "cancelled", "expired", "failed":
+	default:
+		status = "expired"
+	}
+	res := s.txRepo.DB().Model(&model.Transaction{}).
+		Where("external_id = ? AND status = ?", mapKey, "pending").
+		Update("status", status)
+	if res.Error != nil {
+		return res.Error
+	}
+	return nil
+}
+
+func paypalRelatedOrderID(resource map[string]interface{}) string {
+	if sup, ok := resource["supplementary_data"].(map[string]interface{}); ok {
+		if rel, ok := sup["related_ids"].(map[string]interface{}); ok {
+			if orderID, _ := rel["order_id"].(string); orderID != "" {
+				return orderID
+			}
+		}
+	}
+	return ""
 }
 
 // capitalize returns the string with the first letter uppercased.
