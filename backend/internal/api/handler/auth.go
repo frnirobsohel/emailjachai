@@ -3,7 +3,6 @@ package handler
 import (
 	"errors"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -30,6 +29,11 @@ func NewAuthHandler(authService service.AuthService, userService service.UserSer
 func (h *AuthHandler) Register(c *gin.Context) {
 	var input request.RegisterRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "not_disposable") {
+			helper.SendError(c, http.StatusBadRequest, "Disposable or temporary email addresses are not allowed.", "ERR_DISPOSABLE_EMAIL")
+			return
+		}
 		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
 		return
 	}
@@ -52,6 +56,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 			Email:   user.Email,
 			Credits: user.Credits,
 			Role:    user.Role,
+			Status:  user.Status,
 		},
 	})
 }
@@ -77,6 +82,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			Email:   user.Email,
 			Credits: user.Credits,
 			Role:    user.Role,
+			Status:  user.Status,
 		},
 	})
 }
@@ -187,25 +193,25 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	// Always return success to prevent email enumeration
 	_ = h.authService.ForgotPassword(input.Email)
 
-	helper.SendSuccess(c, "If the email is registered, a password reset link has been sent.", nil)
+	helper.SendSuccess(c, "If the email is registered, a verification code has been sent.", nil)
 }
 
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var input struct {
-		Token    string `json:"token" binding:"required"`
-		Password string `json:"password" binding:"required,min=8"`
+		Email    string `json:"email" binding:"required,email"`
+		Code     string `json:"code" binding:"required,len=6"`
+		Password string `json:"password" binding:"required,strong_password"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "")
+		helper.SendError(c, http.StatusBadRequest, "Email, 6-digit code, and password are required.", "ERR_INVALID_REQUEST")
 		return
 	}
 
-	if err := h.authService.ResetPassword(input.Token, input.Password); err != nil {
-		helper.SendError(c, http.StatusBadRequest, err.Error(), "ERR_RESET_FAILED")
+	if err := h.authService.ResetPassword(input.Email, input.Code, input.Password); err != nil {
+		sendOTPError(c, err)
 		return
 	}
 
@@ -213,21 +219,69 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 }
 
 func (h *AuthHandler) VerifyEmail(c *gin.Context) {
-	token := c.Query("token")
-	if token == "" {
-		helper.SendError(c, http.StatusBadRequest, "Verification token is required", "")
+	var input struct {
+		Email string `json:"email" binding:"required,email"`
+		Code  string `json:"code" binding:"required,len=6"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Email and 6-digit code are required.", "ERR_INVALID_REQUEST")
 		return
 	}
 
-	frontendURL := strings.TrimSuffix(strings.TrimSpace(os.Getenv("FRONTEND_URL")), "/")
-	if frontendURL == "" {
-		frontendURL = "http://localhost:3000"
-	}
-
-	if err := h.authService.VerifyEmail(token); err != nil {
-		c.Redirect(http.StatusFound, frontendURL+"/login?error=invalid_verification")
+	if err := h.authService.VerifyEmail(input.Email, input.Code); err != nil {
+		sendOTPError(c, err)
 		return
 	}
 
-	c.Redirect(http.StatusFound, frontendURL+"/login?verified=true")
+	helper.SendSuccess(c, "Email verified successfully. You can now login.", nil)
+}
+
+func (h *AuthHandler) ResendVerification(c *gin.Context) {
+	var input struct {
+		Email string `json:"email" binding:"required,email"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Valid email is required.", "")
+		return
+	}
+
+	if err := h.authService.ResendVerification(input.Email); err != nil {
+		sendOTPError(c, err)
+		return
+	}
+
+	helper.SendSuccess(c, "If verification is required, a new code has been sent.", nil)
+}
+
+func (h *AuthHandler) ResendReset(c *gin.Context) {
+	var input struct {
+		Email string `json:"email" binding:"required,email"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Valid email is required.", "")
+		return
+	}
+
+	if err := h.authService.ResendReset(input.Email); err != nil {
+		sendOTPError(c, err)
+		return
+	}
+
+	helper.SendSuccess(c, "If the email is registered, a new code has been sent.", nil)
+}
+
+func sendOTPError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, helper.ErrOTPResendCooldownErr):
+		helper.SendError(c, http.StatusTooManyRequests, "Please wait before requesting another code.", "ERR_OTP_COOLDOWN")
+	case errors.Is(err, helper.ErrOTPTooManyAttempts):
+		helper.SendError(c, http.StatusTooManyRequests, "Too many invalid attempts. Request a new code.", "ERR_OTP_ATTEMPTS")
+	case errors.Is(err, helper.ErrOTPUnavailable):
+		helper.SendError(c, http.StatusServiceUnavailable, "Verification service temporarily unavailable.", "ERR_OTP_UNAVAILABLE")
+	case errors.Is(err, helper.ErrOTPInvalid):
+		helper.SendError(c, http.StatusBadRequest, "Invalid or expired code.", "ERR_OTP_INVALID")
+	default:
+		helper.SendError(c, http.StatusBadRequest, err.Error(), "ERR_OTP_FAILED")
+	}
 }

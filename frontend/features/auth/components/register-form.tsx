@@ -45,7 +45,12 @@ export function RegisterForm() {
             const result = await res.json()
 
             if (result.status === "success") {
-                router.push("/login?registered=true")
+                const email = encodeURIComponent(result.data?.email || values.email)
+                if (result.data?.requiresVerification) {
+                    router.push(`/verify-email?email=${email}`)
+                } else {
+                    router.push("/login?registered=true")
+                }
             } else {
                 setError(result.message || "Registration failed")
                 triggerShake()

@@ -13,6 +13,9 @@ const PUBLIC_PROXY_ROUTES = new Set([
   'auth/register',
   'auth/forgot-password',
   'auth/reset-password',
+  'auth/verify-email',
+  'auth/resend-verification',
+  'auth/resend-reset',
   'jobs/verify-public',
   'jobs/verify-public/status',
   'packages/list',        // Public pricing page — no auth needed

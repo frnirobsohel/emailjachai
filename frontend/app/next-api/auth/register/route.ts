@@ -34,13 +34,21 @@ export async function POST(request: Request) {
             );
         }
 
-        // Go AuthResponse: { api_key, user: { id, name, email, role, credits } }
-        const userId = result.data?.user?.id;
+        const userStatus = String(result.data?.user?.status || '').toLowerCase();
+        const requiresVerification = userStatus === 'inactive';
+        const userEmail = result.data?.user?.email || email;
+
         return NextResponse.json(
             {
                 status: 'success',
-                message: 'User registered successfully',
-                data: { userId },
+                message: requiresVerification
+                    ? 'Account created. Please verify your email.'
+                    : 'User registered successfully',
+                data: {
+                    userId: result.data?.user?.id,
+                    email: userEmail,
+                    requiresVerification,
+                },
             },
             { status: 201 }
         );

@@ -100,8 +100,10 @@ func SetupRoutes(router *gin.Engine) {
 			authRoutes.POST("/register", authHandler.Register)
 			authRoutes.POST("/forgot-password", authHandler.ForgotPassword)
 			authRoutes.POST("/reset-password", authHandler.ResetPassword)
+			authRoutes.POST("/verify-email", authHandler.VerifyEmail)
+			authRoutes.POST("/resend-verification", authHandler.ResendVerification)
+			authRoutes.POST("/resend-reset", authHandler.ResendReset)
 		}
-		v1.GET("/auth/verify-email", authHandler.VerifyEmail)
 
 		// ==========================================
 		// 2. WORKER SPECIFIC API

@@ -83,35 +83,57 @@ func (s *systemService) GetTemplates() ([]model.EmailTemplate, error) {
 		return nil, err
 	}
 
-	existing := make(map[string]bool, len(templates))
+	existing := make(map[string]model.EmailTemplate, len(templates))
 	for _, t := range templates {
-		existing[t.TemplateName] = true
+		existing[t.TemplateName] = t
 	}
 
 	// Seed missing built-in templates so SMTP credential saves never leave the UI empty.
+	// Also upgrade register/forgot bodies that still use magic-link placeholders (OTP migration).
 	for key, def := range defaultEmailTemplates {
-		if existing[key] {
+		cur, ok := existing[key]
+		if !ok {
+			_ = s.systemRepo.SaveTemplate(&model.EmailTemplate{
+				TemplateName: key,
+				Subject:      def.Subject,
+				Body:         def.Body,
+				IsActive:     true,
+			})
 			continue
 		}
-		_ = s.systemRepo.SaveTemplate(&model.EmailTemplate{
-			TemplateName: key,
-			Subject:      def.Subject,
-			Body:         def.Body,
-			IsActive:     true,
-		})
+		if needsOTPTemplateUpgrade(key, cur.Body) {
+			_ = s.systemRepo.SaveTemplate(&model.EmailTemplate{
+				TemplateName: key,
+				Subject:      def.Subject,
+				Body:         def.Body,
+				IsActive:     cur.IsActive,
+			})
+		}
 	}
 
 	return s.systemRepo.GetTemplates()
 }
 
+// needsOTPTemplateUpgrade detects legacy magic-link register/forgot templates after OTP migration.
+func needsOTPTemplateUpgrade(key, body string) bool {
+	switch key {
+	case "register":
+		return strings.Contains(body, "{{verification_link}}") && !strings.Contains(body, "{{verification_code}}")
+	case "forgot":
+		return strings.Contains(body, "{{reset_link}}") && !strings.Contains(body, "{{reset_code}}")
+	default:
+		return false
+	}
+}
+
 var defaultEmailTemplates = map[string]struct{ Subject, Body string }{
 	"register": {
 		Subject: "Welcome to Email Verification SaaS",
-		Body:    "Hi {{name}},\n\nThanks for registering. Verify your email by clicking this link: {{verification_link}}\n\nRegards,\nTeam",
+		Body:    "Hi {{name}},\n\nThanks for registering. Your verification code is: {{verification_code}}\n\nThis code expires in 15 minutes.\n\nRegards,\nTeam",
 	},
 	"forgot": {
 		Subject: "Password reset instructions",
-		Body:    "Hi {{name}},\n\nReset your password using this link: {{reset_link}}\n\nRegards,\nTeam",
+		Body:    "Hi {{name}},\n\nYour password reset code is: {{reset_code}}\n\nThis code expires in 15 minutes.\n\nRegards,\nTeam",
 	},
 	"buy_credits": {
 		Subject: "Credit purchase confirmation",

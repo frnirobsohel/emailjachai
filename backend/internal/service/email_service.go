@@ -52,11 +52,11 @@ func (s *emailService) SendTemplateEmail(to string, templateKey string, placehol
 		defaults := map[string]struct{ Subject, Body string }{
 			"register": {
 				Subject: "Welcome to Email Verification SaaS",
-				Body:    "Hi {{name}},\n\nThanks for registering. Verify your email by clicking this link: {{verification_link}}\n\nRegards,\nTeam",
+				Body:    "Hi {{name}},\n\nThanks for registering. Your verification code is: {{verification_code}}\n\nThis code expires in 15 minutes.\n\nRegards,\nTeam",
 			},
 			"forgot": {
 				Subject: "Password reset instructions",
-				Body:    "Hi {{name}},\n\nReset your password using this link: {{reset_link}}\n\nRegards,\nTeam",
+				Body:    "Hi {{name}},\n\nYour password reset code is: {{reset_code}}\n\nThis code expires in 15 minutes.\n\nRegards,\nTeam",
 			},
 			"buy_credits": {
 				Subject: "Credit purchase confirmation",
@@ -95,6 +95,20 @@ func (s *emailService) SendTemplateEmail(to string, templateKey string, placehol
 		}
 		subject = emailTpl.Subject
 		body = emailTpl.Body
+		// Production safety: if DB still has magic-link templates, use OTP defaults for this send.
+		if upgraded := otpSafeTemplateBody(templateKey, body); upgraded != body {
+			body = upgraded
+			if def, ok := defaultOTPEmailBodies[templateKey]; ok {
+				subject = def.Subject
+			}
+			logger.Warn("Using OTP email template defaults; DB template still has legacy link placeholders", "template", templateKey)
+			_ = s.systemRepo.SaveTemplate(&model.EmailTemplate{
+				TemplateName: templateKey,
+				Subject:      subject,
+				Body:         body,
+				IsActive:     emailTpl.IsActive,
+			})
+		}
 	}
 
 	for k, v := range placeholders {
@@ -226,4 +240,33 @@ func (s *emailService) releaseDailySendSlot() {
 		return
 	}
 	_, _ = config.Redis.Decr(config.Ctx, smtpDailyKey()).Result()
+}
+
+var defaultOTPEmailBodies = map[string]struct{ Subject, Body string }{
+	"register": {
+		Subject: "Welcome to Email Verification SaaS",
+		Body:    "Hi {{name}},\n\nThanks for registering. Your verification code is: {{verification_code}}\n\nThis code expires in 15 minutes.\n\nRegards,\nTeam",
+	},
+	"forgot": {
+		Subject: "Password reset instructions",
+		Body:    "Hi {{name}},\n\nYour password reset code is: {{reset_code}}\n\nThis code expires in 15 minutes.\n\nRegards,\nTeam",
+	},
+}
+
+func otpSafeTemplateBody(templateKey, body string) string {
+	def, ok := defaultOTPEmailBodies[templateKey]
+	if !ok {
+		return body
+	}
+	switch templateKey {
+	case "register":
+		if strings.Contains(body, "{{verification_link}}") && !strings.Contains(body, "{{verification_code}}") {
+			return def.Body
+		}
+	case "forgot":
+		if strings.Contains(body, "{{reset_link}}") && !strings.Contains(body, "{{reset_code}}") {
+			return def.Body
+		}
+	}
+	return body
 }

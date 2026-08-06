@@ -65,12 +65,12 @@ export type ApiTemplateRow = { template_name: string; subject: string; body: str
 export const DEFAULT_TEMPLATES: Record<TemplatesKey, Template> = {
     register: {
         subject: 'Welcome to Email Verification SaaS',
-        body: 'Hi {{name}},\n\nThanks for registering. Verify your email by clicking this link: {{verification_link}}\n\nRegards,\nTeam',
+        body: 'Hi {{name}},\n\nThanks for registering. Your verification code is: {{verification_code}}\n\nThis code expires in 15 minutes.\n\nRegards,\nTeam',
         is_active: true,
     },
     forgot: {
         subject: 'Password reset instructions',
-        body: 'Hi {{name}},\n\nReset your password using this link: {{reset_link}}\n\nRegards,\nTeam',
+        body: 'Hi {{name}},\n\nYour password reset code is: {{reset_code}}\n\nThis code expires in 15 minutes.\n\nRegards,\nTeam',
         is_active: true,
     },
     buy_credits: {
@@ -465,7 +465,7 @@ export function SmtpClient({
                             </div>
                         </CardTitle>
                         <CardDescription className="text-[#5a736c]">
-                            Independent from SMTP credentials — edit and click Save Template to persist. Use placeholders like {'{{name}}'}, {'{{verification_link}}'}, {'{{credits}}'}.
+                            Independent from SMTP credentials — edit and click Save Template to persist. Use placeholders like {'{{name}}'}, {'{{verification_code}}'}, {'{{reset_code}}'}, {'{{credits}}'}.
                         </CardDescription>
                     </CardHeader>
                     <form onSubmit={templateForm.handleSubmit(handleSaveTemplate)}>

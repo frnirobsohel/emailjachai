@@ -10,7 +10,10 @@ import { ArrowLeft, CheckCircle2, Loader2, Eye, EyeOff, AlertCircle } from "luci
 import { ApiClient } from "@/lib/api-client"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { resetPasswordSchema, ResetPasswordValues } from "@/features/auth/schemas/reset-password.schema"
+import {
+    resetPasswordWithCodeSchema,
+    ResetPasswordWithCodeValues,
+} from "@/features/auth/schemas/reset-password.schema"
 import { cn } from "@/lib/utils"
 
 const cardClass =
@@ -19,9 +22,11 @@ const cardClass =
 function ResetPasswordForm() {
     const router = useRouter()
     const searchParams = useSearchParams()
-    const token = searchParams.get("token")
+    const email = (searchParams.get("email") || "").trim().toLowerCase()
 
     const [isLoading, setIsLoading] = useState(false)
+    const [resending, setResending] = useState(false)
+    const [cooldown, setCooldown] = useState(60)
     const [submitted, setSubmitted] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [showPassword, setShowPassword] = useState(false)
@@ -29,14 +34,21 @@ function ResetPasswordForm() {
     const [shake, setShake] = useState(false)
 
     useEffect(() => {
-        if (!token) {
-            setError("Invalid or missing reset token.")
+        if (!email) {
+            setError("Missing email. Request a reset code first.")
         }
-    }, [token])
+    }, [email])
 
-    const form = useForm<ResetPasswordValues>({
-        resolver: zodResolver(resetPasswordSchema),
+    useEffect(() => {
+        if (cooldown <= 0) return
+        const t = setTimeout(() => setCooldown((c) => c - 1), 1000)
+        return () => clearTimeout(t)
+    }, [cooldown])
+
+    const form = useForm<ResetPasswordWithCodeValues>({
+        resolver: zodResolver(resetPasswordWithCodeSchema),
         defaultValues: {
+            code: "",
             password: "",
             confirmPassword: "",
         },
@@ -47,11 +59,11 @@ function ResetPasswordForm() {
         requestAnimationFrame(() => setShake(true))
     }
 
-    async function onSubmit(values: ResetPasswordValues) {
+    async function onSubmit(values: ResetPasswordWithCodeValues) {
         setError(null)
 
-        if (!token) {
-            setError("Invalid or missing reset token.")
+        if (!email) {
+            setError("Missing email. Request a reset code first.")
             triggerShake()
             return
         }
@@ -59,7 +71,11 @@ function ResetPasswordForm() {
         setIsLoading(true)
 
         try {
-            const res = await ApiClient.post("/auth/reset-password", { token, password: values.password })
+            const res = await ApiClient.post("/auth/reset-password", {
+                email,
+                code: values.code,
+                password: values.password,
+            })
             if (res.status === "success") {
                 setSubmitted(true)
             } else {
@@ -71,6 +87,27 @@ function ResetPasswordForm() {
             triggerShake()
         } finally {
             setIsLoading(false)
+        }
+    }
+
+    async function onResend() {
+        if (!email || cooldown > 0 || resending) return
+        setError(null)
+        setResending(true)
+        try {
+            const res = await ApiClient.post("/auth/resend-reset", { email })
+            if (res.status === "success") {
+                setCooldown(60)
+            } else {
+                setError(res.message || "Could not resend code")
+                if (String(res.message || "").toLowerCase().includes("wait")) {
+                    setCooldown(60)
+                }
+            }
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Could not resend code")
+        } finally {
+            setResending(false)
         }
     }
 
@@ -112,7 +149,9 @@ function ResetPasswordForm() {
             <CardHeader className="space-y-1.5">
                 <CardTitle className="text-2xl tracking-tight text-[#0b1f1c]">Reset Password</CardTitle>
                 <CardDescription className="text-[#5a736c]">
-                    Enter your new password below.
+                    {email
+                        ? <>Enter the code sent to <span className="font-medium text-[#0b1f1c]">{email}</span> and your new password.</>
+                        : "Enter the code from your email and your new password."}
                 </CardDescription>
             </CardHeader>
             <CardContent>
@@ -131,6 +170,29 @@ function ResetPasswordForm() {
                         </div>
                     )}
                     <div className="flex min-h-[72px] flex-col gap-1.5">
+                        <label htmlFor="code" className="text-sm font-medium leading-none text-[#3d564f]">
+                            Reset code
+                        </label>
+                        <Input
+                            {...form.register("code")}
+                            id="code"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            placeholder="000000"
+                            maxLength={6}
+                            disabled={isLoading || !email}
+                            className={cn(
+                                "border-[#0b1f1c]/12 tracking-[0.3em] focus-visible:ring-[#0f5c52]/30",
+                                form.formState.errors.code && "border-rose-500 focus-visible:ring-rose-500"
+                            )}
+                        />
+                        {form.formState.errors.code ? (
+                            <span className="text-xs font-medium text-rose-600">
+                                {form.formState.errors.code.message}
+                            </span>
+                        ) : null}
+                    </div>
+                    <div className="flex min-h-[72px] flex-col gap-1.5">
                         <label htmlFor="password" className="text-sm font-medium leading-none text-[#3d564f]">
                             New Password
                         </label>
@@ -139,7 +201,7 @@ function ResetPasswordForm() {
                                 {...form.register("password")}
                                 id="password"
                                 type={showPassword ? "text" : "password"}
-                                disabled={isLoading || !token}
+                                disabled={isLoading || !email}
                                 className={cn(
                                     "border-[#0b1f1c]/12 pr-10 focus-visible:ring-[#0f5c52]/30",
                                     form.formState.errors.password && "border-rose-500 focus-visible:ring-rose-500"
@@ -169,7 +231,7 @@ function ResetPasswordForm() {
                                 {...form.register("confirmPassword")}
                                 id="confirmPassword"
                                 type={showConfirmPassword ? "text" : "password"}
-                                disabled={isLoading || !token}
+                                disabled={isLoading || !email}
                                 className={cn(
                                     "border-[#0b1f1c]/12 pr-10 focus-visible:ring-[#0f5c52]/30",
                                     form.formState.errors.confirmPassword && "border-rose-500 focus-visible:ring-rose-500"
@@ -192,7 +254,7 @@ function ResetPasswordForm() {
                     </div>
                     <Button
                         type="submit"
-                        disabled={isLoading || !token}
+                        disabled={isLoading || !email}
                         className="mt-1 w-full rounded-md border border-[#08352f] bg-[#0f5c52] font-semibold text-white shadow-none hover:bg-[#0b4a42]"
                     >
                         {isLoading ? (
@@ -203,6 +265,29 @@ function ResetPasswordForm() {
                             "Reset Password"
                         )}
                     </Button>
+                    {email ? (
+                        <p className="text-center text-sm text-[#5a736c]">
+                            Didn&apos;t get a code?{" "}
+                            <button
+                                type="button"
+                                onClick={onResend}
+                                disabled={cooldown > 0 || resending}
+                                className="font-semibold text-[#0f5c52] underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {resending
+                                    ? "Sending..."
+                                    : cooldown > 0
+                                      ? `Resend in ${cooldown}s`
+                                      : "Resend code"}
+                            </button>
+                        </p>
+                    ) : (
+                        <p className="text-center text-sm">
+                            <Link href="/forgot-password" className="font-semibold text-[#0f5c52] underline-offset-2 hover:underline">
+                                Request a reset code
+                            </Link>
+                        </p>
+                    )}
                 </form>
             </CardContent>
             <CardFooter className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-[#4a635c]">

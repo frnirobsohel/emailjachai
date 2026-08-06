@@ -32,6 +32,9 @@ export function LoginForm() {
         if (searchParams.get("registered") === "true") {
             setSuccess("Account created successfully. Please login.")
         }
+        if (searchParams.get("verified") === "true") {
+            setSuccess("Email verified successfully. You can log in now.")
+        }
     }, [searchParams])
 
     const form = useForm<LoginValues>({

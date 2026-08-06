@@ -2,10 +2,11 @@
 
 import { useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { ArrowLeft, CheckCircle2, Loader2, AlertCircle } from "lucide-react"
+import { ArrowLeft, Loader2, AlertCircle } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -16,8 +17,8 @@ const cardClass =
     "border-[#0b1f1c]/10 bg-white/90 shadow-[0_16px_48px_-24px_rgba(11,31,28,0.35)] backdrop-blur-sm"
 
 export default function ForgotPasswordPage() {
+    const router = useRouter()
     const [isLoading, setIsLoading] = useState(false)
-    const [submitted, setSubmitted] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [shake, setShake] = useState(false)
 
@@ -40,9 +41,9 @@ export default function ForgotPasswordPage() {
         try {
             const res = await ApiClient.post("/auth/forgot-password", values)
             if (res.status === "success") {
-                setSubmitted(true)
+                router.push(`/reset-password?email=${encodeURIComponent(values.email.trim().toLowerCase())}`)
             } else {
-                setError(res.message || "Failed to send reset link")
+                setError(res.message || "Failed to send reset code")
                 triggerShake()
             }
         } catch (err: unknown) {
@@ -57,49 +58,12 @@ export default function ForgotPasswordPage() {
         triggerShake()
     }
 
-    if (submitted) {
-        return (
-            <Card className={cardClass}>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-[#0b1f1c]">
-                        <CheckCircle2 className="h-6 w-6 text-emerald-600" />
-                        Check your email
-                    </CardTitle>
-                    <CardDescription className="text-[#5a736c]">
-                        We&apos;ve sent a password reset link to your email address.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <p className="text-sm text-[#5a736c]">
-                        Didn&apos;t receive the email? Check your spam folder or try again.
-                    </p>
-                    <Button
-                        variant="outline"
-                        className="w-full rounded-md border-[#0b1f1c]/20 text-[#0b1f1c] hover:border-[#0f5c52] hover:text-[#0f5c52]"
-                        onClick={() => setSubmitted(false)}
-                    >
-                        Try another email
-                    </Button>
-                </CardContent>
-                <CardFooter className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-[#4a635c]">
-                    <Link href="/login" className="inline-flex items-center gap-1 font-semibold text-[#0f5c52] underline-offset-2 hover:underline">
-                        <ArrowLeft className="h-3.5 w-3.5" /> Back to Login
-                    </Link>
-                    <span className="mx-1 text-[#0b1f1c]/20">•</span>
-                    <Link href="/" className="text-[#5a736c] transition-colors hover:text-[#0b1f1c]">
-                        Back to Home
-                    </Link>
-                </CardFooter>
-            </Card>
-        )
-    }
-
     return (
         <Card className={cardClass}>
             <CardHeader className="space-y-1.5">
                 <CardTitle className="text-2xl tracking-tight text-[#0b1f1c]">Forgot Password</CardTitle>
                 <CardDescription className="text-[#5a736c]">
-                    Enter your email address and we&apos;ll send you a link to reset your password.
+                    Enter your email and we&apos;ll send a 6-digit code to reset your password.
                 </CardDescription>
             </CardHeader>
             <CardContent>
@@ -146,10 +110,10 @@ export default function ForgotPasswordPage() {
                     >
                         {isLoading ? (
                             <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending link...
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending code...
                             </>
                         ) : (
-                            "Send Reset Link"
+                            "Send Reset Code"
                         )}
                     </Button>
                 </form>

@@ -3,16 +3,14 @@ package service
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
+	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
-	"ejp-backend/internal/helper"
+	"ejp-backend/pkg/logger"
 	"ejp-backend/pkg/safe"
-
-	"github.com/golang-jwt/jwt/v5"
 )
 
 type AuthService interface {
@@ -20,8 +18,10 @@ type AuthService interface {
 	Login(email, password, ip string) (*model.User, string, error)
 	Impersonate(targetUserID uint, adminID uint) (*model.User, string, error)
 	ForgotPassword(email string) error
-	ResetPassword(token, newPassword string) error
-	VerifyEmail(token string) error
+	ResetPassword(email, code, newPassword string) error
+	VerifyEmail(email, code string) error
+	ResendVerification(email string) error
+	ResendReset(email string) error
 }
 
 type authService struct {
@@ -49,7 +49,6 @@ func (s *authService) Register(firstName, lastName, email, password string) (*mo
 	lastName = strings.TrimSpace(lastName)
 	email = strings.ToLower(strings.TrimSpace(email))
 
-	// 1. Check if email exists
 	existingUser, _ := s.userRepo.GetByEmail(email)
 	if existingUser != nil {
 		return nil, "", errors.New("user already exists")
@@ -78,12 +77,11 @@ func (s *authService) Register(firstName, lastName, email, password string) (*mo
 		}
 	}
 
-	// 3. Create User
 	user := &model.User{
 		Name:     firstName + " " + lastName,
 		Email:    email,
 		Password: hashedPassword,
-		Credits:  defaultCredits, // Default signup credits from settings
+		Credits:  defaultCredits,
 		Role:     "user",
 		Status:   status,
 	}
@@ -92,32 +90,25 @@ func (s *authService) Register(firstName, lastName, email, password string) (*mo
 		return nil, "", err
 	}
 
-	// 4. Create Default API Key
 	apiKey, err := s.apiKeyService.CreateLoginKey(user.ID)
 	if err != nil {
 		return nil, "", err
 	}
 
-	// Send Registration Email asynchronously
 	isActive := smtpConfig.IsActive
-	userEmail := user.Name
+	userName := user.Name
 	emailAddr := user.Email
 	safe.Go(func() {
-		frontendURL := strings.TrimSuffix(strings.TrimSpace(os.Getenv("FRONTEND_URL")), "/")
-		if frontendURL == "" {
-			frontendURL = "http://localhost:3000"
-		}
-
-		verificationLink := fmt.Sprintf("%s/login", frontendURL)
-		if isActive {
-			token, _ := helper.GenerateVerificationToken(emailAddr)
-			// Public API origin (same source as payment webhooks) — never hardcode localhost in prod.
-			verificationLink = fmt.Sprintf("%s/api/v1/auth/verify-email?token=%s", s.resolvePublicAPIBaseURL(), token)
-		}
-
 		placeholders := map[string]string{
-			"name":              userEmail,
-			"verification_link": verificationLink,
+			"name": userName,
+		}
+		if isActive {
+			code, issueErr := helper.IssueOTP(helper.OTPVerify, emailAddr)
+			if issueErr != nil {
+				logger.Warn("Failed to issue verification OTP", "email", emailAddr, "error", issueErr)
+				return
+			}
+			placeholders["verification_code"] = code
 		}
 		s.emailService.SendTemplateEmail(emailAddr, "register", placeholders)
 	})
@@ -129,7 +120,6 @@ func (s *authService) Login(email, password, ip string) (*model.User, string, er
 	email = strings.ToLower(strings.TrimSpace(email))
 	ip = strings.TrimSpace(ip)
 
-	// 1. Throttle check (limit to 10 failures / 15 minutes)
 	fifteenMinutesAgo := time.Now().Add(-15 * time.Minute)
 	failedCount, _ := s.logRepo.CountFailedLogins(ip, email, fifteenMinutesAgo)
 
@@ -170,13 +160,11 @@ func (s *authService) Login(email, password, ip string) (*model.User, string, er
 		return nil, "", errors.New("please verify your email address to log in")
 	}
 
-	// Rotate or Create Login Key
 	apiKey, err := s.apiKeyService.CreateLoginKey(user.ID)
 	if err != nil {
 		return nil, "", err
 	}
 
-	// Log success
 	s.logRepo.Create(&model.ActivityLog{
 		UserID:     &user.ID,
 		Level:      "INFO",
@@ -224,84 +212,52 @@ func (s *authService) Impersonate(targetUserID uint, adminID uint) (*model.User,
 	return user, apiKey, nil
 }
 
-// resolvePublicAPIBaseURL returns the publicly reachable API origin for email links.
-// Priority: Admin → Payment Settings api_base_url, then PUBLIC_API_URL / API_URL env, then localhost.
-func (s *authService) resolvePublicAPIBaseURL() string {
-	var sDB model.Setting
-	apiBase := ""
-	if err := s.settingsRepo.DB().Where("setting_key = ?", "api_base_url").First(&sDB).Error; err == nil {
-		apiBase = sDB.SettingValue
-	}
-	if strings.TrimSpace(apiBase) == "" {
-		if v := strings.TrimSpace(os.Getenv("PUBLIC_API_URL")); v != "" {
-			apiBase = v
-		} else if v := strings.TrimSpace(os.Getenv("API_URL")); v != "" {
-			apiBase = v
-		}
-	}
-	return helper.ResolveAPIBaseURL(apiBase)
-}
-
 func (s *authService) ForgotPassword(email string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
 	user, err := s.userRepo.GetByEmail(email)
 	if err != nil {
-		// Do not leak existence
 		return nil
 	}
 
-	token, err := helper.GenerateResetToken(user.Email, user.Password)
-	if err != nil {
-		return err
+	if err := helper.CheckOTPResendCooldown(helper.OTPReset, email); err != nil {
+		// Still return nil to avoid enumeration; cooldown is enforced on resend too.
+		if errors.Is(err, helper.ErrOTPResendCooldownErr) {
+			return nil
+		}
 	}
 
-	// Send Forgot Password Email asynchronously
+	code, err := helper.IssueOTP(helper.OTPReset, email)
+	if err != nil {
+		logger.Warn("Failed to issue reset OTP", "email", email, "error", err)
+		return nil
+	}
+
+	userName := user.Name
+	userEmail := user.Email
 	safe.Go(func() {
-		frontendURL := strings.TrimSuffix(strings.TrimSpace(os.Getenv("FRONTEND_URL")), "/")
-		if frontendURL == "" {
-			frontendURL = "http://localhost:3000"
-		}
-		placeholders := map[string]string{
-			"name":       user.Name,
-			"reset_link": fmt.Sprintf("%s/reset-password?token=%s", frontendURL, token),
-		}
-		s.emailService.SendTemplateEmail(user.Email, "forgot", placeholders)
+		s.emailService.SendTemplateEmail(userEmail, "forgot", map[string]string{
+			"name":       userName,
+			"reset_code": code,
+		})
 	})
 
 	return nil
 }
 
-func (s *authService) ResetPassword(tokenString, newPassword string) error {
-	// 1. Decode token without validation to extract email claim
-	var claims jwt.MapClaims
-	_, _, err := new(jwt.Parser).ParseUnverified(tokenString, &claims)
-	if err != nil {
-		return errors.New("invalid or expired reset token")
-	}
+func (s *authService) ResetPassword(email, code, newPassword string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
 
-	tokenType, ok := claims["type"].(string)
-	if !ok || tokenType != "reset" {
-		return errors.New("invalid or expired reset token")
-	}
-
-	email, ok := claims["email"].(string)
-	if !ok || email == "" {
-		return errors.New("invalid or expired reset token")
-	}
-
-	// 2. Fetch user to obtain current password hash
 	user, err := s.userRepo.GetByEmail(email)
 	if err != nil {
-		return errors.New("user not found")
-	}
-
-	// 3. Fully verify token using user's password hash
-	_, err = helper.VerifyResetToken(tokenString, user.Password)
-	if err != nil {
-		return errors.New("invalid or expired reset token")
+		return helper.ErrOTPInvalid
 	}
 
 	hashedPassword, err := helper.HashPassword(newPassword)
 	if err != nil {
+		return err
+	}
+
+	if err := helper.VerifyOTP(helper.OTPReset, email, code); err != nil {
 		return err
 	}
 
@@ -313,25 +269,86 @@ func (s *authService) ResetPassword(tokenString, newPassword string) error {
 	return nil
 }
 
-func (s *authService) VerifyEmail(token string) error {
-	email, err := helper.VerifyVerificationToken(token)
-	if err != nil {
-		return errors.New("invalid or expired verification token")
-	}
+func (s *authService) VerifyEmail(email, code string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
 
 	user, err := s.userRepo.GetByEmail(email)
 	if err != nil || user == nil {
-		return errors.New("user not found")
+		return helper.ErrOTPInvalid
 	}
 
 	if strings.EqualFold(user.Status, "active") {
-		return nil // Already verified
+		return nil
+	}
+
+	if err := helper.VerifyOTP(helper.OTPVerify, email, code); err != nil {
+		return err
 	}
 
 	user.Status = "Active"
 	if updateErr := s.userRepo.Update(user, map[string]interface{}{"status": "Active"}); updateErr != nil {
 		return errors.New("failed to verify email")
 	}
+
+	return nil
+}
+
+func (s *authService) ResendVerification(email string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
+	user, err := s.userRepo.GetByEmail(email)
+	if err != nil || user == nil {
+		return nil
+	}
+
+	if strings.EqualFold(user.Status, "active") {
+		return nil
+	}
+
+	if err := helper.CheckOTPResendCooldown(helper.OTPVerify, email); err != nil {
+		return err
+	}
+
+	code, err := helper.IssueOTP(helper.OTPVerify, email)
+	if err != nil {
+		return err
+	}
+
+	userName := user.Name
+	userEmail := user.Email
+	safe.Go(func() {
+		s.emailService.SendTemplateEmail(userEmail, "register", map[string]string{
+			"name":              userName,
+			"verification_code": code,
+		})
+	})
+
+	return nil
+}
+
+func (s *authService) ResendReset(email string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
+	user, err := s.userRepo.GetByEmail(email)
+	if err != nil || user == nil {
+		return nil
+	}
+
+	if err := helper.CheckOTPResendCooldown(helper.OTPReset, email); err != nil {
+		return err
+	}
+
+	code, err := helper.IssueOTP(helper.OTPReset, email)
+	if err != nil {
+		return err
+	}
+
+	userName := user.Name
+	userEmail := user.Email
+	safe.Go(func() {
+		s.emailService.SendTemplateEmail(userEmail, "forgot", map[string]string{
+			"name":       userName,
+			"reset_code": code,
+		})
+	})
 
 	return nil
 }
