@@ -330,14 +330,15 @@ export function LicenseClient({
                 </div>
             )}
 
-            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
+            <div className="grid gap-6 md:grid-cols-2 items-stretch">
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden h-full">
                 <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                     <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
                         <ShieldCheck className="h-5 w-5 text-emerald-500" /> Licence Information
                     </CardTitle>
                     <CardDescription className="text-[#5a736c]">Manage your application license key.</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6 pt-6">
+                <CardContent className="space-y-6 pt-6 flex flex-col h-full">
                     <div className="flex justify-between items-center p-4 rounded-xl bg-[#f0f4f2]/60 border border-[#0b1f1c]/8">
                         <div>
                             <p className="text-xs text-[#5a736c] uppercase font-bold tracking-wider mb-1">Subscription Status</p>
@@ -387,12 +388,69 @@ export function LicenseClient({
                         )}
                     </div>
 
-                    <div className="flex items-center justify-between text-[10px] text-[#6b857c] pt-1 uppercase font-bold tracking-widest border-t border-[#0b1f1c]/8">
+                    <div className="mt-auto flex items-center justify-between text-[10px] text-[#6b857c] pt-1 uppercase font-bold tracking-widest border-t border-[#0b1f1c]/8">
                         <span>Author: {licenseInfo?.author || "—"}</span>
                         <span>Version: {licenseInfo?.version || "—"}</span>
                     </div>
                 </CardContent>
             </Card>
+
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden h-full flex flex-col">
+                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
+                    <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
+                        <UploadCloud className="h-5 w-5 text-[#0f5c52]" /> Upload & Restore
+                    </CardTitle>
+                    <CardDescription className="text-[#5a736c]">
+                        Upload backups (.sql / storage .zip / user .json) or a release zip with manifest.json. Restore is confirm-only for backups.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 flex-1 flex flex-col justify-center">
+                    <div
+                        onDragOver={(e) => {
+                            e.preventDefault()
+                            if (!isUploadingBackup) setBackupUploadStatus("dragging")
+                        }}
+                        onDragLeave={() => setBackupUploadStatus("idle")}
+                        onDrop={(e) => {
+                            e.preventDefault()
+                            setBackupUploadStatus("idle")
+                            const files = e.dataTransfer.files
+                            if (files?.length) void uploadBackupFile(files[0])
+                        }}
+                        onClick={() => !isUploadingBackup && backupFileInputRef.current?.click()}
+                        className={cn(
+                            "relative group cursor-pointer border-2 border-dashed rounded-xl p-8 transition-all duration-200 flex flex-col items-center justify-center text-center h-full min-h-[200px]",
+                            isUploadingBackup && "pointer-events-none opacity-70",
+                            backupUploadStatus === "dragging"
+                                ? "border-[#0f5c52] bg-[#0f5c52]/5 scale-[0.99]"
+                                : "border-[#0b1f1c]/10 hover:border-[#0f5c52]/40 hover:bg-[#f0f4f2]/40"
+                        )}
+                    >
+                        <input
+                            type="file"
+                            ref={backupFileInputRef}
+                            onChange={(e) => e.target.files?.[0] && void uploadBackupFile(e.target.files[0])}
+                            className="hidden"
+                            accept=".sql,.zip,.json,application/json,application/zip"
+                        />
+                        <div className="h-12 w-12 rounded-full bg-[#0f5c52]/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-200">
+                            {isUploadingBackup
+                                ? <Loader2 className="h-6 w-6 text-[#0f5c52] animate-spin" />
+                                : <HardDriveDownload className="h-6 w-6 text-[#0f5c52]" />}
+                        </div>
+                        <h3 className="text-sm font-semibold text-[#0b1f1c] mb-1">
+                            {isUploadingBackup ? "Uploading…" : "Drop file here"}
+                        </h3>
+                        <p className="text-xs text-[#5a736c]">
+                            .sql (DB) · .zip (Storage or Release metadata) · .json (User Details)
+                        </p>
+                        <p className="text-[10px] text-[#6b857c] mt-4 uppercase font-bold tracking-tighter">
+                            Backups: upload then Restore · Release zip: updates Version instantly
+                        </p>
+                    </div>
+                </CardContent>
+            </Card>
+            </div>
 
             <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
                 <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8 flex flex-row items-center justify-between space-y-0">
@@ -448,62 +506,6 @@ export function LicenseClient({
                                 {isSavingMaintenance ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Saving…</> : "Save Maintenance Settings"}
                             </Button>
                         </div>
-                    </div>
-                </CardContent>
-            </Card>
-
-            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden">
-                <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
-                    <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
-                        <UploadCloud className="h-5 w-5 text-[#0f5c52]" /> Upload & Restore
-                    </CardTitle>
-                    <CardDescription className="text-[#5a736c]">
-                        Upload backups (.sql / storage .zip / user .json) or a release zip with manifest.json. Restore is confirm-only for backups.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="pt-6">
-                    <div
-                        onDragOver={(e) => {
-                            e.preventDefault()
-                            if (!isUploadingBackup) setBackupUploadStatus("dragging")
-                        }}
-                        onDragLeave={() => setBackupUploadStatus("idle")}
-                        onDrop={(e) => {
-                            e.preventDefault()
-                            setBackupUploadStatus("idle")
-                            const files = e.dataTransfer.files
-                            if (files?.length) void uploadBackupFile(files[0])
-                        }}
-                        onClick={() => !isUploadingBackup && backupFileInputRef.current?.click()}
-                        className={cn(
-                            "relative group cursor-pointer border-2 border-dashed rounded-xl p-8 transition-all duration-200 flex flex-col items-center justify-center text-center",
-                            isUploadingBackup && "pointer-events-none opacity-70",
-                            backupUploadStatus === "dragging"
-                                ? "border-[#0f5c52] bg-[#0f5c52]/5 scale-[0.99]"
-                                : "border-[#0b1f1c]/10 hover:border-[#0f5c52]/40 hover:bg-[#f0f4f2]/40"
-                        )}
-                    >
-                        <input
-                            type="file"
-                            ref={backupFileInputRef}
-                            onChange={(e) => e.target.files?.[0] && void uploadBackupFile(e.target.files[0])}
-                            className="hidden"
-                            accept=".sql,.zip,.json,application/json,application/zip"
-                        />
-                        <div className="h-12 w-12 rounded-full bg-[#0f5c52]/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-200">
-                            {isUploadingBackup
-                                ? <Loader2 className="h-6 w-6 text-[#0f5c52] animate-spin" />
-                                : <HardDriveDownload className="h-6 w-6 text-[#0f5c52]" />}
-                        </div>
-                        <h3 className="text-sm font-semibold text-[#0b1f1c] mb-1">
-                            {isUploadingBackup ? "Uploading…" : "Drop file here"}
-                        </h3>
-                        <p className="text-xs text-[#5a736c]">
-                            .sql (DB) · .zip (Storage or Release metadata) · .json (User Details)
-                        </p>
-                        <p className="text-[10px] text-[#6b857c] mt-4 uppercase font-bold tracking-tighter">
-                            Backups: upload then Restore · Release zip: updates Version instantly
-                        </p>
                     </div>
                 </CardContent>
             </Card>
