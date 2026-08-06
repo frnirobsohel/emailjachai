@@ -331,14 +331,14 @@ export function LicenseClient({
             )}
 
             <div className="grid gap-6 md:grid-cols-2 items-stretch">
-            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden h-full">
+            <Card className="border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden h-full flex flex-col">
                 <CardHeader className="bg-[#f0f4f2]/60 border-b border-[#0b1f1c]/8">
                     <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#0b1f1c]">
                         <ShieldCheck className="h-5 w-5 text-emerald-500" /> Licence Information
                     </CardTitle>
                     <CardDescription className="text-[#5a736c]">Manage your application license key.</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6 pt-6 flex flex-col h-full">
+                <CardContent className="space-y-6 pt-6 flex flex-col flex-1">
                     <div className="flex justify-between items-center p-4 rounded-xl bg-[#f0f4f2]/60 border border-[#0b1f1c]/8">
                         <div>
                             <p className="text-xs text-[#5a736c] uppercase font-bold tracking-wider mb-1">Subscription Status</p>
@@ -388,9 +388,9 @@ export function LicenseClient({
                         )}
                     </div>
 
-                    <div className="mt-auto flex items-center justify-between text-[10px] text-[#6b857c] pt-1 uppercase font-bold tracking-widest border-t border-[#0b1f1c]/8">
-                        <span>Author: {licenseInfo?.author || "—"}</span>
-                        <span>Version: {licenseInfo?.version || "—"}</span>
+                    <div className="mt-auto flex items-center justify-between gap-3 text-xs text-[#5a736c] pt-3 border-t border-[#0b1f1c]/8">
+                        <span className="font-medium">Author: <span className="font-semibold text-[#0b1f1c]">{licenseInfo?.author || "—"}</span></span>
+                        <span className="font-medium">Version: <span className="font-semibold text-[#0b1f1c]">{licenseInfo?.version || "—"}</span></span>
                     </div>
                 </CardContent>
             </Card>
