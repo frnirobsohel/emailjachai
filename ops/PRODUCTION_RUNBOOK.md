@@ -18,6 +18,7 @@
 - `DATABASE_URL` with `sslmode=require` (or `verify-full`)
 - `REDIS_URL`
 - `CORS_ORIGINS` + `FRONTEND_URL` (real HTTPS origins)
+- Public API origin for email verification links: Admin → Payment Settings `api_base_url`, or `PUBLIC_API_URL` (e.g. `https://api.example.com`) — not `localhost`
 - Frontend `API_BASE_URL` = **internal** backend URL (not public Traefik)
 - `NEXT_PUBLIC_WS_URL` = `wss://…/api/v1/ws`
 

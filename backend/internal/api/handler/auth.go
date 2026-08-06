@@ -219,7 +219,7 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		return
 	}
 
-	frontendURL := os.Getenv("FRONTEND_URL")
+	frontendURL := strings.TrimSuffix(strings.TrimSpace(os.Getenv("FRONTEND_URL")), "/")
 	if frontendURL == "" {
 		frontendURL = "http://localhost:3000"
 	}

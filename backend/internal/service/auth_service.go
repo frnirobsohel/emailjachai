@@ -103,19 +103,16 @@ func (s *authService) Register(firstName, lastName, email, password string) (*mo
 	userEmail := user.Name
 	emailAddr := user.Email
 	safe.Go(func() {
-		frontendURL := os.Getenv("FRONTEND_URL")
+		frontendURL := strings.TrimSuffix(strings.TrimSpace(os.Getenv("FRONTEND_URL")), "/")
 		if frontendURL == "" {
 			frontendURL = "http://localhost:3000"
-		}
-		apiUrl := os.Getenv("API_URL")
-		if apiUrl == "" {
-			apiUrl = "http://localhost:8000"
 		}
 
 		verificationLink := fmt.Sprintf("%s/login", frontendURL)
 		if isActive {
 			token, _ := helper.GenerateVerificationToken(emailAddr)
-			verificationLink = fmt.Sprintf("%s/api/v1/auth/verify-email?token=%s", apiUrl, token)
+			// Public API origin (same source as payment webhooks) — never hardcode localhost in prod.
+			verificationLink = fmt.Sprintf("%s/api/v1/auth/verify-email?token=%s", s.resolvePublicAPIBaseURL(), token)
 		}
 
 		placeholders := map[string]string{
@@ -227,6 +224,24 @@ func (s *authService) Impersonate(targetUserID uint, adminID uint) (*model.User,
 	return user, apiKey, nil
 }
 
+// resolvePublicAPIBaseURL returns the publicly reachable API origin for email links.
+// Priority: Admin → Payment Settings api_base_url, then PUBLIC_API_URL / API_URL env, then localhost.
+func (s *authService) resolvePublicAPIBaseURL() string {
+	var sDB model.Setting
+	apiBase := ""
+	if err := s.settingsRepo.DB().Where("setting_key = ?", "api_base_url").First(&sDB).Error; err == nil {
+		apiBase = sDB.SettingValue
+	}
+	if strings.TrimSpace(apiBase) == "" {
+		if v := strings.TrimSpace(os.Getenv("PUBLIC_API_URL")); v != "" {
+			apiBase = v
+		} else if v := strings.TrimSpace(os.Getenv("API_URL")); v != "" {
+			apiBase = v
+		}
+	}
+	return helper.ResolveAPIBaseURL(apiBase)
+}
+
 func (s *authService) ForgotPassword(email string) error {
 	user, err := s.userRepo.GetByEmail(email)
 	if err != nil {
@@ -241,7 +256,7 @@ func (s *authService) ForgotPassword(email string) error {
 
 	// Send Forgot Password Email asynchronously
 	safe.Go(func() {
-		frontendURL := os.Getenv("FRONTEND_URL")
+		frontendURL := strings.TrimSuffix(strings.TrimSpace(os.Getenv("FRONTEND_URL")), "/")
 		if frontendURL == "" {
 			frontendURL = "http://localhost:3000"
 		}
