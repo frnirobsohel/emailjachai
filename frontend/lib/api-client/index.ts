@@ -7,6 +7,7 @@ export interface ApiResponse<T = unknown> {
     status: 'success' | 'error';
     message: string;
     data?: T;
+    code?: string;
 }
 
 class ApiClientService {
@@ -44,12 +45,18 @@ class ApiClientService {
                 return response;
             },
             (error) => {
-                const message = error.response?.data?.message || error.message || 'An unexpected error occurred';
+                const payload = error.response?.data as ApiResponse | undefined;
+                const message = payload?.message || error.message || 'An unexpected error occurred';
                 logger.error(`HTTP Error: ${message}`, { 
                     status: error.response?.status,
-                    url: error.config?.url 
+                    url: error.config?.url,
+                    code: payload?.code,
                 });
                 error.message = message;
+                // Preserve backend error code without clobbering Axios' own `code` (e.g. ERR_NETWORK).
+                if (typeof payload?.code === 'string' && payload.code) {
+                    (error as { apiErrorCode?: string }).apiErrorCode = payload.code;
+                }
                 return Promise.reject(error);
             }
         );

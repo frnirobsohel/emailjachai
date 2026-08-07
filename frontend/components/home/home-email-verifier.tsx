@@ -1,11 +1,16 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Loader2 } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
 import { useSettings } from "@/lib/settings-context"
 import { TurnstileWidget } from "@/components/home/turnstile-widget"
+import {
+    fetchTurnstileConfig,
+    getApiErrorMessage,
+    isCaptchaError,
+} from "@/lib/turnstile"
 
 type PublicStatusData = {
     limit: number
@@ -38,12 +43,26 @@ export function HomeEmailVerifier() {
     const [isInitializing, setIsInitializing] = useState(true)
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
     const [turnstileResetKey, setTurnstileResetKey] = useState(0)
+    const [isCaptchaVisible, setIsCaptchaVisible] = useState(false)
     const [turnstileSiteKey, setTurnstileSiteKey] = useState(
         () => settings?.turnstile_site_key || ""
     )
     const [turnstileRequired, setTurnstileRequired] = useState(
         () => settings?.turnstile_required === "1"
     )
+
+    const isLoadingRef = useRef(false)
+    const isPendingCaptchaRef = useRef(false)
+    const emailRef = useRef(email)
+    const turnstileSiteKeyRef = useRef(turnstileSiteKey)
+
+    useEffect(() => {
+        emailRef.current = email
+    }, [email])
+
+    useEffect(() => {
+        turnstileSiteKeyRef.current = turnstileSiteKey
+    }, [turnstileSiteKey])
 
     const fetchStatus = async () => {
         try {
@@ -84,20 +103,40 @@ export function HomeEmailVerifier() {
 
     const needsCaptcha = turnstileRequired && Boolean(turnstileSiteKey)
 
-    const handleVerify = async (e: React.FormEvent) => {
-        e.preventDefault()
-        if (!email.trim() || isMaintenance) return
+    const recoverCaptchaChallenge = async () => {
+        setTurnstileToken(null)
+        setTurnstileRequired(true)
 
-        if (!isInitializing && remaining !== null && remaining <= 0) {
-            router.push("/register")
+        let siteKey = turnstileSiteKeyRef.current
+        if (!siteKey) {
+            const config = await fetchTurnstileConfig(() =>
+                ApiClient.get<Record<string, string>>("/settings/public")
+            )
+            if (config?.siteKey) {
+                siteKey = config.siteKey
+                setTurnstileSiteKey(config.siteKey)
+            }
+        }
+
+        if (siteKey) {
+            setIsCaptchaVisible(true)
+            setTurnstileResetKey((k) => k + 1)
+            isPendingCaptchaRef.current = true
             return
         }
 
-        if (needsCaptcha && !turnstileToken) {
-            setStatus("Complete captcha first")
-            return
-        }
+        setIsCaptchaVisible(false)
+        isPendingCaptchaRef.current = false
+    }
 
+    const submitVerify = async (token: string | null) => {
+        if (isLoadingRef.current || isMaintenance) return
+
+        const currentEmail = emailRef.current.trim()
+        if (!currentEmail) return
+
+        isLoadingRef.current = true
+        isPendingCaptchaRef.current = false
         setIsLoading(true)
         setStatus(null)
 
@@ -105,8 +144,8 @@ export function HomeEmailVerifier() {
             const res = await ApiClient.post<{ status?: string }>(
                 "/jobs/verify-public",
                 {
-                    email,
-                    turnstile_token: turnstileToken || "",
+                    email: currentEmail,
+                    turnstile_token: token || "",
                 },
                 {
                     withCredentials: true,
@@ -117,17 +156,58 @@ export function HomeEmailVerifier() {
             if (res?.status === "success" && res.data) {
                 setStatus(res.data.status || "Verified")
                 fetchStatus()
+                setTurnstileToken(null)
+                setIsCaptchaVisible(false)
             } else if (res?.status === "error") {
                 setStatus(res.message || "Error")
+                if (isCaptchaError(res)) {
+                    await recoverCaptchaChallenge()
+                } else {
+                    setTurnstileToken(null)
+                    setIsCaptchaVisible(false)
+                }
             } else {
                 setStatus(res?.message || "Unknown")
+                setTurnstileToken(null)
+                setIsCaptchaVisible(false)
             }
         } catch (error: unknown) {
-            setStatus(error instanceof Error ? error.message : "Error connecting to server")
+            setStatus(getApiErrorMessage(error, "Error connecting to server"))
+            if (isCaptchaError(error)) {
+                await recoverCaptchaChallenge()
+            } else {
+                setTurnstileToken(null)
+                setIsCaptchaVisible(false)
+            }
         } finally {
+            isLoadingRef.current = false
             setIsLoading(false)
-            setTurnstileToken(null)
-            setTurnstileResetKey((k) => k + 1)
+        }
+    }
+
+    const handleVerify = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!email.trim() || isMaintenance || isLoadingRef.current) return
+
+        if (!isInitializing && remaining !== null && remaining <= 0) {
+            router.push("/register")
+            return
+        }
+
+        if (needsCaptcha && !turnstileToken) {
+            isPendingCaptchaRef.current = true
+            setIsCaptchaVisible(true)
+            setStatus(null)
+            return
+        }
+
+        await submitVerify(turnstileToken)
+    }
+
+    const handleTurnstileToken = (token: string | null) => {
+        setTurnstileToken(token)
+        if (token && isPendingCaptchaRef.current) {
+            void submitVerify(token)
         }
     }
 
@@ -145,6 +225,9 @@ export function HomeEmailVerifier() {
     } else if (isLoading) {
         buttonText = "Verifying..."
         buttonStyle = "border border-[#08352f]/70 bg-[var(--accent,#0f5c52)]/70 text-white cursor-wait"
+    } else if (isCaptchaVisible && !turnstileToken) {
+        buttonText = "Complete check"
+        buttonStyle = "border border-[#08352f] bg-[var(--accent,#0f5c52)] text-white hover:bg-[var(--accent-hover,#0b4a42)]"
     } else if (status) {
         buttonText = status
         const s = status.toLowerCase()
@@ -191,7 +274,7 @@ export function HomeEmailVerifier() {
                 </div>
                 <button
                     type="submit"
-                    disabled={isLoading || !email || isMaintenance || (needsCaptcha && !turnstileToken)}
+                    disabled={isLoading || !email || isMaintenance}
                     className={`inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-md px-7 py-3.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto ${buttonStyle}`}
                 >
                     {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -199,12 +282,19 @@ export function HomeEmailVerifier() {
                 </button>
             </div>
 
-            {needsCaptcha && !isMaintenance && (
-                <TurnstileWidget
-                    siteKey={turnstileSiteKey}
-                    resetKey={turnstileResetKey}
-                    onToken={setTurnstileToken}
-                />
+            {needsCaptcha && isCaptchaVisible && !isMaintenance && (
+                <div className="space-y-2">
+                    <TurnstileWidget
+                        siteKey={turnstileSiteKey}
+                        resetKey={turnstileResetKey}
+                        onToken={handleTurnstileToken}
+                    />
+                    {!turnstileToken && (
+                        <p className="px-1 text-center text-xs text-[var(--muted-soft,#6b857c)]">
+                            Complete the check to continue verification.
+                        </p>
+                    )}
+                </div>
             )}
 
             <div className="flex flex-col gap-1 px-1 text-xs text-[var(--muted-soft,#6b857c)] sm:flex-row sm:items-center sm:justify-between sm:gap-4">

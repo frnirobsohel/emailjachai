@@ -10,6 +10,7 @@ import (
 
 	"ejp-backend/internal/helper"
 	"ejp-backend/internal/repo"
+	"ejp-backend/internal/security"
 	"ejp-backend/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -28,10 +29,11 @@ func NewContactHandler(settingsRepo repo.SettingsRepo, emailService service.Emai
 }
 
 type contactRequest struct {
-	Name    string `json:"name"`
-	Email   string `json:"email"`
-	Subject string `json:"subject"`
-	Message string `json:"message"`
+	Name           string `json:"name"`
+	Email          string `json:"email"`
+	Subject        string `json:"subject"`
+	Message        string `json:"message"`
+	TurnstileToken string `json:"turnstile_token"`
 }
 
 // SubmitContact emails the home-page contact form to brand support_email.
@@ -39,6 +41,11 @@ func (h *ContactHandler) SubmitContact(c *gin.Context) {
 	var req contactRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		helper.SendError(c, http.StatusBadRequest, "Invalid request body", "ERR_INVALID_REQUEST")
+		return
+	}
+
+	if err := security.VerifyTurnstileToken(req.TurnstileToken, c.ClientIP()); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Captcha verification failed", "ERR_CAPTCHA")
 		return
 	}
 
