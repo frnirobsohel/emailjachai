@@ -8,6 +8,11 @@ import { CreditBadge } from "@/features/dashboard/components/credit-badge"
 import { ApiClient } from "@/lib/api-client"
 import { toast } from "react-hot-toast"
 import { useConfigStore } from "@/stores/config-store"
+import {
+    packageChargePrice,
+    packageDiscountPercent,
+    packageHasOffer,
+} from "@/lib/package-pricing"
 
 export interface Package {
     id: number;
@@ -15,6 +20,7 @@ export interface Package {
     tagline: string;
     credits_amount: number;
     price: string;
+    offer_price?: string | number;
     features: string[] | string;
     popular: boolean;
     status: string;
@@ -221,8 +227,10 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
 
             <div className="grid gap-6 md:grid-cols-3 mt-8">
                 {packages.map((plan) => {
-                    const priceVal = parseFloat(plan.price?.toString() || "0")
-                    const isFree = priceVal === 0 || plan.name.toLowerCase().includes("free")
+                    const hasOffer = packageHasOffer(plan)
+                    const charge = packageChargePrice(plan)
+                    const discount = packageDiscountPercent(plan)
+                    const isFree = charge === 0 || plan.name.toLowerCase().includes("free")
 
                     return (
                         <Card key={plan.id} className={`flex flex-col border-[#0b1f1c]/10 bg-white/90 shadow-none overflow-hidden ${plan.popular ? "ring-2 ring-[#0f5c52] relative" : ""}`}>
@@ -236,8 +244,18 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
                                 <CardDescription className="text-[#5a736c]">{plan.tagline || "Perfect for growing businesses"}</CardDescription>
                             </CardHeader>
                             <CardContent className="flex-1 pt-6">
-                                <div className="flex items-baseline gap-1 mb-1">
-                                    <span className="text-3xl font-bold text-[#0b1f1c]">${priceVal.toFixed(0)}</span>
+                                <div className="flex flex-wrap items-baseline gap-2 mb-1">
+                                    <span className="text-3xl font-bold text-[#0b1f1c]">
+                                        ${charge % 1 === 0 ? charge.toFixed(0) : charge.toFixed(2)}
+                                    </span>
+                                    {hasOffer && (
+                                        <span className="text-sm text-[#6b857c] line-through">
+                                            ${Number(plan.price).toFixed(Number(plan.price) % 1 === 0 ? 0 : 2)}
+                                        </span>
+                                    )}
+                                    {hasOffer && discount !== null && (
+                                        <span className="text-xs font-semibold text-[#0f5c52]">{discount}% off</span>
+                                    )}
                                     <span className="text-[#5a736c] text-sm">/one-time</span>
                                 </div>
                                 <div className="text-sm font-semibold text-[#0f5c52] mb-6 bg-[#0f5c52]/10 inline-block px-2 py-0.5 rounded">
@@ -316,7 +334,15 @@ export function BuyCreditsClient({ initialPackages, initialSettings }: BuyCredit
                             <h3 className="text-lg font-bold text-[#0b1f1c]">Choose Payment Method</h3>
                             <p className="text-sm text-[#5a736c] mt-1">
                                 Purchasing <span className="font-semibold text-[#0f5c52]">{selectedPkg.name}</span> —{" "}
-                                <span className="font-semibold">${parseFloat(selectedPkg.price).toFixed(2)}</span> for{" "}
+                                <span className="font-semibold">
+                                    ${packageChargePrice(selectedPkg).toFixed(2)}
+                                </span>
+                                {packageHasOffer(selectedPkg) && (
+                                    <span className="ml-1 text-[#6b857c] line-through">
+                                        ${Number(selectedPkg.price).toFixed(2)}
+                                    </span>
+                                )}{" "}
+                                for{" "}
                                 <span className="font-semibold">{parseInt(selectedPkg.credits_amount.toString()).toLocaleString()} credits</span>
                             </p>
                         </div>

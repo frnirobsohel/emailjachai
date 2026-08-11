@@ -23,6 +23,7 @@ type PackageResponse struct {
 	Description   string      `json:"description"`
 	CreditsAmount int         `json:"credits_amount"`
 	Price         float64     `json:"price"`
+	OfferPrice    float64     `json:"offer_price"`
 	Features      interface{} `json:"features"`
 	Status        string      `json:"status"`
 	Popular       bool        `json:"popular"`
@@ -44,6 +45,7 @@ func normalizePackage(p model.Package) PackageResponse {
 		Description:   p.Description,
 		CreditsAmount: p.CreditsAmount,
 		Price:         p.Price,
+		OfferPrice:    p.OfferPrice,
 		Features:      features,
 		Status:        p.Status,
 		Popular:       p.Popular,
@@ -69,6 +71,12 @@ func mapPackageError(c *gin.Context, err error) {
 		helper.SendError(c, http.StatusBadRequest, "Price cannot be negative", "ERR_PACKAGE_PRICE")
 	case errors.Is(err, service.ErrPackagePriceTooHigh):
 		helper.SendError(c, http.StatusBadRequest, "Price exceeds maximum", "ERR_PACKAGE_PRICE")
+	case errors.Is(err, service.ErrPackageOfferNegative):
+		helper.SendError(c, http.StatusBadRequest, "Offer price cannot be negative", "ERR_PACKAGE_OFFER")
+	case errors.Is(err, service.ErrPackageOfferTooHigh):
+		helper.SendError(c, http.StatusBadRequest, "Offer price exceeds maximum", "ERR_PACKAGE_OFFER")
+	case errors.Is(err, service.ErrPackageOfferInvalid):
+		helper.SendError(c, http.StatusBadRequest, "Offer price must be greater than 0 and less than regular price", "ERR_PACKAGE_OFFER")
 	case errors.Is(err, service.ErrPackageFeaturesEmpty):
 		helper.SendError(c, http.StatusBadRequest, "At least one feature is required", "ERR_PACKAGE_FEATURES")
 	case errors.Is(err, service.ErrPackageFeaturesTooMany):
@@ -151,6 +159,7 @@ func (h *AdminHandler) CreatePackage(c *gin.Context) {
 		Tagline       string      `json:"tagline"`
 		CreditsAmount int         `json:"credits_amount" binding:"required"`
 		Price         float64     `json:"price"`
+		OfferPrice    float64     `json:"offer_price"`
 		Features      interface{} `json:"features"`
 		Enabled       bool        `json:"enabled"`
 		Popular       bool        `json:"popular"`
@@ -182,6 +191,7 @@ func (h *AdminHandler) CreatePackage(c *gin.Context) {
 		Tagline:       input.Tagline,
 		CreditsAmount: input.CreditsAmount,
 		Price:         input.Price,
+		OfferPrice:    input.OfferPrice,
 		Features:      featuresJSON,
 		Status:        status,
 		Popular:       input.Popular,
@@ -210,6 +220,7 @@ func (h *AdminHandler) UpdatePackage(c *gin.Context) {
 		Tagline       string      `json:"tagline"`
 		CreditsAmount int         `json:"credits_amount"`
 		Price         float64     `json:"price"`
+		OfferPrice    float64     `json:"offer_price"`
 		Features      interface{} `json:"features"`
 		Enabled       bool        `json:"enabled"`
 		Popular       bool        `json:"popular"`
@@ -235,6 +246,7 @@ func (h *AdminHandler) UpdatePackage(c *gin.Context) {
 		pkg.CreditsAmount = input.CreditsAmount
 	}
 	pkg.Price = input.Price
+	pkg.OfferPrice = input.OfferPrice
 	if input.Features != nil {
 		featuresJSON, mErr := marshalFeatures(input.Features)
 		if mErr != nil {

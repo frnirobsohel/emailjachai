@@ -23,7 +23,7 @@ var publicRateLimitCache struct {
 }
 
 func getCachedPublicRateLimit() int64 {
-	const defaultLimit = int64(5)
+	const defaultLimit = int64(10)
 	const cacheTTL = 5 * time.Minute
 
 	publicRateLimitCache.mu.RLock()
@@ -52,7 +52,7 @@ func getCachedPublicRateLimit() int64 {
 }
 
 // PublicRateLimiter applies a strict IP-based rate limit for unauthenticated public endpoints.
-// Default: 5 requests per minute per IP. Configurable via settings table key "public_rate_limit_per_minute".
+// Default: 10 requests per minute per IP. Configurable via settings table key "public_rate_limit_per_minute".
 // Uses a separate Redis key prefix (pub_rate:ip:) to avoid conflicts with the global rate limiter.
 // Fail-closed: if Redis is unavailable, public abuse endpoints are rejected (not opened).
 func PublicRateLimiter() gin.HandlerFunc {

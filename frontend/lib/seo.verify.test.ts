@@ -55,6 +55,9 @@ describe("manual verify checklist (automated)", () => {
       EXAMPLE,
       `${EXAMPLE}/privacy`,
       `${EXAMPLE}/terms`,
+      `${EXAMPLE}/changelog`,
+      `${EXAMPLE}/offer`,
+      `${EXAMPLE}/self-host`,
     ])
     expect(urls.some((u) => u.includes("/login"))).toBe(false)
   })

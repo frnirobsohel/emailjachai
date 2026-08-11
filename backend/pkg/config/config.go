@@ -86,7 +86,13 @@ func ConnectDB() {
 			os.Exit(1)
 		}
 	} else {
-		logger.Info("Production mode: Skipping AutoMigrate. Use explicit SQL migrations.")
+		// Production skips full AutoMigrate; apply only additive, idempotent ensures
+		// so a deploy cannot race ahead of a manual SQL migration and break SELECTs.
+		logger.Info("Production mode: Skipping AutoMigrate. Applying additive schema ensures...")
+		if err := db.Exec(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS offer_price DECIMAL(10, 2) NOT NULL DEFAULT 0`).Error; err != nil {
+			logger.Error("Failed to ensure packages.offer_price column", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	DB = db

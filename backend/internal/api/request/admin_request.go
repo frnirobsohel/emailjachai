@@ -19,6 +19,7 @@ type CreatePackageRequest struct {
 	Tagline       string      `json:"tagline"`
 	CreditsAmount int         `json:"credits_amount" binding:"required"`
 	Price         float64     `json:"price"`
+	OfferPrice    float64     `json:"offer_price"`
 	Features      interface{} `json:"features"`
 	Enabled       bool        `json:"enabled"`
 	Popular       bool        `json:"popular"`

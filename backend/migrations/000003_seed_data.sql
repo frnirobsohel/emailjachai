@@ -22,6 +22,7 @@ VALUES
     ('default_credits',           '100',    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     ('registration_credits',      '100',    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     ('rate_limit_per_minute',     '60',    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('public_rate_limit_per_minute', '10', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     ('b2b_retention',             '30',    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     ('free_valid_retention',      '365',   CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     ('free_invalid_retention',    '30',    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),

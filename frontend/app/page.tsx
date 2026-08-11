@@ -88,17 +88,17 @@ export default async function Home() {
   if (packages.length === 0) {
     packages = [
         {
-            id: 1, name: "Starter", tagline: "1,000 credits", price: 5, credits_amount: 1000,
+            id: 1, name: "Starter", tagline: "Best for trying the platform", price: 5, offer_price: 0, credits_amount: 1000,
             features: ["Single & Bulk Verification", "CSV Export", "API Access"],
             status: "active", popular: false
         },
         {
-            id: 2, name: "Professional", tagline: "10,000 credits", price: 25, credits_amount: 10000,
+            id: 2, name: "Professional", tagline: "For growing teams and agencies", price: 25, offer_price: 0, credits_amount: 10000,
             features: ["Everything in Starter", "Webhook Integration", "Real-time Dashboard"],
             status: "active", popular: true
         },
         {
-            id: 3, name: "Enterprise", tagline: "100,000 credits", price: 99, credits_amount: 100000,
+            id: 3, name: "Enterprise", tagline: "High-volume verification at scale", price: 99, offer_price: 0, credits_amount: 100000,
             features: ["Everything in Pro", "White-label Option", "Dedicated Worker Nodes"],
             status: "active", popular: false
         }

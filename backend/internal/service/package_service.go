@@ -18,6 +18,9 @@ var (
 	ErrPackageCreditsInvalid  = errors.New("credits amount must be between 1 and 10000000")
 	ErrPackagePriceNegative   = errors.New("price cannot be negative")
 	ErrPackagePriceTooHigh    = errors.New("price exceeds maximum of 999999.99")
+	ErrPackageOfferNegative   = errors.New("offer price cannot be negative")
+	ErrPackageOfferTooHigh    = errors.New("offer price exceeds maximum of 999999.99")
+	ErrPackageOfferInvalid    = errors.New("offer price must be greater than 0 and less than regular price")
 	ErrPackageNameRequired    = errors.New("package name is required")
 	ErrPackageNameTooLong     = errors.New("package name exceeds 100 characters")
 	ErrPackageTaglineTooLong  = errors.New("tagline exceeds 255 characters")
@@ -177,6 +180,18 @@ func normalizeAndValidatePackage(pkg *model.Package) error {
 	pkg.Price = math.Round(pkg.Price*100) / 100
 	if pkg.Price > maxPackagePrice {
 		return ErrPackagePriceTooHigh
+	}
+
+	if pkg.OfferPrice < 0 {
+		return ErrPackageOfferNegative
+	}
+	pkg.OfferPrice = math.Round(pkg.OfferPrice*100) / 100
+	if pkg.OfferPrice > maxPackagePrice {
+		return ErrPackageOfferTooHigh
+	}
+	// 0 clears the offer. Any positive value must undercut the regular price.
+	if pkg.OfferPrice > 0 && (pkg.Price <= 0 || pkg.OfferPrice >= pkg.Price) {
+		return ErrPackageOfferInvalid
 	}
 
 	features, err := normalizeFeaturesJSON(pkg.Features)

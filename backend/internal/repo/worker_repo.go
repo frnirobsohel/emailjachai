@@ -2,7 +2,6 @@ package repo
 
 import (
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -88,7 +87,7 @@ func (r *workerRepo) ReconcileJobStatus(jobID string) error {
 		}
 	}
 
-	// Set final job status and handle 80% refund for risky (unknown) emails
+	// Set final job status and handle 100% refund for risky (unknown) emails
 	newStatus := "completed"
 	if counts.FailedCount > 0 {
 		newStatus = "failed"
@@ -108,9 +107,9 @@ func (r *workerRepo) ReconcileJobStatus(jobID string) error {
 			return err
 		}
 
-		// Apply 80% refund for risky emails if job completed successfully
+		// Full credit refund for unknown/risky emails when the bulk job completes
 		if newStatus == "completed" && job.JobType == "bulk" && job.Risky > 0 {
-			refundCredits := int(math.Round(float64(job.Risky) * 0.80))
+			refundCredits := job.Risky
 			if refundCredits > 0 {
 				if err := tx.Model(&model.User{}).Where("id = ?", job.UserID).Update("credits", gorm.Expr("credits + ?", refundCredits)).Error; err != nil {
 					return err
@@ -124,7 +123,7 @@ func (r *workerRepo) ReconcileJobStatus(jobID string) error {
 					CreditsAdded:  refundCredits,
 					Type:          "refund",
 					Status:        "completed",
-					Description:   fmt.Sprintf("80%% partial refund for %d unknown emails in job %s", job.Risky, job.JobID),
+					Description:   fmt.Sprintf("100%% refund for %d unknown emails in job %s", job.Risky, job.JobID),
 					Provider:      "system",
 				}
 				if err := tx.Create(&refundTxn).Error; err != nil {

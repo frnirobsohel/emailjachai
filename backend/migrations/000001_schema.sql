@@ -141,6 +141,7 @@ CREATE TABLE IF NOT EXISTS packages (
     tagline        VARCHAR(255),
     credits_amount INTEGER NOT NULL,
     price          DECIMAL(10,2) NOT NULL,
+    offer_price    DECIMAL(10,2) NOT NULL DEFAULT 0,
     description    TEXT,
     features       TEXT,
     status         VARCHAR(20) DEFAULT 'active',     -- active, inactive

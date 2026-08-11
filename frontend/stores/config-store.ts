@@ -7,6 +7,7 @@ export interface Package {
     tagline: string;
     credits_amount: number;
     price: string;
+    offer_price?: string | number;
     features: string[] | string;
     popular: boolean;
     status: string;

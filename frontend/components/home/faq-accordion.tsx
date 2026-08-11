@@ -14,7 +14,7 @@ const faqs: FAQItem[] = [
   },
   {
     q: "What is a credit?",
-    a: "One credit equals one email verification. When you verify a single email, it costs 1 credit. Unknown results are automatically refunded at 80%.",
+    a: "One credit equals one email verification. When you verify a single email, it costs 1 credit. Unknown results are automatically refunded at 100%.",
   },
   {
     q: "Do credits expire?",

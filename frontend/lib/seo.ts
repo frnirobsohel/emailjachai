@@ -86,6 +86,9 @@ export function publicSitemapEntries(baseUrl: string) {
     { url: baseUrl },
     { url: `${baseUrl}/privacy` },
     { url: `${baseUrl}/terms` },
+    { url: `${baseUrl}/changelog` },
+    { url: `${baseUrl}/offer` },
+    { url: `${baseUrl}/self-host` },
   ]
 }
 

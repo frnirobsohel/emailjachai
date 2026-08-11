@@ -26,6 +26,7 @@ export type PackageRow = {
     tagline: string
     description?: string
     price: number
+    offer_price?: number
     credits_amount: number
     features: string[]
     status: string
@@ -39,6 +40,7 @@ const packageSchema = z.object({
     name: z.string().trim().min(1, "Package name is required").max(100, "Name max 100 characters"),
     tagline: z.string().max(255, "Tagline max 255 characters"),
     price: z.number({ message: "Price must be a number" }).min(0, "Price must be ≥ 0").max(999999.99, "Price too high"),
+    offer_price: z.number({ message: "Offer price must be a number" }).min(0, "Offer must be ≥ 0").max(999999.99, "Offer too high"),
     credits_amount: z.number({ message: "Credits must be a number" }).int().min(1, "Credits must be ≥ 1").max(10_000_000, "Credits too high"),
     features: z.array(z.object({
         value: z.string().max(200, "Feature max 200 characters"),
@@ -52,6 +54,14 @@ const packageSchema = z.object({
     enabled: z.boolean(),
     popular: z.boolean(),
     is_public: z.boolean(),
+}).superRefine((values, ctx) => {
+    if (values.offer_price > 0 && (values.price <= 0 || values.offer_price >= values.price)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["offer_price"],
+            message: "Offer must be greater than 0 and less than regular price",
+        })
+    }
 })
 
 type PackageFormValues = z.infer<typeof packageSchema>
@@ -60,6 +70,7 @@ const defaultFormValues: PackageFormValues = {
     name: "",
     tagline: "",
     price: 0,
+    offer_price: 0,
     credits_amount: 1,
     features: [{ value: "" }],
     enabled: true,
@@ -98,6 +109,7 @@ export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
             name: plan.name,
             tagline: plan.tagline || "",
             price: plan.price,
+            offer_price: plan.offer_price ?? 0,
             credits_amount: plan.credits_amount,
             features: (plan.features?.length ? plan.features : [""]).map(f => ({ value: f })),
             enabled: plan.status === 'active',
@@ -115,6 +127,7 @@ export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
             name: values.name.trim(),
             tagline: values.tagline.trim(),
             price: Math.round(values.price * 100) / 100,
+            offer_price: Math.round((values.offer_price || 0) * 100) / 100,
             credits_amount: values.credits_amount,
             features,
             enabled: values.enabled,
@@ -161,6 +174,7 @@ export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
                 name: plan.name,
                 tagline: plan.tagline,
                 price: plan.price,
+                offer_price: plan.offer_price ?? 0,
                 credits_amount: plan.credits_amount,
                 features: plan.features,
                 enabled: patch.enabled ?? (plan.status?.toLowerCase() === 'active'),
@@ -300,7 +314,18 @@ export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
                                         <div className="font-semibold text-[#0b1f1c]">{plan.name}</div>
                                         <div className="text-xs text-[#6b857c] mt-0.5 truncate max-w-[160px]">{plan.tagline}</div>
                                     </TableCell>
-                                    <TableCell className="text-[#5a736c] font-medium">${Number(plan.price).toFixed(2)}</TableCell>
+                                    <TableCell className="text-[#5a736c] font-medium">
+                                        {(plan.offer_price ?? 0) > 0 && (plan.offer_price ?? 0) < plan.price ? (
+                                            <div className="space-y-0.5">
+                                                <div>${Number(plan.offer_price).toFixed(2)}</div>
+                                                <div className="text-xs text-[#6b857c] line-through">
+                                                    ${Number(plan.price).toFixed(2)}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <>${Number(plan.price).toFixed(2)}</>
+                                        )}
+                                    </TableCell>
                                     <TableCell className="text-[#5a736c]">{(plan.credits_amount || 0).toLocaleString()}</TableCell>
                                     <TableCell>
                                         <div className="flex flex-wrap gap-1">
@@ -384,15 +409,23 @@ export function PackagesClient({ initialData }: { initialData: PackageRow[] }) {
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1">
-                                    <label htmlFor="pkg-price" className="text-xs font-medium text-[#5a736c] block">Price (USD)</label>
+                                    <label htmlFor="pkg-price" className="text-xs font-medium text-[#5a736c] block">Regular price (USD)</label>
                                     <Input id="pkg-price" type="number" step="0.01" min={0} max={999999.99} {...form.register("price", { valueAsNumber: true })} placeholder="49" className={cn(form.formState.errors.price && "border-red-400")} />
                                     {form.formState.errors.price && <p className="text-[10px] text-red-500">{form.formState.errors.price.message}</p>}
                                 </div>
                                 <div className="space-y-1">
-                                    <label htmlFor="pkg-credits" className="text-xs font-medium text-[#5a736c] block">Credits</label>
-                                    <Input id="pkg-credits" type="number" min={1} max={10_000_000} {...form.register("credits_amount", { valueAsNumber: true })} placeholder="5000" className={cn(form.formState.errors.credits_amount && "border-red-400")} />
-                                    {form.formState.errors.credits_amount && <p className="text-[10px] text-red-500">{form.formState.errors.credits_amount.message}</p>}
+                                    <label htmlFor="pkg-offer" className="text-xs font-medium text-[#5a736c] block">Offer price (USD)</label>
+                                    <Input id="pkg-offer" type="number" step="0.01" min={0} max={999999.99} {...form.register("offer_price", { valueAsNumber: true })} placeholder="0 = no offer" className={cn(form.formState.errors.offer_price && "border-red-400")} />
+                                    {form.formState.errors.offer_price && <p className="text-[10px] text-red-500">{form.formState.errors.offer_price.message}</p>}
                                 </div>
+                            </div>
+                            <p className="text-[10px] text-[#6b857c] -mt-1">
+                                Leave offer at 0 to clear. When set, customers pay the offer price and see regular as struck-through.
+                            </p>
+                            <div className="space-y-1">
+                                <label htmlFor="pkg-credits" className="text-xs font-medium text-[#5a736c] block">Credits</label>
+                                <Input id="pkg-credits" type="number" min={1} max={10_000_000} {...form.register("credits_amount", { valueAsNumber: true })} placeholder="5000" className={cn(form.formState.errors.credits_amount && "border-red-400")} />
+                                {form.formState.errors.credits_amount && <p className="text-[10px] text-red-500">{form.formState.errors.credits_amount.message}</p>}
                             </div>
 
                             <div>

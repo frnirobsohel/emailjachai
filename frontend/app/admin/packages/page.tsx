@@ -14,6 +14,7 @@ function normalizePackageRow(raw: PackageRow): PackageRow {
     return {
         ...raw,
         features,
+        offer_price: raw.offer_price ?? 0,
         is_public: raw.is_public ?? true,
         popular: raw.popular ?? false,
         status: raw.status || "inactive",

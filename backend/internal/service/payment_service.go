@@ -315,7 +315,8 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 	if pkg.Status != "active" || !pkg.IsPublic {
 		return "", errors.New("package not available")
 	}
-	if pkg.Price <= 0 || pkg.CreditsAmount <= 0 {
+	chargePrice := pkg.EffectivePrice()
+	if chargePrice <= 0 || pkg.CreditsAmount <= 0 {
 		return "", errors.New("package not available for paid checkout")
 	}
 
@@ -327,7 +328,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 	transaction := &model.Transaction{
 		UserID:        userID,
 		TransactionID: txnID,
-		Amount:        pkg.Price,
+		Amount:        chargePrice,
 		CreditsAdded:  int(pkg.CreditsAmount),
 		Type:          "purchase",
 		Status:        "pending",
@@ -350,7 +351,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 			return "", errors.New("Stripe is not enabled")
 		}
 
-		amountCents := int(pkg.Price * 100)
+		amountCents := int(chargePrice * 100)
 		if amountCents < 1 {
 			return "", errors.New("package not available for paid checkout")
 		}
@@ -455,7 +456,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 				{
 					Amount: AmountStruct{
 						CurrencyCode: "USD",
-						Value:        fmt.Sprintf("%.2f", pkg.Price),
+						Value:        fmt.Sprintf("%.2f", chargePrice),
 					},
 					Description: pkg.Name + " Plan",
 					CustomID:    txnID,
@@ -530,7 +531,7 @@ func (s *paymentService) CreatePaymentSession(userID uint, packageID uint, provi
 		}
 
 		orderID := fmt.Sprintf("order_%d_%d_%d", userID, packageID, time.Now().UnixNano())
-		amountStr := fmt.Sprintf("%.2f", pkg.Price)
+		amountStr := fmt.Sprintf("%.2f", chargePrice)
 
 		type CryptomusPayload struct {
 			Amount            string `json:"amount"`
@@ -799,7 +800,7 @@ func (s *paymentService) completeManualPayment(payload interface{}) error {
 			go s.emailService.SendTemplateEmail(user.Email, "transaction", map[string]string{
 				"name":   user.Name,
 				"txn_id": fmt.Sprintf("MANUAL_%d", time.Now().Unix()),
-				"amount": fmt.Sprintf("%.2f", pkg.Price),
+				"amount": fmt.Sprintf("%.2f", pkg.EffectivePrice()),
 			})
 		}
 	}

@@ -19,25 +19,25 @@ export function Navbar({ siteTitle, logoUrl }: NavbarProps) {
                 </Link>
                 <nav className="flex shrink-0 items-center gap-0.5 sm:gap-2">
                     <Link
-                        href="#features"
+                        href="/#features"
                         className="hidden px-3 py-2 text-sm text-[#4a635c] transition-colors hover:text-[#0b1f1c] md:inline-flex"
                     >
                         Features
                     </Link>
                     <Link
-                        href="#pricing"
+                        href="/#pricing"
                         className="hidden px-3 py-2 text-sm text-[#4a635c] transition-colors hover:text-[#0b1f1c] md:inline-flex"
                     >
                         Pricing
                     </Link>
                     <Link
-                        href="#vision"
+                        href="/self-host"
                         className="hidden px-3 py-2 text-sm text-[#4a635c] transition-colors hover:text-[#0b1f1c] md:inline-flex"
                     >
-                        Vision
+                        Self-Host
                     </Link>
                     <Link
-                        href="#support"
+                        href="/#support"
                         className="hidden px-3 py-2 text-sm text-[#4a635c] transition-colors hover:text-[#0b1f1c] md:inline-flex"
                     >
                         Support

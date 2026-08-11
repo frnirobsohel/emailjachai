@@ -309,8 +309,8 @@ func (r *jobRepository) CheckAndApplyRiskyRefund(tx *gorm.DB, jobID string) erro
 			return nil // Already refunded
 		}
 
-		// Calculate refund: 80% of Risky count rounded
-		refundCredits := (job.Risky*80 + 50) / 100
+		// Full credit refund for each unknown/risky result
+		refundCredits := job.Risky
 		if refundCredits > 0 {
 			if err := tx.Model(&model.User{}).Where("id = ?", job.UserID).Update("credits", gorm.Expr("credits + ?", refundCredits)).Error; err != nil {
 				return err
@@ -324,7 +324,7 @@ func (r *jobRepository) CheckAndApplyRiskyRefund(tx *gorm.DB, jobID string) erro
 				CreditsAdded:  refundCredits,
 				Type:          "refund",
 				Status:        "completed",
-				Description:   fmt.Sprintf("80%% partial refund for %d unknown emails in job %s", job.Risky, job.JobID),
+				Description:   fmt.Sprintf("100%% refund for %d unknown emails in job %s", job.Risky, job.JobID),
 				Provider:      "system",
 			}
 			if err := tx.Create(&refundTxn).Error; err != nil {

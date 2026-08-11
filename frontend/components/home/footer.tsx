@@ -101,23 +101,28 @@ export function Footer({
                         </h4>
                         <ul className="space-y-3">
                             <li>
-                                <Link href="#features" className="text-sm text-[#8aa099] transition-colors hover:text-white">
+                                <Link href="/#features" className="text-sm text-[#8aa099] transition-colors hover:text-white">
                                     Features
                                 </Link>
                             </li>
                             <li>
-                                <Link href="#pricing" className="text-sm text-[#8aa099] transition-colors hover:text-white">
+                                <Link href="/#pricing" className="text-sm text-[#8aa099] transition-colors hover:text-white">
                                     Pricing
                                 </Link>
                             </li>
                             <li>
-                                <Link href="#vision" className="text-sm text-[#8aa099] transition-colors hover:text-white">
-                                    Vision
+                                <Link href="/self-host" className="text-sm text-[#8aa099] transition-colors hover:text-white">
+                                    Self-Host
                                 </Link>
                             </li>
                             <li>
-                                <Link href="#support" className="text-sm text-[#8aa099] transition-colors hover:text-white">
-                                    FAQ
+                                <Link href="/changelog" className="text-sm text-[#8aa099] transition-colors hover:text-white">
+                                    Changelog
+                                </Link>
+                            </li>
+                            <li>
+                                <Link href="/offer" className="text-sm text-[#8aa099] transition-colors hover:text-white">
+                                    Offers
                                 </Link>
                             </li>
                             <li>
@@ -144,7 +149,7 @@ export function Footer({
                                 </Link>
                             </li>
                             <li>
-                                <Link href="#support" className="text-sm text-[#8aa099] transition-colors hover:text-white">
+                                <Link href="/#support" className="text-sm text-[#8aa099] transition-colors hover:text-white">
                                     Contact
                                 </Link>
                             </li>

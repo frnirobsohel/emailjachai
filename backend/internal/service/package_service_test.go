@@ -71,6 +71,16 @@ func TestNormalizeAndValidatePackage_RejectsBadBounds(t *testing.T) {
 			pkg:  model.Package{Name: "A", CreditsAmount: 1, Price: 1_000_000, Features: `["a"]`},
 			want: ErrPackagePriceTooHigh,
 		},
+		{
+			name: "offer not below price",
+			pkg:  model.Package{Name: "A", CreditsAmount: 1, Price: 10, OfferPrice: 10, Features: `["a"]`},
+			want: ErrPackageOfferInvalid,
+		},
+		{
+			name: "negative offer",
+			pkg:  model.Package{Name: "A", CreditsAmount: 1, Price: 10, OfferPrice: -1, Features: `["a"]`},
+			want: ErrPackageOfferNegative,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -79,6 +89,29 @@ func TestNormalizeAndValidatePackage_RejectsBadBounds(t *testing.T) {
 				t.Fatalf("got %v, want %v", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeAndValidatePackage_OfferOK(t *testing.T) {
+	pkg := &model.Package{
+		Name:          "Pro",
+		CreditsAmount: 100,
+		Price:         25,
+		OfferPrice:    17.5,
+		Features:      `["a"]`,
+	}
+	if err := normalizeAndValidatePackage(pkg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !pkg.HasOffer() || pkg.EffectivePrice() != 17.5 {
+		t.Fatalf("offer not applied: %+v", pkg)
+	}
+	pkg.OfferPrice = 0
+	if err := normalizeAndValidatePackage(pkg); err != nil {
+		t.Fatalf("clear offer: %v", err)
+	}
+	if pkg.HasOffer() || pkg.EffectivePrice() != 25 {
+		t.Fatalf("offer should be cleared: %+v", pkg)
 	}
 }
 
