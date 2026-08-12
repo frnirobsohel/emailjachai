@@ -3,16 +3,15 @@ package helper
 import "strings"
 
 // NormalizeVerificationStatus canonicalizes email verification status strings.
-// This ensures consistent handling of all aliases workers might send.
-// Matches legacy PHP SmtpVerifier::normalizeVerificationStatus exactly.
+// mailbox_full is valid: the address exists, the mailbox is only over quota.
 func NormalizeVerificationStatus(status string) string {
 	normalized := strings.ToLower(strings.TrimSpace(status))
 	switch normalized {
-	case "valid", "deliverable":
+	case "valid", "deliverable", "mailbox_full", "mailbox-full":
 		return "valid"
 	case "catch_all", "catch-all", "catchall":
 		return "catch_all"
-	case "unknown", "risky", "temp", "temporary", "mailbox_full", "mailbox-full":
+	case "unknown", "risky", "temp", "temporary":
 		return "unknown"
 	case "disposable":
 		return "disposable"
@@ -21,6 +20,17 @@ func NormalizeVerificationStatus(status string) string {
 	default:
 		return "unknown"
 	}
+}
+
+// PromoteMailboxFullToValid upgrades unknown/mailbox_full results to valid
+// when SMTP confirmed the mailbox exists but is over quota.
+// Does not override invalid, disposable, or catch_all.
+func PromoteMailboxFullToValid(status string, mailboxFull bool) string {
+	n := NormalizeVerificationStatus(status)
+	if mailboxFull && (n == "unknown" || n == "valid") {
+		return "valid"
+	}
+	return n
 }
 
 // ScoreForStatus returns the verification score for a normalized status.

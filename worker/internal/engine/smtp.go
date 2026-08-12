@@ -257,8 +257,11 @@ func VerifyEmail(email string) VerifyResult {
 				return result
 			}
 			if res.MailboxFull {
+				// Mailbox exists but is over quota — treat as valid (address confirmed).
 				result.MailboxFull = true
-				result.Status = "unknown"
+				result.Status = "valid"
+				result.Score = 100
+				result.Deliverable = true
 				result.Reason = "mailbox_full"
 				return result
 			}

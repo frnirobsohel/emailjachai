@@ -3,6 +3,7 @@ package repo
 import (
 	"time"
 
+	"ejp-backend/internal/helper"
 	"ejp-backend/internal/model"
 
 	"gorm.io/gorm"
@@ -62,6 +63,15 @@ func (r *cacheRepository) GetCachedEmailsInBatches(emails []string, b2bRetention
 
 		// Only include if it's within the retention threshold
 		if ce.CreatedAt.After(retentionThreshold) {
+			if helper.PromoteMailboxFullToValid(ce.Status, ce.MailboxFull) == "valid" && ce.MailboxFull {
+				ce.Status = "valid"
+				ce.Score = helper.ScoreForStatus("valid")
+				ce.IsDeliverable = true
+				ce.UserExists = true
+				if ce.Reason == "" || ce.Reason == "unknown" || ce.Reason == "risky" {
+					ce.Reason = "mailbox_full"
+				}
+			}
 			cacheMap[ce.Email] = ce
 		}
 	}

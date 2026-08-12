@@ -312,7 +312,10 @@ func verifyEmailInternal(email string, start time.Time, deadline time.Time) Veri
 			}
 
 			if res.MailboxFull {
-				result.Status = "unknown"
+				// Mailbox exists but is over quota — treat as valid (address confirmed).
+				result.Status = "valid"
+				result.Score = 100
+				result.Deliverable = true
 				result.MailboxFull = true
 				result.Reason = "mailbox_full"
 				result.ProcessingTime = time.Since(start).Seconds()

@@ -158,6 +158,14 @@ func (s *workerService) ReportTaskResult(payload *WorkerReportPayload) (*model.J
 
 	// Centralized status normalization
 	status = helper.NormalizeVerificationStatus(status)
+	mailboxFull := payload.MailboxFull != nil && *payload.MailboxFull
+	status = helper.PromoteMailboxFullToValid(status, mailboxFull)
+	if mailboxFull && status == "valid" {
+		payload.Status = status
+		payload.Score = helper.ScoreForStatus(status)
+		bTrue := true
+		payload.IsDeliverable = &bTrue
+	}
 
 	var job model.Job
 	var result model.JobResult
@@ -460,6 +468,13 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 
 		// Centralized status normalization
 		status = helper.NormalizeVerificationStatus(status)
+		mailboxFull := r.MailboxFull != nil && *r.MailboxFull
+		status = helper.PromoteMailboxFullToValid(status, mailboxFull)
+		if mailboxFull && status == "valid" {
+			r.Score = helper.ScoreForStatus(status)
+			bTrue := true
+			r.IsDeliverable = &bTrue
+		}
 		r.Email = e
 		r.Status = status
 
