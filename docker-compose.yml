@@ -53,6 +53,7 @@ services:
       BULK_RESULTS_PATH: /app/storage/results/bulk
       BULK_SOURCE_PATH: /app/storage/jobs/bulk
       SINGLE_RESULTS_PATH: /app/storage/results/single
+      SMTP_VERIFY_TIMEOUT_SEC: "135"
     volumes:
       - ejp_storage:/app/storage
     ports:
@@ -71,6 +72,7 @@ services:
       API_BASE_URL: http://backend:8000/api/v1/internal
       WORKER_API_KEY: local-dev-worker-key-change-me
       WORKER_SERVER_NAME: compose-worker-1
+      SMTP_VERIFY_TIMEOUT_SEC: "135"
 
   frontend:
     build:

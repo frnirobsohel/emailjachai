@@ -2,6 +2,7 @@ package service
 
 import (
 	"bufio"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -51,7 +52,7 @@ type JobService interface {
 	GetJobs(userID uint, jobType string, limit, offset int) ([]model.Job, int64, error)
 	GetJobStatus(userID uint, jobID string) (*model.Job, *model.JobResult, error)
 	DeleteJob(userID uint, jobID string) error
-	VerifySingle(userID uint, email string, apiKeyID *uint, idempotencyKey string) (*model.Job, *model.JobResult, error)
+	VerifySingle(ctx context.Context, userID uint, email string, apiKeyID *uint, idempotencyKey string) (*model.Job, *model.JobResult, error)
 	SubmitBulkJob(userID uint, filename string, emails []string, idempotencyKey string, apiKeyID *uint) (*model.Job, []model.JobTask, error)
 	PrepareBulkJob(jobID string) error
 	FailPreparingJob(jobID, reason string) error
@@ -136,7 +137,10 @@ func (s *jobService) DeleteJob(userID uint, jobID string) error {
 	return nil
 }
 
-func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint, idempotencyKey string) (*model.Job, *model.JobResult, error) {
+func (s *jobService) VerifySingle(ctx context.Context, userID uint, email string, apiKeyID *uint, idempotencyKey string) (*model.Job, *model.JobResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	email = strings.ToLower(strings.TrimSpace(email))
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 
@@ -268,8 +272,8 @@ func (s *jobService) VerifySingle(userID uint, email string, apiKeyID *uint, ide
 	}
 
 	if !fromCache {
-		res = verifier.VerifyEmail(email)
-		if res.Reason == "timeout" || res.Reason == "busy" {
+		res = verifier.VerifyEmailBounded(ctx, email, 0)
+		if res.Reason == "timeout" || res.Reason == "busy" || res.Reason == "cancelled" {
 			refundSingle("Refund: Single Verify timeout/busy")
 			if res.Reason == "busy" {
 				return nil, nil, errors.New("verification busy")
@@ -888,14 +892,17 @@ func (s *jobService) enqueueBulkChunks(job *model.Job, user *model.User, queueEm
 		if len(plan.misses) == 0 {
 			continue
 		}
-		task, err := tasks.NewEmailChunkTask(job.JobID, plan.task.ID, plan.misses)
+		task, err := tasks.NewEmailChunkTask(job.JobID, plan.task.ID, plan.misses, chunkTimeout)
 		if err != nil {
 			logger.Error("Failed to build chunk task", "job_id", job.JobID, "task_id", plan.task.ID, "error", err)
 			s.cancelAsynqTasks(enqueuedAsynqIDs)
 			_ = s.RefundJob(job.UserID, job.JobID, len(queueEmails), fmt.Sprintf("failed to build chunk task %d", plan.task.ID))
 			return false, nil
 		}
-		info, err := config.AsynqClient.Enqueue(task, asynq.MaxRetry(3), asynq.Timeout(chunkTimeout), asynq.Queue(queueName))
+		// Asynq Timeout is hang-safety only (includes concurrency-gate wait).
+		// The real Job Control budget starts after the worker acquires its slot.
+		asynqHang := chunkTimeout + 4*time.Hour
+		info, err := config.AsynqClient.Enqueue(task, asynq.MaxRetry(3), asynq.Timeout(asynqHang), asynq.Queue(queueName))
 		if err != nil {
 			logger.Error("Failed to enqueue chunk task", "job_id", job.JobID, "task_id", plan.task.ID, "error", err)
 			s.cancelAsynqTasks(enqueuedAsynqIDs)
@@ -942,13 +949,13 @@ func (s *jobService) rollbackPrepareHitEmails(job *model.Job, hitEmails []string
 	}
 
 	var agg struct {
-		Total        int64
-		Deliverable  int64
+		Total         int64
+		Deliverable   int64
 		Undeliverable int64
-		Risky        int64
-		CatchAll     int64
-		Disposable   int64
-		RoleAccounts int64
+		Risky         int64
+		CatchAll      int64
+		Disposable    int64
+		RoleAccounts  int64
 	}
 	_ = s.jobRepo.DB().Model(&model.JobResult{}).
 		Select(`COUNT(*) AS total,

@@ -149,7 +149,7 @@ export function HomeEmailVerifier() {
                 },
                 {
                     withCredentials: true,
-                    timeout: 60000,
+                    timeout: 180000,
                 }
             )
 

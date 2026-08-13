@@ -211,3 +211,6 @@ export const POST = proxyRequest;
 export const PUT = proxyRequest;
 export const DELETE = proxyRequest;
 export const PATCH = proxyRequest;
+
+// Cover 135s SMTP probe + semaphore/rate-limit wait (client timeout is 180s).
+export const maxDuration = 180;

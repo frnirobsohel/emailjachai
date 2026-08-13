@@ -84,7 +84,7 @@ export function SingleVerifyForm({ onVerify }: SingleVerifyFormProps) {
             const result = await ApiClient.post(
                 "/jobs/verify-single",
                 { email: normalizedEmail, idempotencyKey },
-                { timeout: 60000 }
+                { timeout: 180000 }
             )
 
             if (result.status === "success") {

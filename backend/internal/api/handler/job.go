@@ -89,7 +89,7 @@ func (h *JobHandler) SubmitSingleVerify(c *gin.Context) {
 		}
 	}
 
-	job, result, err := h.jobService.VerifySingle(userID.(uint), req.Email, apiKeyID, req.IdempotencyKey)
+	job, result, err := h.jobService.VerifySingle(c.Request.Context(), userID.(uint), req.Email, apiKeyID, req.IdempotencyKey)
 	if err != nil {
 		switch err.Error() {
 		case "insufficient credits":

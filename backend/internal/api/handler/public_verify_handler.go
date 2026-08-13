@@ -31,11 +31,11 @@ var emailRegex = regexp.MustCompile(`(?i)^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$
 // আগে প্রতিটা verify request-এ DB থেকে retention settings পড়া হত (3 queries)।
 // এখন 5 মিনিটের in-memory cache ব্যবহার করা হয়।
 var retentionCache struct {
-	mu           sync.RWMutex
-	b2b          int
-	freeValid    int
-	freeInvalid  int
-	expiresAt    time.Time
+	mu          sync.RWMutex
+	b2b         int
+	freeValid   int
+	freeInvalid int
+	expiresAt   time.Time
 }
 
 func getCachedRetentionSettings() (b2b, freeValid, freeInvalid int) {
@@ -228,7 +228,7 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 
 	// 2. Live verify on cache miss
 	if !fromCache {
-		res = verifier.VerifyEmail(email)
+		res = verifier.VerifyEmailBounded(c.Request.Context(), email, 0)
 
 		// Async cache upsert so future requests benefit from cache
 		resCopy := res

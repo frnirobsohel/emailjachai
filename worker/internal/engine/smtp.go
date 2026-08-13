@@ -17,15 +17,19 @@ import (
 )
 
 const (
-	defaultSMTPVerifyTimeout = 45 * time.Second
-	smtpDialTimeout          = 8 * time.Second
-	smtpIODeadline           = 10 * time.Second
+	defaultSMTPVerifyTimeout = 135 * time.Second
+	smtpDialTimeout          = 24 * time.Second
+	smtpIODeadline           = 30 * time.Second
 )
 
 func smtpVerifyTimeout() time.Duration {
 	if v := strings.TrimSpace(os.Getenv("SMTP_VERIFY_TIMEOUT_SEC")); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
-			return time.Duration(parsed) * time.Second
+			d := time.Duration(parsed) * time.Second
+			if d < defaultSMTPVerifyTimeout {
+				return defaultSMTPVerifyTimeout
+			}
+			return d
 		}
 	}
 	return defaultSMTPVerifyTimeout
@@ -114,9 +118,11 @@ func randomString(n int) string {
 	return hex.EncodeToString(b)
 }
 
-func VerifyEmail(email string) VerifyResult {
-	start := time.Now()
-	deadline := start.Add(smtpVerifyTimeout())
+func VerifyEmail(ctx context.Context, email string) VerifyResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	funcStart := time.Now()
 	email = strings.ToLower(strings.TrimSpace(email))
 
 	result := VerifyResult{
@@ -126,14 +132,12 @@ func VerifyEmail(email string) VerifyResult {
 		CatchAll:    false,
 		Score:       35,
 	}
-	defer func() {
-		result.ProcessingTime = time.Since(start).Seconds()
-	}()
 
 	parts := strings.Split(email, "@")
 	if len(parts) != 2 {
 		result.Status = "invalid"
 		result.Score = 0
+		result.ProcessingTime = time.Since(funcStart).Seconds()
 		return result
 	}
 
@@ -151,6 +155,7 @@ func VerifyEmail(email string) VerifyResult {
 		result.Status = "disposable"
 		result.Score = 10
 		result.Reason = "disposable"
+		result.ProcessingTime = time.Since(funcStart).Seconds()
 		return result
 	}
 
@@ -162,6 +167,7 @@ func VerifyEmail(email string) VerifyResult {
 		} else {
 			result.Reason = "blacklist"
 		}
+		result.ProcessingTime = time.Since(funcStart).Seconds()
 		return result
 	}
 
@@ -188,6 +194,7 @@ func VerifyEmail(email string) VerifyResult {
 				MXCache.Set(domain, []*net.MX{}, cache.DefaultExpiration)
 				result.Status = "invalid"
 				result.Reason = "mx"
+				result.ProcessingTime = time.Since(funcStart).Seconds()
 				return result
 			}
 			result.HasMX = true
@@ -202,6 +209,7 @@ func VerifyEmail(email string) VerifyResult {
 	if len(mxRecords) == 0 {
 		result.Status = "invalid"
 		result.Reason = "mx"
+		result.ProcessingTime = time.Since(funcStart).Seconds()
 		return result
 	}
 
@@ -218,19 +226,40 @@ func VerifyEmail(email string) VerifyResult {
 	}
 	result.MxRecords = mxList
 
-	// Per-domain rate limit (local to worker — does not call backend API).
-	rlCtx, rlCancel := context.WithDeadline(context.Background(), deadline)
-	defer rlCancel()
-	if err := WaitDomainRateLimit(rlCtx, domain, result.IsFree); err != nil {
+	// Rate-limit wait does not consume the 135s probe clock. Wait until a slot
+	// is available or the parent ctx (chunk budget / shutdown) is cancelled.
+	if err := WaitDomainRateLimit(ctx, domain, result.IsFree); err != nil {
 		result.Status = "unknown"
-		result.Reason = "rate_limit_timeout"
-		result.DetailedError = "per-domain rate limit wait exceeded"
+		if ctx.Err() != nil {
+			result.Reason = "cancelled"
+			result.DetailedError = "cancelled while waiting for per-domain rate limit"
+		} else {
+			result.Reason = "rate_limit_timeout"
+			result.DetailedError = "per-domain rate limit wait exceeded"
+		}
+		result.ProcessingTime = time.Since(funcStart).Seconds()
 		return result
 	}
+
+	// START THE VERIFICATION DEADLINE TIMER AFTER RATE-LIMIT SLOT IS ACQUIRED
+	verifyStart := time.Now()
+	deadline := verifyStart.Add(smtpVerifyTimeout())
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	defer func() {
+		result.ProcessingTime = time.Since(verifyStart).Seconds()
+	}()
 
 	for i, mx := range mxRecords {
 		if i >= 5 {
 			break
+		}
+		if ctx.Err() != nil {
+			result.Status = "unknown"
+			result.Reason = "cancelled"
+			result.DetailedError = "cancelled before SMTP probe"
+			return result
 		}
 		if time.Now().After(deadline) {
 			result.Status = "unknown"

@@ -14,9 +14,16 @@ func TestSmtpVerifyTimeoutDefault(t *testing.T) {
 }
 
 func TestSmtpVerifyTimeoutFromEnv(t *testing.T) {
-	t.Setenv("SMTP_VERIFY_TIMEOUT_SEC", "12")
-	if got := smtpVerifyTimeout(); got != 12*time.Second {
-		t.Fatalf("timeout = %v, want 12s", got)
+	t.Setenv("SMTP_VERIFY_TIMEOUT_SEC", "200")
+	if got := smtpVerifyTimeout(); got != 200*time.Second {
+		t.Fatalf("timeout = %v, want 200s", got)
+	}
+}
+
+func TestSmtpVerifyTimeoutFloor(t *testing.T) {
+	t.Setenv("SMTP_VERIFY_TIMEOUT_SEC", "45")
+	if got := smtpVerifyTimeout(); got != defaultSMTPVerifyTimeout {
+		t.Fatalf("timeout = %v, want floor %v", got, defaultSMTPVerifyTimeout)
 	}
 }
 
@@ -44,12 +51,17 @@ func TestDomainCachePolicies(t *testing.T) {
 	}
 }
 
-func TestVerifyEmailInvalidSyntax(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = ctx
+func TestWaitDomainRateLimitRespectsCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := WaitDomainRateLimit(ctx, "gmail.com", true)
+	if err == nil {
+		t.Fatal("expected wait to fail on cancelled context")
+	}
+}
 
-	result := VerifyEmail("not-an-email")
+func TestVerifyEmailInvalidSyntax(t *testing.T) {
+	result := VerifyEmail(context.Background(), "not-an-email")
 	if result.Status == "valid" {
 		t.Fatalf("expected non-valid status for bad syntax, got %#v", result)
 	}

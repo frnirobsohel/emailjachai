@@ -43,9 +43,10 @@ type EmailTaskPayload struct {
 }
 
 type EmailChunkTaskPayload struct {
-	JobID  string   `json:"job_id"`
-	TaskID uint     `json:"task_id"`
-	Emails []string `json:"emails"`
+	JobID           string   `json:"job_id"`
+	TaskID          uint     `json:"task_id"`
+	Emails          []string `json:"emails"`
+	ChunkTimeoutSec int      `json:"chunk_timeout_sec,omitempty"`
 }
 
 type WebhookDeliverPayload struct {
@@ -93,48 +94,51 @@ func HandleEmailVerifyTask(ctx context.Context, t *asynq.Task) error {
 
 	logger.Info("Processing Single Job", zap.String("job_id", p.JobID), zap.Uint("task_id", p.TaskID))
 
-	res := engine.VerifyEmail(p.Email)
+	res := engine.VerifyEmail(ctx, p.Email)
 	return reporter.ReportBatchToAPI(p.JobID, p.TaskID, []map[string]interface{}{resultMap(p.Email, res)})
 }
 
 // HandleEmailChunkTask processes an email chunk for bulk verification
-func HandleEmailChunkTask(ctx context.Context, t *asynq.Task) error {
-	chunkVerifyGate.Acquire()
-	defer chunkVerifyGate.Release()
-
+func HandleEmailChunkTask(asynqCtx context.Context, t *asynq.Task) error {
 	var p EmailChunkTaskPayload
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
 	}
 
+	// Concurrency-gate wait must NOT consume the Job Control chunk budget.
+	chunkVerifyGate.Acquire()
+	defer chunkVerifyGate.Release()
+
+	workTimeout := time.Duration(p.ChunkTimeoutSec) * time.Second
+	if workTimeout < time.Minute {
+		workTimeout = 15 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(asynqCtx, workTimeout)
+	defer cancel()
+
 	logger.Info("Processing Chunk Job",
 		zap.String("job_id", p.JobID),
 		zap.Uint("task_id", p.TaskID),
 		zap.Int("emails_count", len(p.Emails)),
+		zap.Duration("chunk_timeout", workTimeout),
 	)
 
 	results := make([]map[string]interface{}, len(p.Emails))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	var firstErr error
 
 	// Bounded Semaphore to limit concurrent outgoing TCP connections per chunk.
 	sem := make(chan struct{}, 100)
 
+spawnLoop:
 	for i, email := range p.Emails {
 		select {
 		case <-ctx.Done():
-			wg.Wait()
-			if firstErr == nil {
-				firstErr = ctx.Err()
-			}
-			return firstErr
-		default:
+			break spawnLoop
+		case sem <- struct{}{}:
 		}
 
 		wg.Add(1)
-		sem <- struct{}{}
-
 		idx := i
 		emailAddr := email
 		safe.Go(func() {
@@ -143,16 +147,11 @@ func HandleEmailChunkTask(ctx context.Context, t *asynq.Task) error {
 
 			select {
 			case <-ctx.Done():
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = ctx.Err()
-				}
-				mu.Unlock()
 				return
 			default:
 			}
 
-			res := engine.VerifyEmail(emailAddr)
+			res := engine.VerifyEmail(ctx, emailAddr)
 
 			mu.Lock()
 			results[idx] = resultMap(emailAddr, res)
@@ -161,17 +160,21 @@ func HandleEmailChunkTask(ctx context.Context, t *asynq.Task) error {
 	}
 
 	wg.Wait()
-	if firstErr != nil {
-		return firstErr
+	if asynqCtx.Err() != nil {
+		return asynqCtx.Err()
 	}
 
-	// Fill any gaps left by cancellation races with unknown placeholders
+	// Job Control budget exhausted: persist what we have and do not retry the chunk.
+	gapReason := "cancelled"
+	if ctx.Err() != nil {
+		gapReason = "timeout"
+	}
 	for i, row := range results {
 		if row == nil {
 			results[i] = resultMap(p.Emails[i], engine.VerifyResult{
 				Status: "unknown",
 				Score:  35,
-				Reason: "cancelled",
+				Reason: gapReason,
 			})
 		}
 	}

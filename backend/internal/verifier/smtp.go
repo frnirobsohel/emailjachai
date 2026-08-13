@@ -1,6 +1,7 @@
 package verifier
 
 import (
+	"context"
 	"crypto/rand"
 	"ejp-backend/pkg/config"
 	"encoding/hex"
@@ -16,9 +17,9 @@ import (
 
 const (
 	defaultSMTPMaxConcurrent = 25
-	defaultSMTPVerifyTimeout = 45 * time.Second
-	smtpDialTimeout          = 8 * time.Second
-	smtpIODeadline           = 10 * time.Second
+	defaultSMTPVerifyTimeout = 135 * time.Second
+	smtpDialTimeout          = 24 * time.Second
+	smtpIODeadline           = 30 * time.Second
 )
 
 var smtpSem chan struct{}
@@ -36,7 +37,11 @@ func init() {
 func smtpVerifyTimeout() time.Duration {
 	if v := strings.TrimSpace(os.Getenv("SMTP_VERIFY_TIMEOUT_SEC")); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
-			return time.Duration(parsed) * time.Second
+			d := time.Duration(parsed) * time.Second
+			if d < defaultSMTPVerifyTimeout {
+				return defaultSMTPVerifyTimeout
+			}
+			return d
 		}
 	}
 	return defaultSMTPVerifyTimeout
@@ -134,34 +139,36 @@ func checkDomainPolicy(domain string) (isFree, isDisposable, isSpamTrap, isBlack
 
 // VerifyEmail runs a bounded SMTP verification (concurrency cap + overall deadline).
 func VerifyEmail(email string) VerifyResult {
-	return VerifyEmailBounded(email, smtpVerifyTimeout())
+	return VerifyEmailBounded(context.Background(), email, smtpVerifyTimeout())
 }
 
 // VerifyEmailBounded verifies an email with a hard wall-clock deadline and a global SMTP semaphore.
-func VerifyEmailBounded(email string, maxDuration time.Duration) VerifyResult {
-	start := time.Now()
+// Semaphore / rate-limit waits do not consume maxDuration; that clock starts after slots are acquired.
+func VerifyEmailBounded(ctx context.Context, email string, maxDuration time.Duration) VerifyResult {
 	if maxDuration <= 0 {
-		maxDuration = defaultSMTPVerifyTimeout
+		maxDuration = smtpVerifyTimeout()
 	}
-	deadline := start.Add(maxDuration)
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	select {
 	case smtpSem <- struct{}{}:
 		defer func() { <-smtpSem }()
-	case <-time.After(time.Until(deadline)):
+	case <-ctx.Done():
 		return VerifyResult{
-			Status:         "unknown",
-			Score:          35,
-			Reason:         "busy",
-			DetailedError:  "SMTP concurrency limit",
-			ProcessingTime: time.Since(start).Seconds(),
+			Status:        "unknown",
+			Score:         35,
+			Reason:        "cancelled",
+			DetailedError: "cancelled while waiting for SMTP concurrency slot",
 		}
 	}
 
-	return verifyEmailInternal(email, start, deadline)
+	return verifyEmailInternal(ctx, email, maxDuration)
 }
 
-func verifyEmailInternal(email string, start time.Time, deadline time.Time) VerifyResult {
+func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Duration) VerifyResult {
+	funcStart := time.Now()
 	email = strings.TrimSpace(strings.ToLower(email))
 
 	result := VerifyResult{
@@ -176,7 +183,7 @@ func verifyEmailInternal(email string, start time.Time, deadline time.Time) Veri
 	if len(parts) != 2 {
 		result.Status = "invalid"
 		result.Score = 0
-		result.ProcessingTime = time.Since(start).Seconds()
+		result.ProcessingTime = time.Since(funcStart).Seconds()
 		return result
 	}
 
@@ -194,7 +201,7 @@ func verifyEmailInternal(email string, start time.Time, deadline time.Time) Veri
 		result.Status = "disposable"
 		result.Score = 10
 		result.Reason = "disposable"
-		result.ProcessingTime = time.Since(start).Seconds()
+		result.ProcessingTime = time.Since(funcStart).Seconds()
 		return result
 	}
 
@@ -206,7 +213,7 @@ func verifyEmailInternal(email string, start time.Time, deadline time.Time) Veri
 		} else {
 			result.Reason = "blacklist"
 		}
-		result.ProcessingTime = time.Since(start).Seconds()
+		result.ProcessingTime = time.Since(funcStart).Seconds()
 		return result
 	}
 
@@ -228,13 +235,6 @@ func verifyEmailInternal(email string, start time.Time, deadline time.Time) Veri
 		}
 	}
 
-	if time.Now().After(deadline) {
-		result.Reason = "timeout"
-		result.DetailedError = "verification deadline exceeded"
-		result.ProcessingTime = time.Since(start).Seconds()
-		return result
-	}
-
 	// Lookup MX Records using advanced miekg/dns resolver
 	mxRecords, err := lookupMX(domain)
 	if err != nil || len(mxRecords) == 0 {
@@ -243,7 +243,7 @@ func verifyEmailInternal(email string, start time.Time, deadline time.Time) Veri
 		result.Score = 0
 		result.Reason = "mx"
 		result.DetailedError = "No MX or A records found"
-		result.ProcessingTime = time.Since(start).Seconds()
+		result.ProcessingTime = time.Since(funcStart).Seconds()
 		return result
 	}
 	result.HasMX = true
@@ -262,24 +262,46 @@ func verifyEmailInternal(email string, start time.Time, deadline time.Time) Veri
 	}
 	result.MxRecords = mxList
 
-	if err := waitDomainUntil(domain, result.IsFree, deadline); err != nil {
+	// Rate-limit wait does not consume the probe clock. Wait until a slot is
+	// available or ctx is cancelled (client gone / shutdown).
+	if err := WaitDomainRateLimit(ctx, domain, result.IsFree); err != nil {
 		result.Status = "unknown"
-		result.Reason = "rate_limit_timeout"
-		result.DetailedError = "per-domain rate limit wait exceeded"
-		result.ProcessingTime = time.Since(start).Seconds()
+		if ctx.Err() != nil {
+			result.Reason = "cancelled"
+			result.DetailedError = "cancelled while waiting for per-domain rate limit"
+		} else {
+			result.Reason = "rate_limit_timeout"
+			result.DetailedError = "per-domain rate limit wait exceeded"
+		}
+		result.ProcessingTime = time.Since(funcStart).Seconds()
 		return result
 	}
+
+	// START THE VERIFICATION DEADLINE TIMER AFTER RATE-LIMIT & SEMAPHORE SLOTS ARE ACQUIRED
+	verifyStart := time.Now()
+	deadline := verifyStart.Add(maxDuration)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	defer func() {
+		result.ProcessingTime = time.Since(verifyStart).Seconds()
+	}()
 
 	// Try the best MX records (Limit to top 5)
 	for i, mx := range mxRecords {
 		if i >= 5 {
 			break
 		}
+		if ctx.Err() != nil {
+			result.Status = "unknown"
+			result.Reason = "cancelled"
+			result.DetailedError = "cancelled before SMTP probe"
+			return result
+		}
 		if time.Now().After(deadline) {
 			result.Status = "unknown"
 			result.Reason = "timeout"
 			result.DetailedError = "verification deadline exceeded"
-			result.ProcessingTime = time.Since(start).Seconds()
 			return result
 		}
 		host := strings.TrimSuffix(mx.Host, ".")
@@ -293,13 +315,11 @@ func verifyEmailInternal(email string, start time.Time, deadline time.Time) Veri
 					result.Score = 55
 					result.CatchAll = true
 					result.Reason = "catch_all"
-					result.ProcessingTime = time.Since(start).Seconds()
 					return result
 				}
 				result.Status = "valid"
 				result.Score = 100
 				result.Deliverable = true
-				result.ProcessingTime = time.Since(start).Seconds()
 				return result
 			}
 
@@ -307,7 +327,6 @@ func verifyEmailInternal(email string, start time.Time, deadline time.Time) Veri
 				result.Status = "invalid"
 				result.Score = 0
 				result.Reason = "rejected"
-				result.ProcessingTime = time.Since(start).Seconds()
 				return result
 			}
 
@@ -318,7 +337,6 @@ func verifyEmailInternal(email string, start time.Time, deadline time.Time) Veri
 				result.Deliverable = true
 				result.MailboxFull = true
 				result.Reason = "mailbox_full"
-				result.ProcessingTime = time.Since(start).Seconds()
 				return result
 			}
 		}
@@ -326,7 +344,6 @@ func verifyEmailInternal(email string, start time.Time, deadline time.Time) Veri
 
 	result.Status = "unknown"
 	result.Reason = "smtp"
-	result.ProcessingTime = time.Since(start).Seconds()
 	return result
 }
 
