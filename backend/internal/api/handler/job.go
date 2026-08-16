@@ -123,7 +123,7 @@ func (h *JobHandler) SubmitSingleVerify(c *gin.Context) {
 		"score":          result.Score,
 		"processingTime": result.ProcessingTime,
 		"detailedChecks": gin.H{
-			"safeToSend":      result.IsDeliverable,
+			"safeToSend":      helper.IsSafeToSend(result.Status, result.IsDeliverable, result.IsCatchAll),
 			"deliverable":     result.IsDeliverable,
 			"invalidSyntax":   !result.IsSyntaxValid,
 			"disposableEmail": result.IsDisposable,

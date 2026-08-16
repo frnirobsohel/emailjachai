@@ -3,7 +3,6 @@ package verifier
 import (
 	"context"
 	"crypto/rand"
-	"ejp-backend/pkg/config"
 	"encoding/hex"
 	"net"
 	"net/smtp"
@@ -13,6 +12,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ejp-backend/internal/helper"
+	"ejp-backend/pkg/config"
 )
 
 const (
@@ -23,6 +25,9 @@ const (
 )
 
 var smtpSem chan struct{}
+
+// smtpDialPort is overridden in tests so probeSMTP can hit a fake MX.
+var smtpDialPort = "25"
 
 func init() {
 	n := defaultSMTPMaxConcurrent
@@ -287,6 +292,8 @@ func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Dur
 		result.ProcessingTime = time.Since(verifyStart).Seconds()
 	}()
 
+	sawCatchAllInconclusive := false
+
 	// Try the best MX records (Limit to top 5)
 	for i, mx := range mxRecords {
 		if i >= 5 {
@@ -307,39 +314,36 @@ func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Dur
 		host := strings.TrimSuffix(mx.Host, ".")
 
 		res := probeSMTP(host, domain, email, deadline)
-		if res.Connected {
-			result.SMTPConnect = true
-			if res.Accepted {
-				if res.CatchAll {
-					result.Status = "catch_all"
-					result.Score = 55
-					result.CatchAll = true
-					result.Reason = "catch_all"
-					return result
-				}
-				result.Status = "valid"
-				result.Score = 100
-				result.Deliverable = true
-				return result
-			}
-
-			if res.HardFail {
-				result.Status = "invalid"
-				result.Score = 0
-				result.Reason = "rejected"
-				return result
-			}
-
-			if res.MailboxFull {
-				// Mailbox exists but is over quota — treat as valid (address confirmed).
-				result.Status = "valid"
-				result.Score = 100
-				result.Deliverable = true
-				result.MailboxFull = true
-				result.Reason = "mailbox_full"
-				return result
-			}
+		if !res.Connected {
+			continue
 		}
+		result.SMTPConnect = true
+		status, score, reason, deliverable, catchAll, done, inconclusive := helper.SMTPProbeDisposition(
+			res.Accepted, res.CatchAllResult, res.HardFail, res.MailboxFull, sawCatchAllInconclusive,
+		)
+		if inconclusive {
+			sawCatchAllInconclusive = true
+		}
+		if !done {
+			continue
+		}
+		result.Status = status
+		result.Score = score
+		result.Reason = reason
+		result.Deliverable = deliverable
+		result.CatchAll = catchAll
+		if reason == "mailbox_full" {
+			result.MailboxFull = true
+		}
+		return result
+	}
+
+	if sawCatchAllInconclusive {
+		result.Status = "unknown"
+		result.Score = 35
+		result.Reason = "catchall_inconclusive"
+		result.DetailedError = "target RCPT accepted but random probe was greylisted or dropped"
+		return result
 	}
 
 	result.Status = "unknown"
@@ -348,11 +352,12 @@ func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Dur
 }
 
 type smtpProbe struct {
-	Connected   bool
-	Accepted    bool
-	CatchAll    bool
-	HardFail    bool
-	MailboxFull bool
+	Connected      bool
+	Accepted       bool
+	CatchAll       bool
+	CatchAllResult helper.CatchAllResult
+	HardFail       bool
+	MailboxFull    bool
 }
 
 func getHostname() string {
@@ -379,7 +384,7 @@ func probeSMTP(mxHost, domain, fullEmail string, deadline time.Time) smtpProbe {
 		dialTimeout = remaining
 	}
 
-	conn, err := net.DialTimeout("tcp", mxHost+":25", dialTimeout)
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(mxHost, smtpDialPort), dialTimeout)
 	if err != nil {
 		return res
 	}
@@ -408,36 +413,27 @@ func probeSMTP(mxHost, domain, fullEmail string, deadline time.Time) smtpProbe {
 		return res
 	}
 
-	// Test actual email
 	err = client.Rcpt(fullEmail)
 	if err == nil {
 		res.Accepted = true
-
-		// Probe for Catch-All (use clean RSET transaction and non-suspicious random string)
-		randomEmail := randomString(12) + "@" + domain
-		if errR := client.Reset(); errR == nil {
-			if errM := client.Mail(""); errM == nil {
-				if errC := client.Rcpt(randomEmail); errC == nil {
-					res.CatchAll = true
-				}
-			}
-		} else {
-			if errC := client.Rcpt(randomEmail); errC == nil {
-				res.CatchAll = true
-			}
-		}
-	} else {
-		errStr := err.Error()
-		errMsg := strings.ToLower(errStr)
-		if strings.Contains(errMsg, "550") || strings.Contains(errMsg, "551") || strings.Contains(errMsg, "553") {
-			res.HardFail = true
-		} else if strings.Contains(errMsg, "552") || strings.Contains(errMsg, "storage limit") || strings.Contains(errMsg, "over quota") {
-			res.MailboxFull = true
-		} else if strings.HasPrefix(errStr, "4") {
-			// Explicitly handle 4xx as temporary failures (already handled by defaults but good to be explicit)
-			res.HardFail = false
-		}
+		res.CatchAllResult = probeCatchAll(client, domain)
+		res.CatchAll = res.CatchAllResult == helper.CatchAllAccepted
+		return res
 	}
 
+	res.HardFail, res.MailboxFull = helper.ClassifyTargetRCPT(err)
 	return res
+}
+
+// probeCatchAll requires a clean RSET + MAIL + RCPT. Incomplete transactions
+// are inconclusive — they must not be treated as "not catch-all".
+func probeCatchAll(client *smtp.Client, domain string) helper.CatchAllResult {
+	randomEmail := randomString(12) + "@" + domain
+	if errR := client.Reset(); errR != nil {
+		return helper.CatchAllInconclusive
+	}
+	if errM := client.Mail(""); errM != nil {
+		return helper.CatchAllInconclusive
+	}
+	return helper.ClassifyCatchAllRCPT(client.Rcpt(randomEmail))
 }

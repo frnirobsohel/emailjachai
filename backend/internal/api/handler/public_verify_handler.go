@@ -270,7 +270,7 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 		"processingTime": res.ProcessingTime,
 		"fromCache":      fromCache,
 		"detailedChecks": gin.H{
-			"safeToSend":      res.Deliverable,
+			"safeToSend":      helper.IsSafeToSend(res.Status, res.Deliverable, res.CatchAll),
 			"deliverable":     res.Deliverable,
 			"invalidSyntax":   !res.SyntaxValid,
 			"disposableEmail": res.Status == "disposable",

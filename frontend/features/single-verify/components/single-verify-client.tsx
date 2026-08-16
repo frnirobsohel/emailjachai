@@ -50,6 +50,18 @@ export function SingleVerifyClient() {
     }
 
     const status = (displayResult.status || "").toLowerCase()
+    const isCatchAllStatus =
+        status === "catch_all" ||
+        status === "catch-all" ||
+        Boolean(displayResult.detailedChecks?.catchAll)
+    const detailedChecks = {
+        ...displayResult.detailedChecks,
+        catchAll: isCatchAllStatus,
+        safeToSend:
+            status === "valid" &&
+            Boolean(displayResult.detailedChecks?.safeToSend) &&
+            !isCatchAllStatus,
+    }
     // Sync API always returns a completed result; treat any successful response as finished.
     const isFinished = !!result
 
@@ -214,7 +226,7 @@ export function SingleVerifyClient() {
                 </CardHeader>
                 <CardContent className="pt-6">
                     <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-4">
-                        {Object.entries(displayResult.detailedChecks || defaultDetailedChecks).map(
+                        {Object.entries(detailedChecks || defaultDetailedChecks).map(
                             ([key, value]) => {
                                 const isNegative = NEGATIVE_CHECKS.has(key)
                                 const active = Boolean(value) && isFinished

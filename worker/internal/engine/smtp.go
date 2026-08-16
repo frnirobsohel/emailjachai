@@ -22,6 +22,8 @@ const (
 	smtpIODeadline           = 30 * time.Second
 )
 
+var smtpDialPort = "25"
+
 func smtpVerifyTimeout() time.Duration {
 	if v := strings.TrimSpace(os.Getenv("SMTP_VERIFY_TIMEOUT_SEC")); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
@@ -251,6 +253,8 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 		result.ProcessingTime = time.Since(verifyStart).Seconds()
 	}()
 
+	sawCatchAllInconclusive := false
+
 	for i, mx := range mxRecords {
 		if i >= 5 {
 			break
@@ -269,41 +273,39 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 		}
 		host := strings.TrimSuffix(mx.Host, ".")
 		res := probeSMTP(host, domain, email, deadline)
-		if res.Connected {
-			result.SMTPConnect = true
-			if res.Accepted {
-				if res.CatchAll {
-					result.Status = "catch_all"
-					result.CatchAll = true
-					result.Score = 55
-					result.Reason = "catch_all"
-					return result
-				}
-				result.Status = "valid"
-				result.Score = 100
-				result.Deliverable = true
-				result.Reason = "accepted"
-				return result
-			}
-			if res.MailboxFull {
-				// Mailbox exists but is over quota — treat as valid (address confirmed).
-				result.MailboxFull = true
-				result.Status = "valid"
-				result.Score = 100
-				result.Deliverable = true
-				result.Reason = "mailbox_full"
-				return result
-			}
-			if res.HardFail {
-				result.Status = "invalid"
-				result.Score = 0
-				result.Reason = "rejected"
-				return result
-			}
+		if !res.Connected {
+			continue
+		}
+		result.SMTPConnect = true
+		status, score, reason, deliverable, catchAll, done, inconclusive := SMTPProbeDisposition(
+			res.Accepted, res.CatchAllResult, res.HardFail, res.MailboxFull, sawCatchAllInconclusive,
+		)
+		if inconclusive {
+			sawCatchAllInconclusive = true
+		}
+		if !done {
 			if res.TempFail {
 				result.Reason = "temp_fail"
 			}
+			continue
 		}
+		result.Status = status
+		result.Score = score
+		result.Reason = reason
+		result.Deliverable = deliverable
+		result.CatchAll = catchAll
+		if reason == "mailbox_full" {
+			result.MailboxFull = true
+		}
+		return result
+	}
+
+	if sawCatchAllInconclusive {
+		result.Status = "unknown"
+		result.Score = 35
+		result.Reason = "catchall_inconclusive"
+		result.DetailedError = "target RCPT accepted but random probe was greylisted or dropped"
+		return result
 	}
 
 	result.Status = "unknown"
@@ -312,12 +314,13 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 }
 
 type smtpProbe struct {
-	Connected   bool
-	Accepted    bool
-	CatchAll    bool
-	HardFail    bool
-	TempFail    bool
-	MailboxFull bool
+	Connected      bool
+	Accepted       bool
+	CatchAll       bool
+	CatchAllResult CatchAllResult
+	HardFail       bool
+	TempFail       bool
+	MailboxFull    bool
 }
 
 func probeSMTP(mxHost, domain, fullEmail string, deadline time.Time) smtpProbe {
@@ -338,7 +341,7 @@ func probeSMTP(mxHost, domain, fullEmail string, deadline time.Time) smtpProbe {
 		dialTimeout = remaining
 	}
 
-	conn, err := net.DialTimeout("tcp", mxHost+":25", dialTimeout)
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(mxHost, smtpDialPort), dialTimeout)
 	if err != nil {
 		return res
 	}
@@ -373,29 +376,27 @@ func probeSMTP(mxHost, domain, fullEmail string, deadline time.Time) smtpProbe {
 	err = client.Rcpt(fullEmail)
 	if err == nil {
 		res.Accepted = true
-		// Probe for Catch-All (use clean RSET transaction and non-suspicious random string)
-		randomEmail := randomString(12) + "@" + domain
-		if errR := client.Reset(); errR == nil {
-			if errM := client.Mail(""); errM == nil {
-				if errC := client.Rcpt(randomEmail); errC == nil {
-					res.CatchAll = true
-				}
-			}
-		} else {
-			if errC := client.Rcpt(randomEmail); errC == nil {
-				res.CatchAll = true
-			}
-		}
-	} else {
-		errMsg := strings.ToLower(err.Error())
-		if strings.Contains(errMsg, "550") || strings.Contains(errMsg, "551") || strings.Contains(errMsg, "553") {
-			res.HardFail = true
-		} else if strings.Contains(errMsg, "552") || strings.Contains(errMsg, "storage limit") || strings.Contains(errMsg, "over quota") {
-			res.MailboxFull = true
-			res.TempFail = true
-		} else {
-			res.TempFail = true
-		}
+		res.CatchAllResult = probeCatchAll(client, domain)
+		res.CatchAll = res.CatchAllResult == CatchAllAccepted
+		return res
+	}
+
+	res.HardFail, res.MailboxFull = ClassifyTargetRCPT(err)
+	if res.MailboxFull {
+		res.TempFail = true
+	} else if !res.HardFail {
+		res.TempFail = true
 	}
 	return res
+}
+
+func probeCatchAll(client *smtp.Client, domain string) CatchAllResult {
+	randomEmail := randomString(12) + "@" + domain
+	if errR := client.Reset(); errR != nil {
+		return CatchAllInconclusive
+	}
+	if errM := client.Mail(""); errM != nil {
+		return CatchAllInconclusive
+	}
+	return ClassifyCatchAllRCPT(client.Rcpt(randomEmail))
 }

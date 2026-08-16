@@ -407,7 +407,7 @@ func (s *jobService) VerifySingle(ctx context.Context, userID uint, email string
 		resultFile := filepath.Join(singleDir, fmt.Sprintf("single_verifications_%d.ndjson", fileIndex))
 
 		detailedChecks := map[string]interface{}{
-			"safeToSend":      rr.IsDeliverable,
+			"safeToSend":      helper.IsSafeToSend(rr.Status, rr.IsDeliverable, rr.IsCatchAll),
 			"deliverable":     rr.IsDeliverable,
 			"invalidSyntax":   !rr.IsSyntaxValid,
 			"disposableEmail": rr.IsDisposable,

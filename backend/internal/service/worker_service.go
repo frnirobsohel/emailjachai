@@ -293,6 +293,9 @@ func (s *workerService) ReportTaskResult(payload *WorkerReportPayload) (*model.J
 		if payload.IsDeliverable != nil {
 			isDeliverable = *payload.IsDeliverable
 		}
+		if isCatchAll || status == "catch_all" || status == "unknown" {
+			isDeliverable = false
+		}
 
 		isFree := false
 		if payload.IsFree != nil {
@@ -598,6 +601,9 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 			if r.IsDeliverable != nil {
 				isDeliverable = *r.IsDeliverable
 			}
+			if isCatchAll || status == "catch_all" || status == "unknown" {
+				isDeliverable = false
+			}
 
 			isFree := false
 			if r.IsFree != nil {
@@ -828,4 +834,3 @@ func bumpWorkerVerifiedCount(tx *gorm.DB, serverName string, n int) {
 		WHERE server_name = ?
 	`, n, today, n, n, today, serverName).Error
 }
-
