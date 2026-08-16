@@ -29,6 +29,12 @@ var smtpSem chan struct{}
 // smtpDialPort is overridden in tests so probeSMTP can hit a fake MX.
 var smtpDialPort = "25"
 
+// resolvePublicSMTP returns dialable public MX IPs. Tests may replace it
+// so the fake SMTP listener on 127.0.0.1 is reachable.
+var resolvePublicSMTP = helper.PublicSMTPDialIPs
+
+var smtpDial = net.DialTimeout
+
 func init() {
 	n := defaultSMTPMaxConcurrent
 	if v := strings.TrimSpace(os.Getenv("SMTP_MAX_CONCURRENT")); v != "" {
@@ -293,6 +299,8 @@ func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Dur
 	}()
 
 	sawCatchAllInconclusive := false
+	sawBlockedHost := false
+	sawPublicDialAttempt := false
 
 	// Try the best MX records (Limit to top 5)
 	for i, mx := range mxRecords {
@@ -314,6 +322,11 @@ func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Dur
 		host := strings.TrimSuffix(mx.Host, ".")
 
 		res := probeSMTP(host, domain, email, deadline)
+		if res.Blocked {
+			sawBlockedHost = true
+			continue
+		}
+		sawPublicDialAttempt = true
 		if !res.Connected {
 			continue
 		}
@@ -346,6 +359,14 @@ func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Dur
 		return result
 	}
 
+	if sawBlockedHost && !sawPublicDialAttempt {
+		result.Status = "unknown"
+		result.Score = 35
+		result.Reason = "private_mx"
+		result.DetailedError = "MX resolved only to private or blocked addresses"
+		return result
+	}
+
 	result.Status = "unknown"
 	result.Reason = "smtp"
 	return result
@@ -353,6 +374,7 @@ func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Dur
 
 type smtpProbe struct {
 	Connected      bool
+	Blocked        bool
 	Accepted       bool
 	CatchAll       bool
 	CatchAllResult helper.CatchAllResult
@@ -384,8 +406,22 @@ func probeSMTP(mxHost, domain, fullEmail string, deadline time.Time) smtpProbe {
 		dialTimeout = remaining
 	}
 
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(mxHost, smtpDialPort), dialTimeout)
-	if err != nil {
+	ips, err := resolvePublicSMTP(mxHost)
+	if err != nil || len(ips) == 0 {
+		if helper.IsBlockedSMTPHost(err) {
+			res.Blocked = true
+		}
+		return res
+	}
+
+	var conn net.Conn
+	for _, ip := range ips {
+		conn, err = smtpDial("tcp", net.JoinHostPort(ip.String(), smtpDialPort), dialTimeout)
+		if err == nil {
+			break
+		}
+	}
+	if conn == nil {
 		return res
 	}
 	defer conn.Close()

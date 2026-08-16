@@ -24,6 +24,10 @@ const (
 
 var smtpDialPort = "25"
 
+var resolvePublicSMTP = PublicSMTPDialIPs
+
+var smtpDial = net.DialTimeout
+
 func smtpVerifyTimeout() time.Duration {
 	if v := strings.TrimSpace(os.Getenv("SMTP_VERIFY_TIMEOUT_SEC")); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
@@ -254,6 +258,8 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 	}()
 
 	sawCatchAllInconclusive := false
+	sawBlockedHost := false
+	sawPublicDialAttempt := false
 
 	for i, mx := range mxRecords {
 		if i >= 5 {
@@ -273,6 +279,11 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 		}
 		host := strings.TrimSuffix(mx.Host, ".")
 		res := probeSMTP(host, domain, email, deadline)
+		if res.Blocked {
+			sawBlockedHost = true
+			continue
+		}
+		sawPublicDialAttempt = true
 		if !res.Connected {
 			continue
 		}
@@ -308,6 +319,14 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 		return result
 	}
 
+	if sawBlockedHost && !sawPublicDialAttempt {
+		result.Status = "unknown"
+		result.Score = 35
+		result.Reason = "private_mx"
+		result.DetailedError = "MX resolved only to private or blocked addresses"
+		return result
+	}
+
 	result.Status = "unknown"
 	result.Reason = "smtp"
 	return result
@@ -315,6 +334,7 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 
 type smtpProbe struct {
 	Connected      bool
+	Blocked        bool
 	Accepted       bool
 	CatchAll       bool
 	CatchAllResult CatchAllResult
@@ -341,8 +361,22 @@ func probeSMTP(mxHost, domain, fullEmail string, deadline time.Time) smtpProbe {
 		dialTimeout = remaining
 	}
 
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(mxHost, smtpDialPort), dialTimeout)
-	if err != nil {
+	ips, err := resolvePublicSMTP(mxHost)
+	if err != nil || len(ips) == 0 {
+		if IsBlockedSMTPHost(err) {
+			res.Blocked = true
+		}
+		return res
+	}
+
+	var conn net.Conn
+	for _, ip := range ips {
+		conn, err = smtpDial("tcp", net.JoinHostPort(ip.String(), smtpDialPort), dialTimeout)
+		if err == nil {
+			break
+		}
+	}
+	if conn == nil {
 		return res
 	}
 	defer conn.Close()

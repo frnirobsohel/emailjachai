@@ -1,4 +1,4 @@
-package helper
+package engine
 
 import (
 	"errors"
@@ -7,32 +7,17 @@ import (
 	"strings"
 )
 
-// lookupIP is net.LookupIP; tests replace it to exercise dual-homed hosts.
 var lookupIP = net.LookupIP
 
 var (
-	// ErrPrivateSMTPHost means the target resolved to loopback/private/link-local/metadata.
 	ErrPrivateSMTPHost = errors.New("smtp host is not a public address")
-	// ErrInvalidSMTPHost means the MX host string is empty or malformed.
 	ErrInvalidSMTPHost = errors.New("invalid smtp host")
 )
 
-// IsBlockedSMTPHost reports whether err is a skip-without-dial SSRF rejection.
 func IsBlockedSMTPHost(err error) bool {
 	return errors.Is(err, ErrPrivateSMTPHost) || errors.Is(err, ErrInvalidSMTPHost)
 }
 
-// ValidatePublicSMTPHost resolves host and rejects private/link-local/metadata targets (SSRF guard).
-func ValidatePublicSMTPHost(host string) error {
-	_, err := PublicSMTPDialIPs(host)
-	return err
-}
-
-// PublicSMTPDialIPs returns only public addresses for SMTP dial.
-// If the host is an IP, that IP must be public.
-// If the host is a name, every resolved address must be public — mixed
-// public+private (dual-homed / DNS rebinding bait) is rejected entirely.
-// Callers must Dial the returned IPs, not the original hostname.
 func PublicSMTPDialIPs(host string) ([]net.IP, error) {
 	host = strings.TrimSpace(host)
 	host = strings.TrimPrefix(host, "[")
@@ -65,9 +50,6 @@ func PublicSMTPDialIPs(host string) ([]net.IP, error) {
 	return limitSMTPDialIPs(out), nil
 }
 
-// limitSMTPDialIPs puts IPv4 first and keeps at most one IPv4 and one IPv6.
-// LookupIP often returns AAAA first; dialing those with a 24s timeout would
-// stall dual-stack MX hosts on networks without IPv6.
 func limitSMTPDialIPs(ips []net.IP) []net.IP {
 	if len(ips) < 2 {
 		return ips

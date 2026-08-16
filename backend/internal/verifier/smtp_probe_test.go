@@ -2,6 +2,7 @@ package verifier
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -13,6 +14,10 @@ import (
 )
 
 func TestProbeSMTPCatchAllClassification(t *testing.T) {
+	prevResolve := resolvePublicSMTP
+	resolvePublicSMTP = allowLoopbackSMTPResolve
+	t.Cleanup(func() { resolvePublicSMTP = prevResolve })
+
 	deadline := time.Now().Add(15 * time.Second)
 
 	t.Run("valid when random is 550", func(t *testing.T) {
@@ -80,6 +85,38 @@ func TestProbeSMTPCatchAllClassification(t *testing.T) {
 			t.Fatalf("554 policy must not be invalid, accepted=%v hardFail=%v", res.Accepted, res.HardFail)
 		}
 	})
+}
+
+func TestProbeSMTPSkipsPrivateMX(t *testing.T) {
+	dials := 0
+	prevDial := smtpDial
+	smtpDial = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		dials++
+		t.Fatalf("dialed blocked SMTP target %s", address)
+		return nil, errors.New("should not dial")
+	}
+	t.Cleanup(func() { smtpDial = prevDial })
+
+	deadline := time.Now().Add(5 * time.Second)
+	for _, host := range []string{"127.0.0.1", "10.0.0.1", "192.168.1.1", "169.254.169.254", "::1"} {
+		res := probeSMTP(host, "example.com", "user@example.com", deadline)
+		if !res.Blocked || res.Connected {
+			t.Fatalf("%s: blocked=%v connected=%v", host, res.Blocked, res.Connected)
+		}
+	}
+	if dials != 0 {
+		t.Fatalf("dial count = %d, want 0", dials)
+	}
+}
+
+func allowLoopbackSMTPResolve(host string) ([]net.IP, error) {
+	host = strings.TrimSpace(host)
+	host = strings.TrimPrefix(host, "[")
+	host = strings.TrimSuffix(host, "]")
+	if ip := net.ParseIP(host); ip != nil {
+		return []net.IP{ip}, nil
+	}
+	return helper.PublicSMTPDialIPs(host)
 }
 
 func startFakeSMTP(t *testing.T, targetCode, randomCode int) (host, port string) {
