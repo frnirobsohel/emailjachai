@@ -65,6 +65,18 @@ func TestProbeSMTPCatchAllClassification(t *testing.T) {
 			t.Fatalf("status=%s reason=%s deliv=%v catchAll=%v", st, reason, deliv, catchAll)
 		}
 	})
+
+	t.Run("target 554 is hard-fail", func(t *testing.T) {
+		host, port := startFakeSMTP(t, 554, 550)
+		prev := smtpDialPort
+		smtpDialPort = port
+		t.Cleanup(func() { smtpDialPort = prev })
+
+		res := probeSMTP(host, "example.com", "user@example.com", deadline)
+		if res.Accepted || !res.HardFail {
+			t.Fatalf("554 must be invalid, accepted=%v hardFail=%v", res.Accepted, res.HardFail)
+		}
+	})
 }
 
 func TestProbeSMTPSkipsPrivateMX(t *testing.T) {

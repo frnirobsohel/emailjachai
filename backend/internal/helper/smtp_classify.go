@@ -66,9 +66,11 @@ func ClassifyCatchAllRCPT(err error) CatchAllResult {
 	}
 }
 
-// ClassifyTargetRCPT maps the real-address RCPT error.
-// Only classic user-unknown codes are hard-fail. 554/policy/4xx stay inconclusive
-// so this G1 change does not widen false-invalid.
+// ClassifyTargetRCPT maps the real-address RCPT error using the leading SMTP
+// code only (never a substring match). RFC 5321: 4xx is temporary → unknown;
+// 5xx is permanent. 552 is over-quota (mailbox exists). Protocol errors
+// (500–504, 555) stay unknown. 554 is RFC "transaction failed" — permanent
+// refuse of this send, so invalid for verification (not retry/unknown).
 func ClassifyTargetRCPT(err error) (hardFail, mailboxFull bool) {
 	if err == nil {
 		return false, false
@@ -78,10 +80,19 @@ func ClassifyTargetRCPT(err error) (hardFail, mailboxFull bool) {
 	if code == 552 || strings.Contains(msg, "storage limit") || strings.Contains(msg, "over quota") {
 		return false, true
 	}
-	if code == 550 || code == 551 || code == 553 {
+	if isPermanentRecipientReject(code) {
 		return true, false
 	}
 	return false, false
+}
+
+func isPermanentRecipientReject(code int) bool {
+	switch code {
+	case 550, 551, 553, 554, 521, 556:
+		return true
+	default:
+		return false
+	}
 }
 
 // StatusForAcceptedRCPT maps a successful target RCPT plus catch-all probe

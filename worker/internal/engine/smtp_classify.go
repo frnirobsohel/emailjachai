@@ -61,6 +61,8 @@ func ClassifyCatchAllRCPT(err error) CatchAllResult {
 	}
 }
 
+// ClassifyTargetRCPT maps the real-address RCPT error using the leading SMTP
+// code only. 4xx → unknown. 552 → mailbox full. 550/551/553/554/521/556 → invalid.
 func ClassifyTargetRCPT(err error) (hardFail, mailboxFull bool) {
 	if err == nil {
 		return false, false
@@ -70,10 +72,19 @@ func ClassifyTargetRCPT(err error) (hardFail, mailboxFull bool) {
 	if code == 552 || strings.Contains(msg, "storage limit") || strings.Contains(msg, "over quota") {
 		return false, true
 	}
-	if code == 550 || code == 551 || code == 553 {
+	if isPermanentRecipientReject(code) {
 		return true, false
 	}
 	return false, false
+}
+
+func isPermanentRecipientReject(code int) bool {
+	switch code {
+	case 550, 551, 553, 554, 521, 556:
+		return true
+	default:
+		return false
+	}
 }
 
 func StatusForAcceptedRCPT(catchAll CatchAllResult) (status string, score int, reason string, deliverable, isCatchAll bool) {

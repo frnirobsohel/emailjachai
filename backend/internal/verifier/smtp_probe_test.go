@@ -74,15 +74,15 @@ func TestProbeSMTPCatchAllClassification(t *testing.T) {
 		}
 	})
 
-	t.Run("target 554 is not hard-fail", func(t *testing.T) {
+	t.Run("target 554 is hard-fail", func(t *testing.T) {
 		host, port := startFakeSMTP(t, 554, 550)
 		prev := smtpDialPort
 		smtpDialPort = port
 		t.Cleanup(func() { smtpDialPort = prev })
 
 		res := probeSMTP(host, "example.com", "user@example.com", deadline)
-		if res.Accepted || res.HardFail {
-			t.Fatalf("554 policy must not be invalid, accepted=%v hardFail=%v", res.Accepted, res.HardFail)
+		if res.Accepted || !res.HardFail {
+			t.Fatalf("554 must be invalid, accepted=%v hardFail=%v", res.Accepted, res.HardFail)
 		}
 	})
 }

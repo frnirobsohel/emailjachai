@@ -24,6 +24,37 @@ func TestClassifyCatchAllRCPT(t *testing.T) {
 	}
 }
 
+func TestClassifyTargetRCPT(t *testing.T) {
+	hard, full := ClassifyTargetRCPT(&textproto.Error{Code: 550, Msg: "user unknown"})
+	if !hard || full {
+		t.Fatalf("550: hard=%v full=%v", hard, full)
+	}
+	hard, full = ClassifyTargetRCPT(&textproto.Error{Code: 554, Msg: "policy"})
+	if !hard || full {
+		t.Fatalf("554: hard=%v full=%v", hard, full)
+	}
+	hard, full = ClassifyTargetRCPT(&textproto.Error{Code: 521, Msg: "does not accept mail"})
+	if !hard || full {
+		t.Fatalf("521: hard=%v full=%v", hard, full)
+	}
+	hard, full = ClassifyTargetRCPT(&textproto.Error{Code: 556, Msg: "null mx"})
+	if !hard || full {
+		t.Fatalf("556: hard=%v full=%v", hard, full)
+	}
+	hard, full = ClassifyTargetRCPT(errors.New("450 4.7.1 greylisted; retry after 550"))
+	if hard || full {
+		t.Fatalf("greylist text mentioning 550 must not hard-fail, got hard=%v full=%v", hard, full)
+	}
+	hard, full = ClassifyTargetRCPT(&textproto.Error{Code: 503, Msg: "need MAIL first"})
+	if hard || full {
+		t.Fatalf("503 protocol error must stay unknown, got hard=%v full=%v", hard, full)
+	}
+	hard, full = ClassifyTargetRCPT(&textproto.Error{Code: 552, Msg: "over quota"})
+	if hard || !full {
+		t.Fatalf("552: hard=%v full=%v", hard, full)
+	}
+}
+
 func TestStatusForAcceptedRCPT(t *testing.T) {
 	st, _, reason, deliv, catchAll := StatusForAcceptedRCPT(CatchAllRejected)
 	if st != "valid" || reason != "accepted" || !deliv || catchAll {
