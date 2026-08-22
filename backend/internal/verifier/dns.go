@@ -13,8 +13,9 @@ import (
 )
 
 type MXCacheEntry struct {
-	Host string `json:"host"`
-	Pref uint16 `json:"pref"`
+	Host      string `json:"host"`
+	Pref      uint16 `json:"pref"`
+	AFallback bool   `json:"a_fallback,omitempty"`
 }
 
 // resolvers is the list of DNS servers loaded from DNS_RESOLVERS env var.
@@ -47,10 +48,20 @@ func pickResolver() string {
 	return resolvers[rand.Intn(len(resolvers))]
 }
 
+func cacheMXEntries(domainClean string, entries []MXCacheEntry) {
+	if config.Redis == nil || len(entries) == 0 {
+		return
+	}
+	if b, err := json.Marshal(entries); err == nil {
+		config.Redis.Set(config.Ctx, "domain_cache:mx:"+domainClean, string(b), 24*time.Hour)
+	}
+}
+
 // lookupMX queries MX records for the given domain using miekg/dns.
 // It retries across multiple resolvers on failure and falls back to A records
 // for domains without explicit MX entries (RFC 5321 §5.1).
-func lookupMX(domain string) ([]*net.MX, error) {
+// aFallback is true when the answer is only an A-record stand-in (no real MX).
+func lookupMX(domain string) (records []*net.MX, aFallback bool, err error) {
 	// Ensure FQDN
 	if !strings.HasSuffix(domain, ".") {
 		domain = domain + "."
@@ -64,10 +75,14 @@ func lookupMX(domain string) ([]*net.MX, error) {
 			var cachedRecords []MXCacheEntry
 			if json.Unmarshal([]byte(cachedData), &cachedRecords) == nil && len(cachedRecords) > 0 {
 				var mxRecords []*net.MX
+				fallback := false
 				for _, r := range cachedRecords {
 					mxRecords = append(mxRecords, &net.MX{Host: r.Host, Pref: r.Pref})
+					if r.AFallback {
+						fallback = true
+					}
 				}
-				return mxRecords, nil
+				return mxRecords, fallback, nil
 			}
 		}
 	}
@@ -117,16 +132,12 @@ func lookupMX(domain string) ([]*net.MX, error) {
 		}
 
 		if len(mxRecords) > 0 {
-			if config.Redis != nil {
-				var toCache []MXCacheEntry
-				for _, mx := range mxRecords {
-					toCache = append(toCache, MXCacheEntry{Host: mx.Host, Pref: mx.Pref})
-				}
-				if b, err := json.Marshal(toCache); err == nil {
-					config.Redis.Set(config.Ctx, "domain_cache:mx:"+domainClean, string(b), 24*time.Hour)
-				}
+			var toCache []MXCacheEntry
+			for _, mx := range mxRecords {
+				toCache = append(toCache, MXCacheEntry{Host: mx.Host, Pref: mx.Pref})
 			}
-			return mxRecords, nil
+			cacheMXEntries(domainClean, toCache)
+			return mxRecords, false, nil
 		}
 
 		// No MX records — try A record fallback (RFC 5321 §5.1)
@@ -146,18 +157,13 @@ func lookupMX(domain string) ([]*net.MX, error) {
 		if resp != nil && len(resp.Answer) > 0 {
 			// Domain has an A record — treat it as its own MX (RFC 5321 §5.1)
 			mxRecords := []*net.MX{{Host: domainClean, Pref: 10}}
-			if config.Redis != nil {
-				toCache := []MXCacheEntry{{Host: domainClean, Pref: 10}}
-				if b, err := json.Marshal(toCache); err == nil {
-					config.Redis.Set(config.Ctx, "domain_cache:mx:"+domainClean, string(b), 24*time.Hour)
-				}
-			}
-			return mxRecords, nil
+			cacheMXEntries(domainClean, []MXCacheEntry{{Host: domainClean, Pref: 10, AFallback: true}})
+			return mxRecords, true, nil
 		}
 	}
 
 	if lastErr != nil {
-		return nil, lastErr
+		return nil, false, lastErr
 	}
-	return nil, &net.DNSError{Err: "no MX or A records found", Name: domain}
+	return nil, false, &net.DNSError{Err: "no MX or A records found", Name: domain}
 }

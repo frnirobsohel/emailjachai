@@ -317,7 +317,7 @@ func (h *CacheHandler) UploadBulkCache(c *gin.Context) {
 			continue
 		}
 		email := strings.ToLower(strings.TrimSpace(record[emailIdx]))
-		if email == "" || !strings.Contains(email, "@") {
+		if email == "" || !helper.IsValidMailboxSyntax(email) {
 			skipped++
 			continue
 		}

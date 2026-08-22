@@ -282,33 +282,37 @@ func (s *jobService) VerifySingle(ctx context.Context, userID uint, email string
 		}
 		resCopy := res
 		emailCopy := email
-		safe.Go(func() {
-			r := resCopy
-			e := emailCopy
-			cacheRows := []model.EmailCache{{
-				Email:          e,
-				Status:         r.Status,
-				Score:          r.Score,
-				Reason:         r.Reason,
-				IsCatchAll:     r.CatchAll,
-				IsDeliverable:  r.Deliverable,
-				IsDisposable:   r.Status == "disposable",
-				IsFree:         r.IsFree,
-				IsRole:         r.IsRole,
-				HasMx:          r.HasMX,
-				MxRecords:      r.MxRecords,
-				SmtpConnect:    r.SMTPConnect,
-				UserExists:     r.Deliverable,
-				IsSyntaxValid:  r.SyntaxValid,
-				IsSpamTrap:     r.IsSpamTrap,
-				IsBlacklisted:  r.IsBlacklisted,
-				MailboxFull:    r.MailboxFull,
-				ProcessingTime: r.ProcessingTime,
-				CreatedAt:      time.Now(),
-				UpdatedAt:      time.Now(),
-			}}
-			_ = s.cacheRepo.UpsertEmailCacheBatch(cacheRows)
-		})
+		// G2 Fix: Do NOT cache unknown/timeout/inconclusive results.
+		// These must be re-probed fresh on the next request.
+		if res.Status != "unknown" {
+			safe.Go(func() {
+				r := resCopy
+				e := emailCopy
+				cacheRows := []model.EmailCache{{
+					Email:          e,
+					Status:         r.Status,
+					Score:          r.Score,
+					Reason:         r.Reason,
+					IsCatchAll:     r.CatchAll,
+					IsDeliverable:  r.Deliverable,
+					IsDisposable:   r.Status == "disposable",
+					IsFree:         r.IsFree,
+					IsRole:         r.IsRole,
+					HasMx:          r.HasMX,
+					MxRecords:      r.MxRecords,
+					SmtpConnect:    r.SMTPConnect,
+					UserExists:     r.Deliverable,
+					IsSyntaxValid:  r.SyntaxValid,
+					IsSpamTrap:     r.IsSpamTrap,
+					IsBlacklisted:  r.IsBlacklisted,
+					MailboxFull:    r.MailboxFull,
+					ProcessingTime: r.ProcessingTime,
+					CreatedAt:      time.Now(),
+					UpdatedAt:      time.Now(),
+				}}
+				_ = s.cacheRepo.UpsertEmailCacheBatch(cacheRows)
+			})
+		}
 	}
 
 	isDisposable := res.Status == "disposable"
@@ -548,11 +552,11 @@ func (s *jobService) SubmitBulkJob(userID uint, filename string, emails []string
 		return nil, nil, errors.New("user not found")
 	}
 
-	// 5. Pre-filter basic syntax (exact credit count)
+	// 5. Pre-filter mailbox syntax (exact credit count — invalid_syntax is not charged)
 	queueEmails := make([]string, 0)
 	invalidSyntax := 0
 	for _, email := range uniqueEmails {
-		if !strings.Contains(email, "@") || len(email) < 5 {
+		if !helper.IsValidMailboxSyntax(email) {
 			invalidSyntax++
 			continue
 		}
@@ -699,7 +703,7 @@ func (s *jobService) PrepareBulkJob(jobID string) error {
 
 	queueEmails := make([]string, 0, len(sourceEmails))
 	for _, email := range sourceEmails {
-		if !strings.Contains(email, "@") || len(email) < 5 {
+		if !helper.IsValidMailboxSyntax(email) {
 			continue
 		}
 		queueEmails = append(queueEmails, email)
@@ -1480,7 +1484,7 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 		if email == "" || verifiedMap[email] {
 			continue
 		}
-		if !strings.Contains(email, "@") || len(email) < 5 {
+		if !helper.IsValidMailboxSyntax(email) {
 			continue
 		}
 		queueEmails = append(queueEmails, email)

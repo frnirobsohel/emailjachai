@@ -3,7 +3,6 @@ package handler
 import (
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,12 +19,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
-
-var emailRegex = regexp.MustCompile(`(?i)^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$`)
-
-// --- Fix I-04: Strong email regex ---
-// আগে শুধু '@' আছে কিনা দেখা হত — a@b বা test@ পাস হয়ে যেত।
-// এখন file_job.go-তে ডিক্লেয়ার করা RFC-compliant emailRegex ব্যবহার করে সঠিকভাবে validate করা হয়।
 
 // --- Fix I-08: Cache retention settings ---
 // আগে প্রতিটা verify request-এ DB থেকে retention settings পড়া হত (3 queries)।
@@ -161,8 +154,7 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 	}
 
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	// Fix I-04: Regex validation rejects malformed emails like a@b, test@, @domain.com
-	if email == "" || !emailRegex.MatchString(email) {
+	if email == "" || !helper.IsValidMailboxSyntax(email) {
 		helper.SendError(c, http.StatusBadRequest, "Invalid email address", "ERR_INVALID_EMAIL")
 		return
 	}
@@ -230,36 +222,39 @@ func (h *PublicVerifyHandler) VerifyPublic(c *gin.Context) {
 	if !fromCache {
 		res = verifier.VerifyEmailBounded(c.Request.Context(), email, 0)
 
-		// Async cache upsert so future requests benefit from cache
-		resCopy := res
-		emailCopy := email
-		safe.Go(func() {
-			r := resCopy
-			e := emailCopy
-			cacheRows := []model.EmailCache{{
-				Email:          e,
-				Status:         r.Status,
-				Score:          r.Score,
-				Reason:         r.Reason,
-				IsCatchAll:     r.CatchAll,
-				IsDeliverable:  r.Deliverable,
-				IsDisposable:   r.Status == "disposable",
-				IsFree:         r.IsFree,
-				IsRole:         r.IsRole,
-				HasMx:          r.HasMX,
-				MxRecords:      r.MxRecords,
-				SmtpConnect:    r.SMTPConnect,
-				UserExists:     r.Deliverable,
-				IsSyntaxValid:  r.SyntaxValid,
-				IsSpamTrap:     r.IsSpamTrap,
-				IsBlacklisted:  r.IsBlacklisted,
-				MailboxFull:    r.MailboxFull,
-				ProcessingTime: r.ProcessingTime,
-				CreatedAt:      time.Now(),
-				UpdatedAt:      time.Now(),
-			}}
-			_ = h.cacheRepo.UpsertEmailCacheBatch(cacheRows)
-		})
+		// G2 Fix: Only conclusive results are written to cache.
+		// Unknown/timeout results must be re-probed on the next request.
+		if res.Status != "unknown" {
+			resCopy := res
+			emailCopy := email
+			safe.Go(func() {
+				r := resCopy
+				e := emailCopy
+				cacheRows := []model.EmailCache{{
+					Email:          e,
+					Status:         r.Status,
+					Score:          r.Score,
+					Reason:         r.Reason,
+					IsCatchAll:     r.CatchAll,
+					IsDeliverable:  r.Deliverable,
+					IsDisposable:   r.Status == "disposable",
+					IsFree:         r.IsFree,
+					IsRole:         r.IsRole,
+					HasMx:          r.HasMX,
+					MxRecords:      r.MxRecords,
+					SmtpConnect:    r.SMTPConnect,
+					UserExists:     r.Deliverable,
+					IsSyntaxValid:  r.SyntaxValid,
+					IsSpamTrap:     r.IsSpamTrap,
+					IsBlacklisted:  r.IsBlacklisted,
+					MailboxFull:    r.MailboxFull,
+					ProcessingTime: r.ProcessingTime,
+					CreatedAt:      time.Now(),
+					UpdatedAt:      time.Now(),
+				}}
+				_ = h.cacheRepo.UpsertEmailCacheBatch(cacheRows)
+			})
+		}
 	}
 
 	// 3. Return result — same shape as authenticated verify for frontend compatibility

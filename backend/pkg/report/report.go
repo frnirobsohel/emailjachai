@@ -72,6 +72,8 @@ func GetFriendlyReason(reasonCode string, status string) string {
 		return "Invalid Email Syntax (Format error)"
 	case "mx":
 		return "No MX Records found for domain"
+	case "no_mail":
+		return "No mail service (parked or web-only domain)"
 	case "disposable":
 		return "Disposable Email Provider (Temporary mail)"
 	case "spamtrap":

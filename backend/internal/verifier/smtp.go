@@ -190,16 +190,17 @@ func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Dur
 		Score:       35,
 	}
 
-	parts := strings.Split(email, "@")
-	if len(parts) != 2 {
+	if !helper.IsValidMailboxSyntax(email) {
 		result.Status = "invalid"
 		result.Score = 0
+		result.Reason = "syntax"
 		result.ProcessingTime = time.Since(funcStart).Seconds()
 		return result
 	}
 
-	user := parts[0]
-	domain := parts[1]
+	at := strings.IndexByte(email, '@')
+	user := email[:at]
+	domain := email[at+1:]
 	result.SyntaxValid = true
 
 	// Check domain policy (Spam Trap, Blacklist, Free, Disposable)
@@ -228,8 +229,16 @@ func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Dur
 		return result
 	}
 
-	// Basic Role detection (Sync with legacy list)
-	roles := []string{"admin", "support", "info", "contact", "sales", "help", "billing", "webmaster", "postmaster", "hostmaster", "jobs", "hr"}
+	// Role account detection — expanded list (G13 fix, synced with worker)
+	roles := []string{
+		"admin", "support", "info", "contact", "sales", "help", "billing",
+		"webmaster", "postmaster", "hostmaster", "jobs", "hr",
+		// Extended role prefixes
+		"noreply", "no-reply", "no_reply", "newsletter", "notifications",
+		"bounce", "mailer-daemon", "abuse", "security", "marketing",
+		"media", "office", "team", "hello", "press", "legal", "privacy",
+		"unsubscribe", "donotreply", "do-not-reply",
+	}
 	for _, r := range roles {
 		if user == r {
 			result.IsRole = true
@@ -247,7 +256,7 @@ func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Dur
 	}
 
 	// Lookup MX Records using advanced miekg/dns resolver
-	mxRecords, err := lookupMX(domain)
+	mxRecords, aFallback, err := lookupMX(domain)
 	if err != nil || len(mxRecords) == 0 {
 		result.HasMX = false
 		result.Status = "invalid"
@@ -257,7 +266,23 @@ func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Dur
 		result.ProcessingTime = time.Since(funcStart).Seconds()
 		return result
 	}
-	result.HasMX = true
+
+	// G10 Fix: RFC 7505 Null MX — MX record with priority 0 and host "."
+	// explicitly signals "this domain does not accept email". Mark invalid immediately.
+	if len(mxRecords) == 1 && mxRecords[0].Pref == 0 {
+		host := strings.TrimSuffix(mxRecords[0].Host, ".")
+		if host == "" || host == "." {
+			result.Status = "invalid"
+			result.Score = 0
+			result.HasMX = false
+			result.Reason = "no_mail"
+			result.DetailedError = "RFC 7505 Null MX: domain explicitly rejects mail"
+			result.ProcessingTime = time.Since(funcStart).Seconds()
+			return result
+		}
+	}
+
+	result.HasMX = !aFallback
 
 	// Sort MX Records by Preference, then alphabetically by Host
 	sort.Slice(mxRecords, func(i, j int) bool {
@@ -356,6 +381,16 @@ func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Dur
 		result.Score = 35
 		result.Reason = "catchall_inconclusive"
 		result.DetailedError = "target RCPT accepted but random probe was greylisted or dropped"
+		return result
+	}
+
+	// Parked / web-only: no real MX, A-record dial never reached SMTP → undeliverable.
+	if aFallback && !result.SMTPConnect {
+		result.Status = "invalid"
+		result.Score = 0
+		result.HasMX = false
+		result.Reason = "no_mail"
+		result.DetailedError = "A-record fallback: SMTP unreachable (parked/web-only domain)"
 		return result
 	}
 

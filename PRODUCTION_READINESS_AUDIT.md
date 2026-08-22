@@ -1,19 +1,20 @@
 # EmailJachai-Pro — Production Readiness Audit
 
-**Date:** August 6, 2026 (updated after Phase 1 + Phase 2 fixes)  
+**Date:** August 6, 2026 (updated after Phase 1 + Phase 2 + Phase 3 fixes)  
 **Stack:** Next.js BFF + Go API + Go Asynq worker · PostgreSQL + Redis  
 
 ---
 
 ## Verdict
 
-**Phase 1 (Security) and Phase 2 (Ops) code fixes are in the repo.**  
+**Phase 1 (Security), Phase 2 (Ops), and Phase 3 (Accuracy) code fixes are in the repo.**  
 Remaining work is **operational**: set real prod secrets, enable backups/uptime on the host, optional Sentry DSN, redeploy, and run the smoke checklist in `ops/PRODUCTION_RUNBOOK.md`.
 
 | Area | Status |
 |------|--------|
 | Phase 1 Security | Done |
 | Phase 2 Ops code | Done |
+| Phase 3 Accuracy (G-series) | Done |
 | Host/deploy config | Your responsibility before DNS cutover |
 
 ---
@@ -48,10 +49,26 @@ Remaining work is **operational**: set real prod secrets, enable backups/uptime 
 
 ---
 
+## Phase 3 — Accuracy / Verification Engine (DONE — August 22, 2026)
+
+| Gap | Sev | Fix | Files |
+|----|-----|-----|-------|
+| G2 | HIGH | Unknown/timeout results NOT cached — next request re-probes fresh | `worker_handler.go`, `job_service.go`, `public_verify_handler.go` |
+| G6 | HIGH | Worker STARTTLS support + `SMTP_HELO_HOSTNAME` env var for proper FQDN | `worker/internal/engine/smtp.go`, `.env`, `.env.example` |
+| G9 | MEDIUM | 4xx greylist: 8-second back-off retry on same MX (deadline-aware) | `worker/internal/engine/smtp.go` |
+| G10 | MEDIUM | RFC 7505 Null MX (`0 .`) → immediate `invalid (no_mail)` | `worker/internal/engine/smtp.go`, `backend/internal/verifier/smtp.go` |
+| G11 | HIGH | M365/Yahoo known accept-all MX → force `catch_all` (no false valid) | `worker/internal/engine/smtp.go` |
+| G13 | LOW | Role list expanded: noreply, no-reply, abuse, security, office, team, etc. | `worker/internal/engine/smtp.go`, `backend/internal/verifier/smtp.go` |
+
+**Already correct (no change needed):** G1, G3, G5, G7, G8, G14, G15, G17, G18
+
+---
+
 ## Go-live checklist (host)
 
-- [ ] Redeploy frontend/backend/worker with Phase 1+2 images
+- [ ] Redeploy frontend/backend/worker with Phase 1+2+3 images
 - [ ] Set real secrets (`JWT_SECRET`, `WORKER_API_KEY`, TLS `DATABASE_URL`, `REDIS_URL`, `CORS_ORIGINS`, `FRONTEND_URL`, internal `API_BASE_URL`)
+- [ ] **Set `SMTP_HELO_HOSTNAME=mail.yourdomain.com` on worker** (new — Phase 3)
 - [ ] Schedule `scripts/backup-postgres.sh` daily + one restore drill
 - [ ] External uptime check on `/api/v1/health` and site `/`
 - [ ] Optional: set `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN`
@@ -62,6 +79,7 @@ Remaining work is **operational**: set real prod secrets, enable backups/uptime 
 
 ## Key files added/updated
 
+### Phase 1 + 2
 - `.github/workflows/ci.yml`
 - `docker-compose.yml`
 - `ops/PRODUCTION_RUNBOOK.md`
@@ -71,3 +89,11 @@ Remaining work is **operational**: set real prod secrets, enable backups/uptime 
 - `backend/pkg/observability/`
 - `frontend/lib/observability.ts`, `frontend/app/global-error.tsx`
 - `worker/internal/queue/handlers_test.go`, `worker/internal/engine/smtp_test.go`
+
+### Phase 3 (Accuracy)
+- `backend/internal/api/handler/worker_handler.go` (G2 cache skip)
+- `backend/internal/service/job_service.go` (G2 cache skip)
+- `backend/internal/api/handler/public_verify_handler.go` (G2 cache skip)
+- `backend/internal/verifier/smtp.go` (G10 Null MX, G13 roles)
+- `worker/internal/engine/smtp.go` (G6 STARTTLS+HELO, G9 retry, G10 Null MX, G11 M365/Yahoo, G13 roles)
+- `worker/.env`, `worker/.env.example` (SMTP_HELO_HOSTNAME)

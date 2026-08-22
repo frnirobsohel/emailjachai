@@ -149,22 +149,26 @@ func (h *WorkerHandler) ReportTaskResult(c *gin.Context) {
 				_ = h.workerService.UpdateResultFilePath(jID, filePath)
 			}
 
-			// Upsert to Email Cache
-			cacheRows := []model.EmailCache{{
-				Email:          row.Email,
-				Status:         row.Status,
-				Score:          row.Score,
-				Reason:         row.Reason,
-				IsCatchAll:     row.IsCatchAll,
-				IsDeliverable:  row.IsDeliverable,
-				IsDisposable:   row.IsDisposable,
-				HasMx:          row.HasMx,
-				ProcessingTime: p.TimeTaken,
-				CreatedAt:      time.Now(),
-				UpdatedAt:      time.Now(),
-			}}
-			if err := h.cacheRepo.UpsertEmailCacheBatch(cacheRows); err != nil {
-				logger.Error("failed to upsert email cache", "error", err)
+			// G2 Fix: Unknown/timeout/cancelled results are NOT cached.
+			// Inconclusive probes must be re-tried on the next request, not
+			// served stale for up to 30 days from cache.
+			if st != "unknown" {
+				cacheRows := []model.EmailCache{{
+					Email:          row.Email,
+					Status:         row.Status,
+					Score:          row.Score,
+					Reason:         row.Reason,
+					IsCatchAll:     row.IsCatchAll,
+					IsDeliverable:  row.IsDeliverable,
+					IsDisposable:   row.IsDisposable,
+					HasMx:          row.HasMx,
+					ProcessingTime: p.TimeTaken,
+					CreatedAt:      time.Now(),
+					UpdatedAt:      time.Now(),
+				}}
+				if err := h.cacheRepo.UpsertEmailCacheBatch(cacheRows); err != nil {
+					logger.Error("failed to upsert email cache", "error", err)
+				}
 			}
 		})
 	}
@@ -249,9 +253,13 @@ func (h *WorkerHandler) ReportTaskResults(c *gin.Context) {
 				_ = h.workerService.UpdateResultFilePath(job.JobID, filePath)
 			}
 
-			// Upsert to Email Cache
+			// G2 Fix: Only conclusive results are written to cache.
+			// Unknown/timeout rows must re-probe on next request.
 			cacheRows := make([]model.EmailCache, 0, len(rows))
 			for _, r := range rows {
+				if r.Status == "unknown" {
+					continue // do not cache inconclusive results
+				}
 				cacheRows = append(cacheRows, model.EmailCache{
 					Email:          r.Email,
 					Status:         r.Status,
@@ -274,8 +282,10 @@ func (h *WorkerHandler) ReportTaskResults(c *gin.Context) {
 					UpdatedAt:      time.Now(),
 				})
 			}
-			if err := h.cacheRepo.UpsertEmailCacheBatch(cacheRows); err != nil {
-				logger.Error("failed to upsert email cache batch", "error", err)
+			if len(cacheRows) > 0 {
+				if err := h.cacheRepo.UpsertEmailCacheBatch(cacheRows); err != nil {
+					logger.Error("failed to upsert email cache batch", "error", err)
+				}
 			}
 		})
 	}
