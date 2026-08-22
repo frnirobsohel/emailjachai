@@ -57,12 +57,12 @@ Remaining work is **operational**: set real prod secrets, enable backups/uptime 
 | G6 | HIGH | Worker + backend STARTTLS + `SMTP_HELO_HOSTNAME` for proper FQDN | `worker/internal/engine/smtp.go`, `backend/internal/verifier/smtp.go` |
 | G9 | MEDIUM | 4xx greylist: 8-second back-off retry on same MX (deadline-aware) | `worker/internal/engine/smtp.go`, `backend/internal/verifier/smtp.go` |
 | G10 | MEDIUM | RFC 7505 Null MX (`0 .`) → immediate `invalid (no_mail)` | `worker/internal/engine/smtp.go`, `backend/internal/verifier/smtp.go` |
-| G11 | HIGH | M365/Yahoo known accept-all MX → force `catch_all` (no false valid) | `worker/internal/engine/smtp.go`, `backend/internal/verifier/smtp.go` |
+| G11 | — | **Reverted Aug 23, 2026:** no longer force `catch_all` by M365/Yahoo MX. Catch-all only when random RCPT probe accepts (standard verifier behavior). | — |
 | G13 | LOW | Role list expanded: noreply, no-reply, abuse, security, office, team, etc. | `worker/internal/engine/smtp.go`, `backend/internal/verifier/smtp.go` |
 
 **Already correct (no change needed):** G1, G3, G5, G7, G8, G14, G15, G17, G18
 
-**Parity note (Aug 22, 2026):** Single/public (backend verifier) and bulk (worker) now share G6/G9/G10/G11/G13 probe classification. Paths remain separate processes; logic must stay mirrored.
+**Parity note (Aug 22, 2026):** Single/public (backend verifier) and bulk (worker) share G6/G9/G10/G13 probe classification. **G11 vendor force-catch_all removed Aug 23** — both paths use random-probe catch-all only.
 
 ---
 
@@ -97,5 +97,5 @@ Remaining work is **operational**: set real prod secrets, enable backups/uptime 
 - `backend/internal/service/job_service.go` (G2 cache skip)
 - `backend/internal/api/handler/public_verify_handler.go` (G2 cache skip)
 - `backend/internal/verifier/smtp.go` (G10 Null MX, G13 roles)
-- `worker/internal/engine/smtp.go` (G6 STARTTLS+HELO, G9 retry, G10 Null MX, G11 M365/Yahoo, G13 roles)
+- `worker/internal/engine/smtp.go` (G6 STARTTLS+HELO, G9 retry, G10 Null MX, G13 roles; G11 force removed)
 - `worker/.env`, `worker/.env.example` (SMTP_HELO_HOSTNAME)

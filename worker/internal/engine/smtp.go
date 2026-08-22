@@ -194,10 +194,9 @@ func randomString(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// isKnownAcceptAllProvider returns true if the MX host belongs to a provider
-// that is known to operate accept-all (catch-all) infrastructure.
-// These providers accept RCPT for any address and never confirm individual mailbox existence.
-// G11 Fix: Prevents false "valid" classification for M365 / Yahoo domains.
+// isKnownAcceptAllProvider detects M365/Yahoo-style MX hosts. Used only for
+// tests / future optional policy — verification status must NOT be forced from
+// this list; catch-all comes solely from the random RCPT probe (industry default).
 func isKnownAcceptAllProvider(mxHost string) bool {
 	host := strings.ToLower(strings.TrimSuffix(mxHost, "."))
 	acceptAllSuffixes := []string{
@@ -392,18 +391,8 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 		}
 		result.SMTPConnect = true
 
-		// G11 Fix: Known accept-all providers (M365, Yahoo) always return 250 for
-		// any RCPT, so we override the result to catch_all regardless of the
-		// random probe outcome. Prevents false "valid" from these providers.
-		if res.Accepted && isKnownAcceptAllProvider(host) {
-			result.Status = "catch_all"
-			result.Score = 55
-			result.Reason = "catch_all"
-			result.Deliverable = false
-			result.CatchAll = true
-			return result
-		}
-
+		// Catch-all only from random RCPT probe (SMTPProbeDisposition) — same as
+		// standard verifiers. Do not force catch_all by MX vendor (M365/Yahoo).
 		status, score, reason, deliverable, catchAll, done, inconclusive := SMTPProbeDisposition(
 			res.Accepted, res.CatchAllResult, res.HardFail, res.MailboxFull, sawCatchAllInconclusive,
 		)
@@ -421,14 +410,6 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 					res2 := probeSMTP(host, domain, email, deadline)
 					if res2.Connected {
 						result.SMTPConnect = true
-						if res2.Accepted && isKnownAcceptAllProvider(host) {
-							result.Status = "catch_all"
-							result.Score = 55
-							result.Reason = "catch_all"
-							result.Deliverable = false
-							result.CatchAll = true
-							return result
-						}
 						status2, score2, reason2, deliverable2, catchAll2, done2, inconclusive2 := SMTPProbeDisposition(
 							res2.Accepted, res2.CatchAllResult, res2.HardFail, res2.MailboxFull, sawCatchAllInconclusive,
 						)
