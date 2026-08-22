@@ -34,6 +34,23 @@ func TestParseRetentionDays(t *testing.T) {
 	}
 }
 
+func TestParsePurgeOlderDays(t *testing.T) {
+	v, err := parsePurgeOlderDays("0")
+	if err != nil || v != 0 {
+		t.Fatalf("days=0 must be allowed, got %d %v", v, err)
+	}
+	v, err = parsePurgeOlderDays("7")
+	if err != nil || v != 7 {
+		t.Fatalf("got %d %v", v, err)
+	}
+	if _, err := parsePurgeOlderDays("-1"); err == nil {
+		t.Fatal("expected error for -1")
+	}
+	if _, err := parsePurgeOlderDays("3651"); err == nil {
+		t.Fatal("expected error for 3651")
+	}
+}
+
 func TestIsCacheFreeDomain(t *testing.T) {
 	if !isCacheFreeDomain("a@gmail.com") {
 		t.Fatal("gmail should be free")

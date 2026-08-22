@@ -246,6 +246,7 @@ func SetupRoutes(router *gin.Engine) {
 			admin.POST("/cache/lookup", cacheHandler.LookupEmail)
 			admin.DELETE("/cache/lookup", cacheHandler.DeleteEmail)
 			admin.POST("/cache/purge", cacheHandler.PurgeExpiredCache)
+			admin.POST("/cache/purge-older", cacheHandler.PurgeOlderThan)
 			admin.POST("/cache/upload", cacheHandler.UploadBulkCache)
 
 			// Server Management

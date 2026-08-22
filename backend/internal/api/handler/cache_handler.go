@@ -21,8 +21,11 @@ import (
 const (
 	cacheRetentionMinDays = 1
 	cacheRetentionMaxDays = 3650
-	cacheUploadMaxBytes   = 20 * 1024 * 1024
-	cacheUploadMaxRows    = 100_000
+	// Manual age purge may clear everything (0 = all rows).
+	cachePurgeOlderMinDays = 0
+	cachePurgeOlderMaxDays = 3650
+	cacheUploadMaxBytes    = 20 * 1024 * 1024
+	cacheUploadMaxRows     = 100_000
 )
 
 type CacheHandler struct {
@@ -235,6 +238,52 @@ func (h *CacheHandler) PurgeExpiredCache(c *gin.Context) {
 	})
 }
 
+// PurgeOlderThan deletes email_cache rows older than N days.
+// days=0 deletes all rows (created_at <= now) so admins can force a full re-verify.
+func (h *CacheHandler) PurgeOlderThan(c *gin.Context) {
+	adminID, ok := adminIDFromContext(c)
+	if !ok {
+		helper.SendError(c, http.StatusUnauthorized, "Unauthorized", "ERR_UNAUTHORIZED")
+		return
+	}
+
+	var req struct {
+		Days    int    `json:"days"`
+		Confirm string `json:"confirm" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Type DELETE to confirm purge", "ERR_BAD_REQUEST")
+		return
+	}
+	if strings.ToUpper(strings.TrimSpace(req.Confirm)) != "DELETE" {
+		helper.SendError(c, http.StatusBadRequest, "Type DELETE to confirm", "ERR_CACHE_CONFIRM")
+		return
+	}
+	if req.Days < cachePurgeOlderMinDays || req.Days > cachePurgeOlderMaxDays {
+		helper.SendError(c, http.StatusBadRequest, "Days must be between 0 and 3650 (0 clears all cache)", "ERR_CACHE_PURGE_DAYS")
+		return
+	}
+
+	now := time.Now().UTC()
+	threshold := now.AddDate(0, 0, -req.Days)
+	// days=0 → threshold == now → delete every row created at or before this moment.
+	res := h.cacheRepo.DB().Where("created_at <= ?", threshold).Delete(&model.EmailCache{})
+	if res.Error != nil {
+		logger.Error("Cache purge-older failed", "error", res.Error, "days", req.Days)
+		helper.SendError(c, http.StatusInternalServerError, "Failed to purge cache by age", "ERR_CACHE_PURGE")
+		return
+	}
+
+	logAction(adminID, "WARN", "Admin",
+		fmt.Sprintf("Purged %d cache records older than %d days (threshold=%s)", res.RowsAffected, req.Days, threshold.Format(time.RFC3339)))
+
+	helper.SendSuccess(c, "Purged cache by age successfully", gin.H{
+		"deleted_count": res.RowsAffected,
+		"days":          req.Days,
+		"threshold":     threshold.UTC().Format(time.RFC3339),
+	})
+}
+
 // UploadBulkCache parses CSV/TXT and upserts to cache.
 func (h *CacheHandler) UploadBulkCache(c *gin.Context) {
 	adminID, ok := adminIDFromContext(c)
@@ -388,6 +437,14 @@ func (h *CacheHandler) UploadBulkCache(c *gin.Context) {
 func parseRetentionDays(raw string) (int, error) {
 	v, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil || v < cacheRetentionMinDays || v > cacheRetentionMaxDays {
+		return 0, fmt.Errorf("out of range")
+	}
+	return v, nil
+}
+
+func parsePurgeOlderDays(raw string) (int, error) {
+	v, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || v < cachePurgeOlderMinDays || v > cachePurgeOlderMaxDays {
 		return 0, fmt.Errorf("out of range")
 	}
 	return v, nil

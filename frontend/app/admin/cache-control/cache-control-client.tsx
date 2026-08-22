@@ -118,6 +118,10 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
     const [invalidateConfirm, setInvalidateConfirm] = useState("")
     const [showPurgeModal, setShowPurgeModal] = useState(false)
     const [purgeConfirm, setPurgeConfirm] = useState("")
+    const [purgeOlderDays, setPurgeOlderDays] = useState("0")
+    const [showPurgeOlderModal, setShowPurgeOlderModal] = useState(false)
+    const [purgeOlderConfirm, setPurgeOlderConfirm] = useState("")
+    const [isPurgingOlder, setIsPurgingOlder] = useState(false)
 
     const fetchStats = useCallback(async () => {
         setIsLoadingStats(true)
@@ -237,6 +241,47 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
         }
     }
 
+    const handlePurgeOlder = async () => {
+        if (purgeOlderConfirm.trim().toUpperCase() !== DELETE_CONFIRM_PHRASE) {
+            toast.error(`Type ${DELETE_CONFIRM_PHRASE} to confirm`)
+            return
+        }
+        if (!/^\d+$/.test(purgeOlderDays.trim())) {
+            toast.error("Days must be a number from 0 to 3650")
+            return
+        }
+        const days = Number(purgeOlderDays.trim())
+        if (days < 0 || days > 3650) {
+            toast.error("Days must be between 0 and 3650 (0 = clear all)")
+            return
+        }
+
+        setIsPurgingOlder(true)
+        const toastId = toast.loading(
+            days === 0 ? "Clearing all email cache..." : `Purging cache older than ${days} days...`
+        )
+        try {
+            const res = await ApiClient.post<{ deleted_count?: number; days?: number }>(
+                '/admin/cache/purge-older',
+                { days, confirm: DELETE_CONFIRM_PHRASE },
+                { timeout: 120_000 }
+            )
+            if (res.status === 'success') {
+                const label = days === 0 ? "all cache" : `cache older than ${days} days`
+                toast.success(`Purged ${res.data?.deleted_count || 0} records (${label})`, { id: toastId })
+                setShowPurgeOlderModal(false)
+                setPurgeOlderConfirm("")
+                void fetchStats()
+            } else {
+                toast.error(res.message || "Failed to purge cache by age", { id: toastId })
+            }
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : "Failed to purge cache by age", { id: toastId })
+        } finally {
+            setIsPurgingOlder(false)
+        }
+    }
+
     const uploadFile = async (file: File) => {
         const lower = file.name.toLowerCase()
         if (!lower.endsWith('.csv') && !lower.endsWith('.txt')) {
@@ -295,6 +340,7 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
 
     const canInvalidate = invalidateConfirm.trim().toUpperCase() === DELETE_CONFIRM_PHRASE
     const canPurge = purgeConfirm.trim().toUpperCase() === DELETE_CONFIRM_PHRASE
+    const canPurgeOlder = purgeOlderConfirm.trim().toUpperCase() === DELETE_CONFIRM_PHRASE
 
     return (
         <div className="flex-1 space-y-6 pb-8">
@@ -490,13 +536,14 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                             <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
                                 <Trash2 className="h-5 w-5 text-amber-500" /> Storage Maintenance
                             </CardTitle>
-                            <CardDescription>Permanently delete cache rows past their retention window.</CardDescription>
+                            <CardDescription>Permanently delete cache rows past their retention window, or by age (0 days = all).</CardDescription>
                         </CardHeader>
-                        <CardContent className="pt-6">
-                            <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 mb-4 flex items-start gap-3">
+                        <CardContent className="pt-6 space-y-4">
+                            <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 flex items-start gap-3">
                                 <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
                                 <div className="text-xs text-amber-800 leading-relaxed">
-                                    Removes expired B2B / free-valid / free-invalid rows. Requires typed confirmation.
+                                    <strong>Purge expired</strong> uses retention policies.
+                                    <strong> Purge by age</strong> deletes rows older than N days — use <strong>0</strong> to clear the entire email cache (forces fresh SMTP re-verify).
                                 </div>
                             </div>
                             <Button
@@ -505,12 +552,44 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                                     setPurgeConfirm("")
                                     setShowPurgeModal(true)
                                 }}
-                                disabled={isPurging}
+                                disabled={isPurging || isPurgingOlder}
                                 className="w-full bg-white hover:bg-amber-50 text-amber-700 border-amber-200 font-semibold h-10 px-6 gap-2"
                             >
                                 <Trash2 className="h-4 w-4" />
                                 Purge Expired Cache
                             </Button>
+
+                            <div className="space-y-2 pt-2 border-t border-amber-100">
+                                <Label htmlFor="purge-older-days" className="text-sm font-medium text-slate-700">
+                                    Clear cache older than (days)
+                                </Label>
+                                <div className="flex gap-2">
+                                    <Input
+                                        id="purge-older-days"
+                                        type="number"
+                                        min={0}
+                                        max={3650}
+                                        value={purgeOlderDays}
+                                        onChange={(e) => setPurgeOlderDays(e.target.value)}
+                                        className="h-10 focus-visible:ring-[#0f5c52]/30"
+                                        disabled={isPurging || isPurgingOlder}
+                                    />
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => {
+                                            setPurgeOlderConfirm("")
+                                            setShowPurgeOlderModal(true)
+                                        }}
+                                        disabled={isPurging || isPurgingOlder}
+                                        className="shrink-0 bg-white hover:bg-rose-50 text-rose-700 border-rose-200 font-semibold h-10 px-4 gap-2"
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                        Purge by age
+                                    </Button>
+                                </div>
+                                <p className="text-[11px] text-slate-500">0 = delete all cached emails. Requires typing DELETE.</p>
+                            </div>
                         </CardContent>
                     </Card>
                 </div>
@@ -603,6 +682,23 @@ export function CacheControlClient({ initialStats }: { initialStats: CacheStatsI
                     confirmLabel={isPurging ? "Purging..." : "Purge"}
                     onCancel={() => setShowPurgeModal(false)}
                     onConfirm={() => { void handlePurge() }}
+                />
+            )}
+
+            {showPurgeOlderModal && (
+                <ConfirmModal
+                    title={Number(purgeOlderDays) === 0 ? "Clear All Email Cache" : `Purge Cache Older Than ${purgeOlderDays} Days`}
+                    description={
+                        Number(purgeOlderDays) === 0
+                            ? `Type ${DELETE_CONFIRM_PHRASE} to delete EVERY cached email result. Next verifies will re-probe SMTP.`
+                            : `Type ${DELETE_CONFIRM_PHRASE} to delete cache rows older than ${purgeOlderDays} days.`
+                    }
+                    confirmText={purgeOlderConfirm}
+                    onConfirmTextChange={setPurgeOlderConfirm}
+                    canConfirm={canPurgeOlder && !isPurgingOlder}
+                    confirmLabel={isPurgingOlder ? "Purging..." : "Purge by age"}
+                    onCancel={() => setShowPurgeOlderModal(false)}
+                    onConfirm={() => { void handlePurgeOlder() }}
                 />
             )}
         </div>
