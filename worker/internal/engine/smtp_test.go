@@ -201,3 +201,89 @@ func TestVerifyEmailParkedAFallbackNoSMTP(t *testing.T) {
 		t.Fatalf("parked A-fallback must be invalid/no_mail, got %#v", result)
 	}
 }
+
+func TestNullMXRFC7505(t *testing.T) {
+	domain := "nullmx.example"
+	email := "test@" + domain
+	MXCache.Delete(domain)
+
+	origMX := lookupMXFn
+	t.Cleanup(func() {
+		lookupMXFn = origMX
+		MXCache.Delete(domain)
+	})
+
+	// RFC 7505: Single MX record with pref 0 and host "."
+	lookupMXFn = func(string) ([]*net.MX, error) {
+		return []*net.MX{{Host: ".", Pref: 0}}, nil
+	}
+
+	result := VerifyEmail(context.Background(), email)
+	if result.Status != "invalid" || result.Reason != "no_mail" || result.HasMX {
+		t.Fatalf("Null MX (0 .) must be immediately classified as invalid/no_mail, got %#v", result)
+	}
+}
+
+func TestKnownAcceptAllProvider(t *testing.T) {
+	cases := []struct {
+		host string
+		want bool
+	}{
+		{"company-com.mail.protection.outlook.com", true},
+		{"mail.protection.outlook.com", true},
+		{"mx-vanilla.yahoodns.net", true},
+		{"mx.yahoo.com", true},
+		{"smtp.google.com", false},
+		{"mail.customdomain.org", false},
+	}
+
+	for _, tc := range cases {
+		if got := isKnownAcceptAllProvider(tc.host); got != tc.want {
+			t.Errorf("isKnownAcceptAllProvider(%q) = %v, want %v", tc.host, got, tc.want)
+		}
+	}
+}
+
+func TestExpandedRoleDetection(t *testing.T) {
+	roleEmails := []string{
+		"noreply@example.com",
+		"no-reply@example.com",
+		"newsletter@example.com",
+		"notifications@example.com",
+		"abuse@example.com",
+		"security@example.com",
+		"marketing@example.com",
+		"office@example.com",
+		"team@example.com",
+		"hello@example.com",
+		"admin@example.com",
+		"support@example.com",
+	}
+
+	for _, email := range roleEmails {
+		res := VerifyEmail(context.Background(), email)
+		if !res.IsRole {
+			t.Errorf("expected %q to be marked as role account", email)
+		}
+	}
+
+	personalEmail := "sohel.akter@example.com"
+	res := VerifyEmail(context.Background(), personalEmail)
+	if res.IsRole {
+		t.Errorf("expected %q NOT to be marked as role account", personalEmail)
+	}
+}
+
+func TestSmtpHELOHostname(t *testing.T) {
+	t.Setenv("SMTP_HELO_HOSTNAME", "mail.emailjachai.com")
+	if got := smtpHELOHostname(); got != "mail.emailjachai.com" {
+		t.Fatalf("smtpHELOHostname = %q, want mail.emailjachai.com", got)
+	}
+
+	t.Setenv("SMTP_HELO_HOSTNAME", "")
+	got := smtpHELOHostname()
+	if got == "" {
+		t.Fatal("smtpHELOHostname should fallback to non-empty hostname")
+	}
+}
+
