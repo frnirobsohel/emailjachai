@@ -421,6 +421,14 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 					res2 := probeSMTP(host, domain, email, deadline)
 					if res2.Connected {
 						result.SMTPConnect = true
+						if res2.Accepted && isKnownAcceptAllProvider(host) {
+							result.Status = "catch_all"
+							result.Score = 55
+							result.Reason = "catch_all"
+							result.Deliverable = false
+							result.CatchAll = true
+							return result
+						}
 						status2, score2, reason2, deliverable2, catchAll2, done2, inconclusive2 := SMTPProbeDisposition(
 							res2.Accepted, res2.CatchAllResult, res2.HardFail, res2.MailboxFull, sawCatchAllInconclusive,
 						)

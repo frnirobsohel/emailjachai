@@ -54,13 +54,15 @@ Remaining work is **operational**: set real prod secrets, enable backups/uptime 
 | Gap | Sev | Fix | Files |
 |----|-----|-----|-------|
 | G2 | HIGH | Unknown/timeout results NOT cached — next request re-probes fresh | `worker_handler.go`, `job_service.go`, `public_verify_handler.go` |
-| G6 | HIGH | Worker STARTTLS support + `SMTP_HELO_HOSTNAME` env var for proper FQDN | `worker/internal/engine/smtp.go`, `.env`, `.env.example` |
-| G9 | MEDIUM | 4xx greylist: 8-second back-off retry on same MX (deadline-aware) | `worker/internal/engine/smtp.go` |
+| G6 | HIGH | Worker + backend STARTTLS + `SMTP_HELO_HOSTNAME` for proper FQDN | `worker/internal/engine/smtp.go`, `backend/internal/verifier/smtp.go` |
+| G9 | MEDIUM | 4xx greylist: 8-second back-off retry on same MX (deadline-aware) | `worker/internal/engine/smtp.go`, `backend/internal/verifier/smtp.go` |
 | G10 | MEDIUM | RFC 7505 Null MX (`0 .`) → immediate `invalid (no_mail)` | `worker/internal/engine/smtp.go`, `backend/internal/verifier/smtp.go` |
-| G11 | HIGH | M365/Yahoo known accept-all MX → force `catch_all` (no false valid) | `worker/internal/engine/smtp.go` |
+| G11 | HIGH | M365/Yahoo known accept-all MX → force `catch_all` (no false valid) | `worker/internal/engine/smtp.go`, `backend/internal/verifier/smtp.go` |
 | G13 | LOW | Role list expanded: noreply, no-reply, abuse, security, office, team, etc. | `worker/internal/engine/smtp.go`, `backend/internal/verifier/smtp.go` |
 
 **Already correct (no change needed):** G1, G3, G5, G7, G8, G14, G15, G17, G18
+
+**Parity note (Aug 22, 2026):** Single/public (backend verifier) and bulk (worker) now share G6/G9/G10/G11/G13 probe classification. Paths remain separate processes; logic must stay mirrored.
 
 ---
 
@@ -68,7 +70,7 @@ Remaining work is **operational**: set real prod secrets, enable backups/uptime 
 
 - [ ] Redeploy frontend/backend/worker with Phase 1+2+3 images
 - [ ] Set real secrets (`JWT_SECRET`, `WORKER_API_KEY`, TLS `DATABASE_URL`, `REDIS_URL`, `CORS_ORIGINS`, `FRONTEND_URL`, internal `API_BASE_URL`)
-- [ ] **Set `SMTP_HELO_HOSTNAME=mail.yourdomain.com` on worker** (new — Phase 3)
+- [ ] **Set `SMTP_HELO_HOSTNAME=mail.yourdomain.com` on worker AND backend** (Phase 3 parity)
 - [ ] Schedule `scripts/backup-postgres.sh` daily + one restore drill
 - [ ] External uptime check on `/api/v1/health` and site `/`
 - [ ] Optional: set `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN`
