@@ -66,6 +66,7 @@ var csvHeader = []string{
 }
 
 // GetFriendlyReason translates a technical reason code into a user-friendly description.
+// Wording hints whether the failure is usually our verifier host vs the recipient MX.
 func GetFriendlyReason(reasonCode string, status string) string {
 	switch reasonCode {
 	case "syntax":
@@ -86,12 +87,29 @@ func GetFriendlyReason(reasonCode string, status string) string {
 		return "Mailbox is full / Storage limit exceeded"
 	case "catch_all":
 		return "Catch-all Domain (Accepts all incoming mail)"
+	case "accepted":
+		return "Deliverable — mailbox accepted by SMTP"
+	case "smtp_unreachable":
+		// Dial/handshake never completed — common when our VPS blocks outbound :25,
+		// or the recipient MX is down / firewalled.
+		return "No SMTP connection — check our outbound port 25, or recipient MX is down/blocking"
+	case "smtp_inconclusive":
+		return "SMTP connected but no clear mailbox answer — usually recipient greylist/policy"
 	case "smtp":
-		return "SMTP server timed out or unreachable"
+		// Legacy rows before smtp_unreachable / smtp_inconclusive split.
+		return "SMTP probe failed — if many rows say this, check our outbound port 25"
 	case "rate_limit_timeout":
-		return "Verification timed out due to rate limit"
+		return "Verification timed out waiting on our per-domain rate limit"
 	case "temp_fail":
-		return "Temporary mail server error"
+		return "Recipient mail server greylisted or temporarily deferred the check"
+	case "timeout":
+		return "Verification deadline exceeded before a clear SMTP answer"
+	case "private_mx":
+		return "MX resolves only to private/blocked IPs — cannot probe from the public internet"
+	case "catchall_inconclusive":
+		return "Catch-all probe inconclusive (recipient greylisted the random check)"
+	case "cancelled":
+		return "Verification cancelled"
 	case "worker":
 		if status == "valid" {
 			return "Deliverable (Valid Inbox)"

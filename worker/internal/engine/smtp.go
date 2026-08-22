@@ -488,8 +488,20 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 		return result
 	}
 
+	// Split the old blanket "smtp" reason so exports show whose side failed.
 	result.Status = "unknown"
-	result.Reason = "smtp"
+	result.Score = 35
+	if result.SMTPConnect {
+		if result.Reason == "temp_fail" {
+			result.DetailedError = "MX returned temporary failure / greylist after retry"
+			return result
+		}
+		result.Reason = "smtp_inconclusive"
+		result.DetailedError = "SMTP connected but no definitive RCPT verdict"
+		return result
+	}
+	result.Reason = "smtp_unreachable"
+	result.DetailedError = "could not complete SMTP connection to any MX"
 	return result
 }
 
