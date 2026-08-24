@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowLeft, Download, Trash2, Loader2, RefreshCcw } from "lucide-react"
+import { ArrowLeft, Download, Trash2, Loader2, RefreshCcw, Pause, Play } from "lucide-react"
 import { ApiClient } from "@/lib/api-client"
 import { useJobsStore, type JobDetails } from "@/stores/jobs-store"
 import { useJobsWebSocket } from "@/hooks/use-jobs-web-socket"
@@ -22,6 +22,8 @@ export function JobDetailsClient({ initialJob }: { initialJob: JobDetails | null
     const [isLoading, setIsLoading] = useState(false)
     const [isDeleting, setIsDeleting] = useState(false)
     const [isRetrying, setIsRetrying] = useState(false)
+    const [isPausing, setIsPausing] = useState(false)
+    const [isResuming, setIsResuming] = useState(false)
 
     const fetchJobDetails = useCallback(async () => {
         try {
@@ -60,6 +62,44 @@ export function JobDetailsClient({ initialJob }: { initialJob: JobDetails | null
         }
     }
 
+    const handlePauseJob = async () => {
+        setIsPausing(true);
+        const toastId = toast.loading("Pausing job...");
+        try {
+            const data = await ApiClient.post('/jobs/pause', { job_id: jobId });
+            if (data.status === 'success') {
+                toast.success("Job paused — queued chunks will stop softly", { id: toastId });
+                fetchJobDetails();
+            } else {
+                toast.error(data.message || 'Failed to pause job', { id: toastId });
+            }
+        } catch (error: unknown) {
+            console.error("Failed to pause job:", error);
+            toast.error(error instanceof Error ? error.message : 'Failed to pause job.', { id: toastId });
+        } finally {
+            setIsPausing(false);
+        }
+    }
+
+    const handleResumeJob = async () => {
+        setIsResuming(true);
+        const toastId = toast.loading("Resuming job...");
+        try {
+            const data = await ApiClient.post('/jobs/resume', { job_id: jobId });
+            if (data.status === 'success') {
+                toast.success("Job resumed — remaining emails re-queued", { id: toastId });
+                fetchJobDetails();
+            } else {
+                toast.error(data.message || 'Failed to resume job', { id: toastId });
+            }
+        } catch (error: unknown) {
+            console.error("Failed to resume job:", error);
+            toast.error(error instanceof Error ? error.message : 'Failed to resume job.', { id: toastId });
+        } finally {
+            setIsResuming(false);
+        }
+    }
+
     // Connect to WebSocket to receive real-time job_update events
     useJobsWebSocket()
 
@@ -69,7 +109,11 @@ export function JobDetailsClient({ initialJob }: { initialJob: JobDetails | null
     }, [fetchJobDetails]);
 
     const handleDeleteJob = async () => {
-        if (!confirm('Are you sure you want to delete this job? This action cannot be undone.')) {
+        const isPaused = job?.status === "paused";
+        const msg = isPaused
+            ? "Delete this paused job? Verified emails keep their credits; unused credits will be refunded."
+            : "Are you sure you want to delete this job? This action cannot be undone.";
+        if (!confirm(msg)) {
             return;
         }
 
@@ -78,6 +122,10 @@ export function JobDetailsClient({ initialJob }: { initialJob: JobDetails | null
             const data = await ApiClient.post('/jobs/delete', { job_id: jobId });
 
             if (data.status === 'success') {
+                const refunded = Number((data.data as { refunded_credits?: number } | undefined)?.refunded_credits ?? 0);
+                if (refunded > 0) {
+                    toast.success(`Job deleted — ${refunded.toLocaleString()} unused credits refunded`);
+                }
                 router.push('/dashboard/jobs');
             } else {
                 alert(data.message || 'Failed to delete job');
@@ -199,10 +247,33 @@ export function JobDetailsClient({ initialJob }: { initialJob: JobDetails | null
                         </Button>
                     )}
 
-                    {(job.status === "completed" || job.status === "failed") && (
+                    {(job.status === "pending" || job.status === "processing") && (
+                        <Button
+                            onClick={handlePauseJob}
+                            disabled={isPausing || isResuming || isDeleting}
+                            variant="outline"
+                            className="border-amber-300 text-amber-800 hover:bg-amber-50 shadow-none"
+                        >
+                            {isPausing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Pause className="mr-2 h-4 w-4" />}
+                            Pause Job
+                        </Button>
+                    )}
+
+                    {job.status === "paused" && (
+                        <Button
+                            onClick={handleResumeJob}
+                            disabled={isResuming || isPausing || isDeleting}
+                            className="rounded-md border border-[#08352f] bg-[#0f5c52] text-white shadow-none hover:bg-[#0b4a42]"
+                        >
+                            {isResuming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                            Resume Job
+                        </Button>
+                    )}
+
+                    {(job.status === "completed" || job.status === "failed" || job.status === "paused") && (
                         <Button variant="destructive" onClick={handleDeleteJob} disabled={isDeleting} className="shadow-none">
                             {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                            Delete Job
+                            {job.status === "paused" ? "Delete & Refund Unused" : "Delete Job"}
                         </Button>
                     )}
                 </CardContent>

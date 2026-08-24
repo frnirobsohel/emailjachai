@@ -81,7 +81,9 @@ func (r *workerRepo) ReconcileJobStatus(jobID string) error {
 					"updated_at":    time.Now(),
 				})
 			if result.RowsAffected > 0 {
-				r.db.Model(&model.Job{}).Where("job_id = ?", jobID).Update("status", "processing")
+				r.db.Model(&model.Job{}).
+					Where("job_id = ? AND status NOT IN ?", jobID, []string{"paused", "failed", "cancelled", "completed"}).
+					Update("status", "processing")
 				return nil
 			}
 		}

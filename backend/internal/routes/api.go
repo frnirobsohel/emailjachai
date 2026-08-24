@@ -159,6 +159,8 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/jobs/status", jobHandler.GetJobStatus)
 			protected.POST("/jobs/delete", jobHandler.DeleteJob)
 			protected.POST("/jobs/retry", jobHandler.RetryJob)
+			protected.POST("/jobs/pause", jobHandler.PauseJob)
+			protected.POST("/jobs/resume", jobHandler.ResumeJob)
 
 			// User API Keys
 			userKeys := protected.Group("/user/keys")

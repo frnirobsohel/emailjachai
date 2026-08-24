@@ -17,6 +17,7 @@ import (
 	"ejp-backend/internal/storage"
 
 	"ejp-backend/internal/helper"
+	"ejp-backend/internal/jobcontrol"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/pipeline"
 	"ejp-backend/internal/repo"
@@ -30,6 +31,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/hibiken/asynq"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var (
@@ -51,7 +53,7 @@ func getSingleMutex(index uint64) *sync.Mutex {
 type JobService interface {
 	GetJobs(userID uint, jobType string, limit, offset int) ([]model.Job, int64, error)
 	GetJobStatus(userID uint, jobID string) (*model.Job, *model.JobResult, error)
-	DeleteJob(userID uint, jobID string) error
+	DeleteJob(userID uint, jobID string) (refundedCredits int, err error)
 	VerifySingle(ctx context.Context, userID uint, email string, apiKeyID *uint, idempotencyKey string) (*model.Job, *model.JobResult, error)
 	SubmitBulkJob(userID uint, filename string, emails []string, idempotencyKey string, apiKeyID *uint) (*model.Job, []model.JobTask, error)
 	PrepareBulkJob(jobID string) error
@@ -62,6 +64,8 @@ type JobService interface {
 	GetJobForUser(userID uint, jobID string) (*model.Job, error)
 	GetJobResultsRows(jobInternalID uint) (*sql.Rows, error)
 	RetryJob(userID uint, jobID string) (*model.Job, error)
+	PauseJob(userID uint, jobID string) (*model.Job, error)
+	ResumeJob(userID uint, jobID string) (*model.Job, error)
 }
 
 type jobService struct {
@@ -109,32 +113,122 @@ func (s *jobService) GetJobStatus(userID uint, jobID string) (*model.Job, *model
 	return job, result, nil
 }
 
-func (s *jobService) DeleteJob(userID uint, jobID string) error {
+func (s *jobService) DeleteJob(userID uint, jobID string) (int, error) {
 	job, err := s.jobRepo.GetByID(jobID)
 	if err != nil {
-		return errors.New("job not found")
+		return 0, errors.New("job not found")
 	}
 
 	if job.UserID != userID {
-		return errors.New("job not found")
+		return 0, errors.New("job not found")
 	}
 
-	// T&C: once a job has started it cannot be deleted until finished.
-	if job.Status != "completed" && job.Status != "failed" {
-		return errors.New("job can only be deleted after it has completed")
+	refunded := 0
+	switch job.Status {
+	case "completed", "failed":
+		// Historical delete — no credit change
+		if err := s.jobResultRepo.DeleteByJobID(job.ID); err != nil {
+			return 0, err
+		}
+		if err := s.jobRepo.Delete(jobID, userID); err != nil {
+			return 0, err
+		}
+	case "paused":
+		// Soft-stop first so new SMTP work stops while we lock/delete.
+		_ = jobcontrol.SetPaused(job.JobID)
+
+		err = s.jobRepo.DB().Transaction(func(tx *gorm.DB) error {
+			var locked model.Job
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("job_id = ? AND user_id = ? AND status = ?", job.JobID, userID, "paused").
+				First(&locked).Error; err != nil {
+				return errors.New("job state changed; refresh and try again")
+			}
+
+			// Count under row lock so in-flight reporters (also FOR UPDATE on job) cannot race the refund math.
+			var resultCount, unknownCount int64
+			if err := tx.Model(&model.JobResult{}).
+				Where("job_internal_id = ?", locked.ID).
+				Count(&resultCount).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&model.JobResult{}).
+				Where("job_internal_id = ? AND status = ?", locked.ID, "unknown").
+				Count(&unknownCount).Error; err != nil {
+				return err
+			}
+
+			charged := locked.TotalEmails - locked.InvalidSyntax
+			if charged < 0 {
+				charged = 0
+			}
+			keep := int(resultCount - unknownCount)
+			if keep < 0 {
+				keep = 0
+			}
+			refunded = charged - keep
+			if refunded < 0 {
+				refunded = 0
+			}
+			if refunded > charged {
+				refunded = charged
+			}
+
+			// Block late pushes for any connection that reads after this commit.
+			if err := tx.Model(&locked).Update("status", "cancelled").Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&model.JobTask{}).Where("job_id = ?", locked.JobID).
+				Update("status", "cancelled").Error; err != nil {
+				return err
+			}
+
+			if refunded > 0 {
+				if err := tx.Model(&model.User{}).Where("id = ?", userID).
+					Update("credits", gorm.Expr("credits + ?", refunded)).Error; err != nil {
+					return err
+				}
+				refundTxn := model.Transaction{
+					UserID:        userID,
+					TransactionID: fmt.Sprintf("REFUND_%x%s", time.Now().Unix(), helper.GenerateRandomHex(4)),
+					Amount:        0,
+					CreditsAdded:  refunded,
+					Type:          "refund",
+					Status:        "completed",
+					Description:   fmt.Sprintf("Paused job deleted: %s — refunded %d unused credits (%d verified kept)", locked.JobID, refunded, keep),
+					Provider:      "system",
+				}
+				if err := tx.Create(&refundTxn).Error; err != nil {
+					return err
+				}
+			}
+
+			// Same txn as refund — never leave a cancelled job with credits already returned.
+			if err := tx.Unscoped().Where("job_id = ?", locked.JobID).Delete(&model.JobTask{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Unscoped().Where("job_internal_id = ?", locked.ID).Delete(&model.JobResult{}).Error; err != nil {
+				return err
+			}
+			return tx.Where("id = ?", locked.ID).Delete(&model.Job{}).Error
+		})
+		if err != nil {
+			return 0, err
+		}
+	default:
+		return 0, errors.New("job can only be deleted after it has completed")
 	}
 
-	err = s.jobResultRepo.DeleteByJobID(job.ID)
-	if err != nil {
-		return err
+	jobcontrol.ClearPaused(jobID)
+	if refunded > 0 {
+		if updatedUser, err := s.userRepo.GetByID(userID); err == nil {
+			ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", gin.H{
+				"credits": updatedUser.Credits,
+			})
+		}
 	}
-
-	if err := s.jobRepo.Delete(jobID, userID); err != nil {
-		return err
-	}
-
 	InvalidateAndRefreshDashboardStats(userID)
-	return nil
+	return refunded, nil
 }
 
 func (s *jobService) VerifySingle(ctx context.Context, userID uint, email string, apiKeyID *uint, idempotencyKey string) (*model.Job, *model.JobResult, error) {
@@ -754,7 +848,7 @@ func (s *jobService) PrepareBulkJob(jobID string) error {
 		return err
 	}
 
-	enqueuedOK, err := s.enqueueBulkChunks(job, user, queueEmails, savedTasks)
+	enqueuedOK, err := s.enqueueBulkChunks(job, user, queueEmails, savedTasks, true)
 	if err != nil {
 		return err
 	}
@@ -848,7 +942,7 @@ func (s *jobService) FailPreparingJob(jobID, reason string) error {
 	return s.RefundJob(job.UserID, job.JobID, queued, reason)
 }
 
-func (s *jobService) enqueueBulkChunks(job *model.Job, user *model.User, queueEmails []string, savedTasks []model.JobTask) (bool, error) {
+func (s *jobService) enqueueBulkChunks(job *model.Job, user *model.User, queueEmails []string, savedTasks []model.JobTask, refundOnFailure bool) (bool, error) {
 	type chunkPlan struct {
 		task   model.JobTask
 		hits   []model.EmailCache
@@ -859,6 +953,18 @@ func (s *jobService) enqueueBulkChunks(job *model.Job, user *model.User, queueEm
 	queueName := pipeline.AsynqQueueForRole(user.Role)
 	b2bRet, freeValidRet, freeInvalidRet := s.getCacheRetentionPolicies()
 	domainPolicies := s.loadDomainPolicyMap(pipeline.UniqueDomains(queueEmails))
+
+	failEnqueue := func(reason string) (bool, error) {
+		if refundOnFailure {
+			_ = s.RefundJob(job.UserID, job.JobID, len(queueEmails), reason)
+			return false, nil
+		}
+		// Resume path: keep credits, restore paused so user can try again.
+		_ = jobcontrol.SetPaused(job.JobID)
+		_ = s.jobRepo.DB().Model(&model.Job{}).Where("job_id = ?", job.JobID).Update("status", "paused").Error
+		logger.Error("Resume enqueue failed; job restored to paused", "job_id", job.JobID, "reason", reason)
+		return false, nil
+	}
 
 	// Phase 1: classify only (no DB writes / no enqueue) so a later failure cannot orphan hits.
 	plans := make([]chunkPlan, 0, len(savedTasks))
@@ -886,8 +992,7 @@ func (s *jobService) enqueueBulkChunks(job *model.Job, user *model.User, queueEm
 	}
 
 	if plannedHits+plannedMisses == 0 {
-		_ = s.RefundJob(job.UserID, job.JobID, len(queueEmails), "prepare: nothing to queue")
-		return false, nil
+		return failEnqueue("prepare: nothing to queue")
 	}
 
 	// Phase 2: enqueue all misses first. On any failure, cancel and refund — no hits written yet.
@@ -900,8 +1005,7 @@ func (s *jobService) enqueueBulkChunks(job *model.Job, user *model.User, queueEm
 		if err != nil {
 			logger.Error("Failed to build chunk task", "job_id", job.JobID, "task_id", plan.task.ID, "error", err)
 			s.cancelAsynqTasks(enqueuedAsynqIDs)
-			_ = s.RefundJob(job.UserID, job.JobID, len(queueEmails), fmt.Sprintf("failed to build chunk task %d", plan.task.ID))
-			return false, nil
+			return failEnqueue(fmt.Sprintf("failed to build chunk task %d", plan.task.ID))
 		}
 		// Asynq Timeout is hang-safety only (includes concurrency-gate wait).
 		// The real Job Control budget starts after the worker acquires its slot.
@@ -910,8 +1014,7 @@ func (s *jobService) enqueueBulkChunks(job *model.Job, user *model.User, queueEm
 		if err != nil {
 			logger.Error("Failed to enqueue chunk task", "job_id", job.JobID, "task_id", plan.task.ID, "error", err)
 			s.cancelAsynqTasks(enqueuedAsynqIDs)
-			_ = s.RefundJob(job.UserID, job.JobID, len(queueEmails), fmt.Sprintf("failed to enqueue chunk task %d", plan.task.ID))
-			return false, nil
+			return failEnqueue(fmt.Sprintf("failed to enqueue chunk task %d", plan.task.ID))
 		}
 		if info != nil && info.ID != "" {
 			enqueuedAsynqIDs = append(enqueuedAsynqIDs, info.ID)
@@ -927,7 +1030,23 @@ func (s *jobService) enqueueBulkChunks(job *model.Job, user *model.User, queueEm
 		if err := s.processCacheHits(job.JobID, job.ID, plan.task.ID, plan.hits); err != nil {
 			logger.Error("Failed to persist cache hits after enqueue", "job_id", job.JobID, "task_id", plan.task.ID, "error", err)
 			s.cancelAsynqTasks(enqueuedAsynqIDs)
-			_ = s.rollbackPrepareHitEmails(job, writtenHitEmails, len(queueEmails), fmt.Sprintf("failed to persist cache hits for task %d", plan.task.ID))
+			if refundOnFailure {
+				_ = s.rollbackPrepareHitEmails(job, writtenHitEmails, len(queueEmails), fmt.Sprintf("failed to persist cache hits for task %d", plan.task.ID))
+			} else {
+				if len(writtenHitEmails) > 0 {
+					const batch = 500
+					for i := 0; i < len(writtenHitEmails); i += batch {
+						end := i + batch
+						if end > len(writtenHitEmails) {
+							end = len(writtenHitEmails)
+						}
+						_ = s.jobRepo.DB().Where("job_internal_id = ? AND email IN ?", job.ID, writtenHitEmails[i:end]).
+							Delete(&model.JobResult{}).Error
+					}
+				}
+				_ = jobcontrol.SetPaused(job.JobID)
+				_ = s.jobRepo.DB().Model(&model.Job{}).Where("job_id = ?", job.JobID).Update("status", "paused").Error
+			}
 			return false, nil
 		}
 		for _, h := range plan.hits {
@@ -1204,6 +1323,7 @@ func (s *jobService) RefundJob(userID uint, jobID string, credits int, reason st
 		return err
 	}
 
+	jobcontrol.ClearPaused(jobID)
 	if updatedUser, err := s.userRepo.GetByID(userID); err == nil {
 		ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", gin.H{
 			"credits": updatedUser.Credits,
@@ -1312,7 +1432,7 @@ func (s *jobService) processCacheHits(jobID string, jobInternalID uint, taskID u
 			"disposable":      gorm.Expr("disposable + ?", disposableInc),
 			"role_accounts":   gorm.Expr("role_accounts + ?", roleInc),
 			"status": gorm.Expr(
-				"CASE WHEN processed_count + ? >= total_emails THEN 'completed' ELSE 'processing' END",
+				jobcontrol.JobStatusAfterProgressSQL,
 				processedCount,
 			),
 		}).Error; err != nil {
@@ -1454,6 +1574,68 @@ func (s *jobService) getCacheRetentionPolicies() (b2b, freeValid, freeInvalid in
 	return
 }
 
+func (s *jobService) PauseJob(userID uint, jobID string) (*model.Job, error) {
+	job, err := s.jobRepo.GetJobForUser(userID, jobID)
+	if err != nil {
+		return nil, errors.New("job not found")
+	}
+	switch job.Status {
+	case "pending", "processing":
+		// ok
+	default:
+		return nil, errors.New("only pending or processing jobs can be paused")
+	}
+
+	// Redis first — workers soft-stop via this flag. Fail closed if Redis is down.
+	if err := jobcontrol.SetPaused(job.JobID); err != nil {
+		logger.Error("Pause refused: redis flag not set", "job_id", job.JobID, "error", err)
+		return nil, errors.New("pause unavailable: redis error")
+	}
+
+	res := s.jobRepo.DB().Model(job).
+		Where("job_id = ? AND status IN ?", job.JobID, []string{"pending", "processing"}).
+		Update("status", "paused")
+	if res.Error != nil {
+		jobcontrol.ClearPaused(job.JobID)
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		jobcontrol.ClearPaused(job.JobID)
+		return nil, errors.New("only pending or processing jobs can be paused")
+	}
+	job.Status = "paused"
+
+	ws.GlobalHub.BroadcastToUser(userID, "job_update", gin.H{
+		"job": gin.H{
+			"job_id":          job.JobID,
+			"status":          "paused",
+			"filename":        job.Filename,
+			"total_emails":    job.TotalEmails,
+			"processed_count": job.ProcessedCount,
+			"created_at":      job.CreatedAt,
+			"deliverable":     job.Deliverable,
+			"undeliverable":   job.Undeliverable,
+			"risky":           job.Risky,
+			"catch_all":       job.CatchAll,
+			"disposable":      job.Disposable,
+		},
+	})
+	InvalidateAndRefreshDashboardStats(userID)
+	return job, nil
+}
+
+func (s *jobService) ResumeJob(userID uint, jobID string) (*model.Job, error) {
+	job, err := s.jobRepo.GetJobForUser(userID, jobID)
+	if err != nil {
+		return nil, errors.New("job not found")
+	}
+	if job.Status != "paused" {
+		return nil, errors.New("only paused jobs can be resumed")
+	}
+	// Credits already charged at upload — only re-enqueue unverified emails.
+	return s.requeueRemainingWork(userID, job, false)
+}
+
 func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 	job, err := s.jobRepo.GetJobForUser(userID, jobID)
 	if err != nil {
@@ -1462,105 +1644,123 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 	if job.Status != "failed" {
 		return nil, errors.New("only failed jobs can be retried")
 	}
+	return s.requeueRemainingWork(userID, job, true)
+}
 
+// requeueRemainingWork rebuilds chunks for emails not yet in job_results.
+// chargeCredits is true for failed-job retry; false for pause→resume (already paid).
+func (s *jobService) requeueRemainingWork(userID uint, job *model.Job, chargeCredits bool) (*model.Job, error) {
 	sourceEmails, srcErr := s.loadBulkSourceEmails(job.JobID)
 	if srcErr != nil {
 		return nil, errors.New("original source file not found, cannot retry job. Please re-upload your list.")
 	}
 
-	var verifiedEmails []string
-	if err := s.jobRepo.DB().Model(&model.JobResult{}).Where("job_internal_id = ?", job.ID).Pluck("email", &verifiedEmails).Error; err != nil {
-		return nil, fmt.Errorf("failed to fetch existing results: %v", err)
-	}
-	verifiedMap := make(map[string]bool, len(verifiedEmails))
-	for _, e := range verifiedEmails {
-		verifiedMap[strings.ToLower(strings.TrimSpace(e))] = true
+	expectedStatus := "paused"
+	if chargeCredits {
+		expectedStatus = "failed"
 	}
 
-	// Remaining = unverified + valid syntax only (do not re-queue invalid syntax).
-	queueEmails := make([]string, 0)
-	for _, raw := range sourceEmails {
-		email := strings.ToLower(strings.TrimSpace(raw))
-		if email == "" || verifiedMap[email] {
-			continue
-		}
-		if !helper.IsValidMailboxSyntax(email) {
-			continue
-		}
-		queueEmails = append(queueEmails, email)
-	}
-
-	if len(queueEmails) == 0 {
-		job.Status = "completed"
-		if err := s.jobRepo.DB().Save(job).Error; err != nil {
-			return nil, err
-		}
-		return job, nil
-	}
-
-	creditsToDeduct := len(queueEmails)
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
 		return nil, errors.New("user not found")
 	}
-	if user.Credits < creditsToDeduct {
-		return nil, errors.New("insufficient credits")
-	}
 
-	baseChunkSize, _ := s.getChunkStrategyForList(len(queueEmails))
-	queueEmails, prepChunks := pipeline.PrepareQueue(queueEmails, baseChunkSize)
-
-	var taskRecords []model.JobTask
-	for _, ch := range prepChunks {
-		taskRecords = append(taskRecords, model.JobTask{
-			JobID:      job.JobID,
-			StartIndex: ch.StartIndex,
-			EndIndex:   ch.EndIndex,
-			Status:     "queued",
-		})
-	}
-
+	var queueEmails []string
 	var savedTasks []model.JobTask
+	var processedCount int
+
 	err = s.jobRepo.DB().Transaction(func(tx *gorm.DB) error {
-		res := tx.Model(&model.User{}).
-			Where("id = ? AND credits >= ?", userID, creditsToDeduct).
-			Update("credits", gorm.Expr("credits - ?", creditsToDeduct))
-		if res.Error != nil {
-			return res.Error
+		var locked model.Job
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("job_id = ? AND user_id = ? AND status = ?", job.JobID, userID, expectedStatus).
+			First(&locked).Error; err != nil {
+			return errors.New("job state changed; refresh and try again")
 		}
-		if res.RowsAffected == 0 {
-			return fmt.Errorf("insufficient credits")
+		*job = locked
+
+		var verifiedEmails []string
+		if err := tx.Model(&model.JobResult{}).Where("job_internal_id = ?", job.ID).Pluck("email", &verifiedEmails).Error; err != nil {
+			return fmt.Errorf("failed to fetch existing results: %v", err)
+		}
+		verifiedMap := make(map[string]bool, len(verifiedEmails))
+		for _, e := range verifiedEmails {
+			verifiedMap[strings.ToLower(strings.TrimSpace(e))] = true
 		}
 
-		txnID := fmt.Sprintf("TXN_%x%s", time.Now().Unix(), helper.GenerateRandomHex(6))
-		transaction := model.Transaction{
-			UserID:        userID,
-			TransactionID: txnID,
-			Amount:        0,
-			CreditsAdded:  -creditsToDeduct,
-			Type:          "bulk_verify_retry",
-			Status:        "completed",
-			Description:   fmt.Sprintf("Retry Job: %s (%d emails resumed)", job.Filename, creditsToDeduct),
+		remaining := make([]string, 0)
+		for _, raw := range sourceEmails {
+			email := strings.ToLower(strings.TrimSpace(raw))
+			if email == "" || verifiedMap[email] {
+				continue
+			}
+			if !helper.IsValidMailboxSyntax(email) {
+				continue
+			}
+			remaining = append(remaining, email)
 		}
-		if err := tx.Create(&transaction).Error; err != nil {
-			return err
+
+		processedCount = len(verifiedEmails) + job.InvalidSyntax
+		if processedCount > job.TotalEmails {
+			processedCount = job.TotalEmails
 		}
+
+		if len(remaining) == 0 {
+			jobcontrol.ClearPaused(job.JobID)
+			return tx.Model(job).Updates(map[string]interface{}{
+				"status":          "completed",
+				"processed_count": processedCount,
+			}).Error
+		}
+
+		creditsToDeduct := 0
+		if chargeCredits {
+			creditsToDeduct = len(remaining)
+			res := tx.Model(&model.User{}).
+				Where("id = ? AND credits >= ?", userID, creditsToDeduct).
+				Update("credits", gorm.Expr("credits - ?", creditsToDeduct))
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected == 0 {
+				return fmt.Errorf("insufficient credits")
+			}
+
+			txnID := fmt.Sprintf("TXN_%x%s", time.Now().Unix(), helper.GenerateRandomHex(6))
+			transaction := model.Transaction{
+				UserID:        userID,
+				TransactionID: txnID,
+				Amount:        0,
+				CreditsAdded:  -creditsToDeduct,
+				Type:          "bulk_verify_retry",
+				Status:        "completed",
+				Description:   fmt.Sprintf("Retry Job: %s (%d emails resumed)", job.Filename, creditsToDeduct),
+			}
+			if err := tx.Create(&transaction).Error; err != nil {
+				return err
+			}
+		}
+
+		baseChunkSize, _ := s.getChunkStrategyForList(len(remaining))
+		remaining, prepChunks := pipeline.PrepareQueue(remaining, baseChunkSize)
+		queueEmails = remaining
 
 		if err := tx.Unscoped().Where("job_id = ?", job.JobID).Delete(&model.JobTask{}).Error; err != nil {
 			return err
 		}
-		for i := range taskRecords {
-			if err := tx.Create(&taskRecords[i]).Error; err != nil {
+		savedTasks = savedTasks[:0]
+		for _, ch := range prepChunks {
+			task := model.JobTask{
+				JobID:      job.JobID,
+				StartIndex: ch.StartIndex,
+				EndIndex:   ch.EndIndex,
+				Status:     "queued",
+			}
+			if err := tx.Create(&task).Error; err != nil {
 				return err
 			}
-			savedTasks = append(savedTasks, taskRecords[i])
+			savedTasks = append(savedTasks, task)
 		}
 
-		// verified + invalid_syntax remain counted; resume work is creditsToDeduct.
-		processedCount := job.TotalEmails - creditsToDeduct
-		if processedCount < job.InvalidSyntax {
-			processedCount = job.InvalidSyntax
-		}
 		return tx.Model(job).Updates(map[string]interface{}{
 			"status":          "pending",
 			"processed_count": processedCount,
@@ -1570,21 +1770,49 @@ func (s *jobService) RetryJob(userID uint, jobID string) (*model.Job, error) {
 		return nil, err
 	}
 
-	enqueuedOK, err := s.enqueueBulkChunks(job, user, queueEmails, savedTasks)
+	if len(queueEmails) == 0 {
+		job.Status = "completed"
+		job.ProcessedCount = processedCount
+		InvalidateAndRefreshDashboardStats(userID)
+		return job, nil
+	}
+
+	// Clear soft-stop BEFORE enqueue so newly queued chunks are not ACK'd as paused.
+	// (Leaving the flag set until after enqueue caused workers to drop fresh chunks.)
+	jobcontrol.ClearPaused(job.JobID)
+
+	enqueuedOK, err := s.enqueueBulkChunks(job, user, queueEmails, savedTasks, chargeCredits)
 	if err != nil {
 		return nil, err
 	}
 	if !enqueuedOK {
-		// Credits already refunded inside enqueueBulkChunks
-		return nil, errors.New("failed to queue some emails for processing. The entire job has been cancelled and credits refunded.")
+		if chargeCredits {
+			return nil, errors.New("failed to queue some emails for processing. The entire job has been cancelled and credits refunded.")
+		}
+		return nil, errors.New("failed to queue remaining emails; job left paused — try resume again")
 	}
 
 	job.Status = "pending"
-	if updatedUser, err := s.userRepo.GetByID(userID); err == nil {
-		ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", gin.H{
-			"credits": updatedUser.Credits,
-		})
+	job.ProcessedCount = processedCount
+	if chargeCredits {
+		if updatedUser, err := s.userRepo.GetByID(userID); err == nil {
+			ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", gin.H{
+				"credits": updatedUser.Credits,
+			})
+		}
 	}
+	ws.GlobalHub.BroadcastToUser(userID, "job_update", gin.H{
+		"job": gin.H{
+			"job_id":          job.JobID,
+			"status":          "pending",
+			"filename":        job.Filename,
+			"total_emails":    job.TotalEmails,
+			"processed_count": processedCount,
+			"created_at":      job.CreatedAt,
+		},
+	})
 	InvalidateAndRefreshDashboardStats(userID)
 	return job, nil
 }
+
+

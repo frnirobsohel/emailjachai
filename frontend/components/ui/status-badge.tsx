@@ -15,6 +15,7 @@ const statusMap: Record<string, { label: string, color: string }> = {
     pending: { label: 'Pending', color: 'bg-slate-100 text-slate-700 ring-slate-600/20' },
     preparing: { label: 'Preparing', color: 'bg-violet-100 text-violet-700 ring-violet-600/20' },
     processing: { label: 'Processing', color: 'bg-blue-100 text-blue-700 ring-blue-600/20' },
+    paused: { label: 'Paused', color: 'bg-amber-100 text-amber-800 ring-amber-600/20' },
     completed: { label: 'Completed', color: 'bg-emerald-100 text-emerald-700 ring-emerald-600/20' },
     failed: { label: 'Failed', color: 'bg-rose-100 text-rose-700 ring-rose-600/20' },
 };

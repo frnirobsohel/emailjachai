@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Upload, RefreshCcw, MoreHorizontal, Eye, Download, Trash2 } from "lucide-react"
+import { Upload, RefreshCcw, MoreHorizontal, Eye, Download, Trash2, Pause, Play } from "lucide-react"
 import { CreditBadge } from "@/features/dashboard/components/credit-badge"
 import Link from "next/link"
 import {
@@ -23,7 +23,7 @@ import { toast } from "react-hot-toast"
 export interface Job {
     job_id: string;
     filename: string | null;
-    status: "pending" | "preparing" | "processing" | "completed" | "failed";
+    status: "pending" | "preparing" | "processing" | "paused" | "completed" | "failed";
     total_emails: number;
     processed_count: number;
     created_at: string;
@@ -50,6 +50,8 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
     const [isLoading, setIsLoading] = useState(false)
     const [isDeleting, setIsDeleting] = useState<string | null>(null)
     const [isRetrying, setIsRetrying] = useState<string | null>(null)
+    const [isPausing, setIsPausing] = useState<string | null>(null)
+    const [isResuming, setIsResuming] = useState<string | null>(null)
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
     const [offset, setOffset] = useState(0)
     const limit = 20
@@ -84,7 +86,13 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
         try {
             const data = await ApiClient.post('/jobs/delete', { job_id: jobId });
             if (data.status === 'success') {
-                toast.success("Job deleted successfully", { id: toastId });
+                const refunded = Number((data.data as { refunded_credits?: number } | undefined)?.refunded_credits ?? 0);
+                toast.success(
+                    refunded > 0
+                        ? `Job deleted — ${refunded.toLocaleString()} unused credits refunded`
+                        : "Job deleted successfully",
+                    { id: toastId }
+                );
                 void fetchJobs(true);
                 setConfirmDelete(null);
             } else {
@@ -114,6 +122,44 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
             toast.error(error instanceof Error ? error.message : 'An unexpected error occurred while retrying the job.', { id: toastId });
         } finally {
             setIsRetrying(null);
+        }
+    }
+
+    const handlePauseJob = async (jobId: string) => {
+        setIsPausing(jobId);
+        const toastId = toast.loading("Pausing job...");
+        try {
+            const data = await ApiClient.post('/jobs/pause', { job_id: jobId });
+            if (data.status === 'success') {
+                toast.success("Job paused — queued chunks will stop softly", { id: toastId });
+                void fetchJobs(true);
+            } else {
+                toast.error(data.message || 'Failed to pause job', { id: toastId });
+            }
+        } catch (error: unknown) {
+            logger.error("Failed to pause job:", error);
+            toast.error(error instanceof Error ? error.message : 'Failed to pause job.', { id: toastId });
+        } finally {
+            setIsPausing(null);
+        }
+    }
+
+    const handleResumeJob = async (jobId: string) => {
+        setIsResuming(jobId);
+        const toastId = toast.loading("Resuming job...");
+        try {
+            const data = await ApiClient.post('/jobs/resume', { job_id: jobId });
+            if (data.status === 'success') {
+                toast.success("Job resumed — remaining emails re-queued", { id: toastId });
+                void fetchJobs(true);
+            } else {
+                toast.error(data.message || 'Failed to resume job', { id: toastId });
+            }
+        } catch (error: unknown) {
+            logger.error("Failed to resume job:", error);
+            toast.error(error instanceof Error ? error.message : 'Failed to resume job.', { id: toastId });
+        } finally {
+            setIsResuming(null);
         }
     }
 
@@ -212,10 +258,27 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
                                 <RefreshCcw className="mr-2 h-4 w-4 text-amber-600" /> Retry Job
                             </DropdownMenuItem>
                         )}
-                        {(job.status === "completed" || job.status === "failed") && (
+                        {(job.status === "pending" || job.status === "processing") && (
+                            <DropdownMenuItem
+                                onClick={() => handlePauseJob(job.job_id)}
+                                disabled={isPausing === job.job_id || isResuming === job.job_id}
+                            >
+                                <Pause className="mr-2 h-4 w-4 text-amber-700" /> Pause Job
+                            </DropdownMenuItem>
+                        )}
+                        {job.status === "paused" && (
+                            <DropdownMenuItem
+                                onClick={() => handleResumeJob(job.job_id)}
+                                disabled={isResuming === job.job_id || isPausing === job.job_id}
+                            >
+                                <Play className="mr-2 h-4 w-4 text-[#0f5c52]" /> Resume Job
+                            </DropdownMenuItem>
+                        )}
+                        {(job.status === "completed" || job.status === "failed" || job.status === "paused") && (
                             confirmDelete === job.job_id ? (
                                 <DropdownMenuItem onClick={() => handleDeleteJob(job.job_id)} className="text-rose-600 bg-rose-50 focus:bg-rose-100 font-bold">
-                                    <Trash2 className="mr-2 h-4 w-4 animate-bounce" /> Confirm Delete
+                                    <Trash2 className="mr-2 h-4 w-4 animate-bounce" />
+                                    {job.status === "paused" ? "Confirm Delete + Refund" : "Confirm Delete"}
                                 </DropdownMenuItem>
                             ) : (
                                 <DropdownMenuItem onClick={(e) => {
@@ -223,7 +286,8 @@ export function JobsClient({ initialJobs, initialTotal }: { initialJobs: Job[], 
                                     setConfirmDelete(job.job_id);
                                     setTimeout(() => setConfirmDelete(null), 3000);
                                 }} className="text-rose-600">
-                                    <Trash2 className="mr-2 h-4 w-4" /> Delete Job
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    {job.status === "paused" ? "Delete & Refund Unused" : "Delete Job"}
                                 </DropdownMenuItem>
                             )
                         )}

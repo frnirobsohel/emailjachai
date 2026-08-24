@@ -154,36 +154,41 @@ func (h *JobHandler) DeleteJob(c *gin.Context) {
 		return
 	}
 
-	if err := h.jobService.DeleteJob(userID.(uint), req.JobID); err != nil {
-		switch err.Error() {
-		case "job not found":
+	if refunded, err := h.jobService.DeleteJob(userID.(uint), req.JobID); err != nil {
+		switch {
+		case err.Error() == "job not found":
 			helper.SendError(c, http.StatusNotFound, "Job not found", "ERR_JOB_NOT_FOUND")
-		case "job can only be deleted after it has completed":
-			helper.SendError(c, http.StatusConflict, "Started jobs cannot be deleted until they complete.", "ERR_JOB_DELETE_NOT_ALLOWED")
+		case err.Error() == "job can only be deleted after it has completed":
+			helper.SendError(c, http.StatusConflict, "Only completed, failed, or paused jobs can be deleted.", "ERR_JOB_DELETE_NOT_ALLOWED")
+		case strings.Contains(err.Error(), "job state changed"):
+			helper.SendError(c, http.StatusConflict, "Job state changed. Refresh and try again.", "ERR_JOB_STATE_CHANGED")
 		default:
 			helper.SendError(c, http.StatusInternalServerError, "Failed to delete job", "ERR_JOB_DELETE_FAILED")
 		}
 		return
+	} else {
+		// Cleanup result + source files after successful DB deletion
+		jobIDCopy := req.JobID
+		safe.Go(func() {
+			jobID := jobIDCopy
+			basePath := os.Getenv("BULK_RESULTS_PATH")
+			if basePath == "" {
+				basePath = "./storage/results/bulk"
+			}
+			_ = storage.DeleteJobFile(basePath, jobID)
+
+			sourcePath := os.Getenv("BULK_SOURCE_PATH")
+			if sourcePath == "" {
+				sourcePath = "./storage/jobs/bulk"
+			}
+			_ = os.Remove(filepath.Join(sourcePath, jobID+"_source.txt"))
+		})
+
+		helper.SendSuccess(c, "Job deleted successfully", gin.H{
+			"refunded_credits": refunded,
+		})
+		return
 	}
-
-	// Cleanup result + source files after successful DB deletion
-	jobIDCopy := req.JobID
-	safe.Go(func() {
-		jobID := jobIDCopy
-		basePath := os.Getenv("BULK_RESULTS_PATH")
-		if basePath == "" {
-			basePath = "./storage/results/bulk"
-		}
-		_ = storage.DeleteJobFile(basePath, jobID)
-
-		sourcePath := os.Getenv("BULK_SOURCE_PATH")
-		if sourcePath == "" {
-			sourcePath = "./storage/jobs/bulk"
-		}
-		_ = os.Remove(filepath.Join(sourcePath, jobID+"_source.txt"))
-	})
-
-	helper.SendSuccess(c, "Job deleted successfully", nil)
 }
 
 func (h *JobHandler) RetryJob(c *gin.Context) {
@@ -217,6 +222,76 @@ func (h *JobHandler) RetryJob(c *gin.Context) {
 	}
 
 	helper.SendSuccess(c, "Job retried and queued successfully", gin.H{
+		"jobId":  job.JobID,
+		"status": job.Status,
+	})
+}
+
+func (h *JobHandler) PauseJob(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	var req struct {
+		JobID string `json:"job_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Invalid request", "ERR_INVALID_REQUEST")
+		return
+	}
+
+	job, err := h.jobService.PauseJob(userID.(uint), req.JobID)
+	if err != nil {
+		errStr := err.Error()
+		switch {
+		case errStr == "job not found":
+			helper.SendError(c, http.StatusNotFound, "Job not found", "ERR_JOB_NOT_FOUND")
+		case errStr == "only pending or processing jobs can be paused":
+			helper.SendError(c, http.StatusBadRequest, "Only pending or processing jobs can be paused.", "ERR_JOB_PAUSE_NOT_ALLOWED")
+		case strings.Contains(errStr, "pause unavailable"):
+			helper.SendError(c, http.StatusServiceUnavailable, "Pause is temporarily unavailable. Please try again.", "ERR_PAUSE_UNAVAILABLE")
+		default:
+			helper.SendError(c, http.StatusInternalServerError, "Failed to pause job", "ERR_JOB_PAUSE_FAILED")
+		}
+		return
+	}
+
+	helper.SendSuccess(c, "Job paused successfully", gin.H{
+		"jobId":  job.JobID,
+		"status": job.Status,
+	})
+}
+
+func (h *JobHandler) ResumeJob(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	var req struct {
+		JobID string `json:"job_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		helper.SendError(c, http.StatusBadRequest, "Invalid request", "ERR_INVALID_REQUEST")
+		return
+	}
+
+	job, err := h.jobService.ResumeJob(userID.(uint), req.JobID)
+	if err != nil {
+		errStr := err.Error()
+		switch {
+		case errStr == "job not found":
+			helper.SendError(c, http.StatusNotFound, "Job not found", "ERR_JOB_NOT_FOUND")
+		case errStr == "only paused jobs can be resumed":
+			helper.SendError(c, http.StatusBadRequest, "Only paused jobs can be resumed.", "ERR_JOB_RESUME_NOT_ALLOWED")
+		case strings.Contains(errStr, "job state changed"):
+			helper.SendError(c, http.StatusConflict, "Job state changed. Refresh and try again.", "ERR_JOB_STATE_CHANGED")
+		case strings.Contains(errStr, "original source file not found"):
+			helper.SendError(c, http.StatusBadRequest, "Original source file not found. Please re-upload your list.", "ERR_SOURCE_MISSING")
+		case strings.Contains(errStr, "job left paused"):
+			helper.SendError(c, http.StatusInternalServerError, "Failed to queue remaining emails. Job is still paused — try resume again.", "ERR_QUEUE_FAILED")
+		case strings.Contains(errStr, "failed to queue") || strings.Contains(errStr, "credits refunded"):
+			helper.SendError(c, http.StatusInternalServerError, "Failed to queue remaining emails.", "ERR_QUEUE_FAILED")
+		default:
+			helper.SendError(c, http.StatusInternalServerError, "Failed to resume job", "ERR_JOB_RESUME_FAILED")
+		}
+		return
+	}
+
+	helper.SendSuccess(c, "Job resumed and queued successfully", gin.H{
 		"jobId":  job.JobID,
 		"status": job.Status,
 	})

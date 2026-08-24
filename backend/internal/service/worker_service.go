@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"ejp-backend/internal/helper"
+	"ejp-backend/internal/jobcontrol"
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/tasks"
@@ -180,6 +181,7 @@ func (s *workerService) ReportTaskResult(payload *WorkerReportPayload) (*model.J
 		if job.Status == "failed" || job.Status == "cancelled" {
 			return fmt.Errorf("job %s is %s; ignoring results", jobID, job.Status)
 		}
+		// paused: still accept in-flight pushes; status SQL keeps the job paused until complete
 
 		// Idempotency: ignore duplicates for same job+email
 		var existing model.JobResult
@@ -279,7 +281,7 @@ func (s *workerService) ReportTaskResult(payload *WorkerReportPayload) (*model.J
 			"disposable":      gorm.Expr("disposable + ?", disposableInc),
 			"role_accounts":   gorm.Expr("role_accounts + ?", roleInc),
 			"status": gorm.Expr(
-				"CASE WHEN processed_count + ? >= total_emails THEN 'completed' ELSE 'processing' END",
+				jobcontrol.JobStatusAfterProgressSQL,
 				processedInc,
 			),
 		}
@@ -512,6 +514,7 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 		if job.Status == "failed" || job.Status == "cancelled" {
 			return fmt.Errorf("job %s is %s; ignoring results", jobID, job.Status)
 		}
+		// paused: still accept in-flight pushes; status SQL keeps the job paused until complete
 
 		var task model.JobTask
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -688,7 +691,7 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 			"disposable":      gorm.Expr("disposable + ?", disposableInc),
 			"role_accounts":   gorm.Expr("role_accounts + ?", roleInc),
 			"status": gorm.Expr(
-				"CASE WHEN processed_count + ? >= total_emails THEN 'completed' ELSE 'processing' END",
+				jobcontrol.JobStatusAfterProgressSQL,
 				processedIncTotal,
 			),
 		}).Error; err != nil {
@@ -758,6 +761,7 @@ func (s *workerService) BroadcastJobUpdate(jobID string) {
 
 	// Trigger Webhook/Email for major status changes
 	if job.Status == "completed" || job.Status == "failed" {
+		jobcontrol.ClearPaused(job.JobID)
 		var user model.User
 		if err := s.workerRepo.DB().First(&user, job.UserID).Error; err == nil {
 			if job.Status == "completed" {

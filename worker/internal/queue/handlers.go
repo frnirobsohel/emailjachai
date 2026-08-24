@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"ejp-worker/internal/engine"
+	"ejp-worker/internal/jobcontrol"
 	"ejp-worker/internal/reporter"
 	"ejp-worker/pkg/logger"
 	"ejp-worker/pkg/safe"
@@ -105,9 +106,28 @@ func HandleEmailChunkTask(asynqCtx context.Context, t *asynq.Task) error {
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
 	}
 
+	// Soft-stop before taking a concurrency slot: chunks already in Asynq are ACK'd.
+	// Resume rebuilds remaining emails from source − job_results (no double charge).
+	if jobcontrol.IsPaused(p.JobID) {
+		logger.Info("Skipping chunk for paused job",
+			zap.String("job_id", p.JobID),
+			zap.Uint("task_id", p.TaskID),
+			zap.Int("emails_count", len(p.Emails)),
+		)
+		return nil
+	}
+
 	// Concurrency-gate wait must NOT consume the Job Control chunk budget.
 	chunkVerifyGate.Acquire()
 	defer chunkVerifyGate.Release()
+
+	if jobcontrol.IsPaused(p.JobID) {
+		logger.Info("Job paused while waiting for gate — releasing without SMTP",
+			zap.String("job_id", p.JobID),
+			zap.Uint("task_id", p.TaskID),
+		)
+		return nil
+	}
 
 	workTimeout := time.Duration(p.ChunkTimeoutSec) * time.Second
 	if workTimeout < time.Minute {
@@ -126,12 +146,17 @@ func HandleEmailChunkTask(asynqCtx context.Context, t *asynq.Task) error {
 	results := make([]map[string]interface{}, len(p.Emails))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	pausedMidChunk := false
 
 	// Bounded Semaphore to limit concurrent outgoing TCP connections per chunk.
 	sem := make(chan struct{}, 100)
 
 spawnLoop:
 	for i, email := range p.Emails {
+		if jobcontrol.IsPaused(p.JobID) {
+			pausedMidChunk = true
+			break spawnLoop
+		}
 		select {
 		case <-ctx.Done():
 			break spawnLoop
@@ -162,6 +187,27 @@ spawnLoop:
 	wg.Wait()
 	if asynqCtx.Err() != nil {
 		return asynqCtx.Err()
+	}
+
+	if pausedMidChunk {
+		// Only push emails actually verified — do NOT mark the rest unknown
+		// (that would burn results / risky refunds). Resume re-queues gaps.
+		partial := make([]map[string]interface{}, 0, len(results))
+		for _, row := range results {
+			if row != nil {
+				partial = append(partial, row)
+			}
+		}
+		logger.Info("Chunk soft-stopped on pause; pushing partial results",
+			zap.String("job_id", p.JobID),
+			zap.Uint("task_id", p.TaskID),
+			zap.Int("verified", len(partial)),
+			zap.Int("total", len(p.Emails)),
+		)
+		if len(partial) == 0 {
+			return nil
+		}
+		return reporter.ReportBatchToAPI(p.JobID, p.TaskID, partial)
 	}
 
 	// Job Control budget exhausted: persist what we have and do not retry the chunk.

@@ -13,7 +13,7 @@ export interface User {
 export interface Job {
     job_id: string;
     filename: string | null;
-    status: 'pending' | 'preparing' | 'processing' | 'completed' | 'failed';
+    status: 'pending' | 'preparing' | 'processing' | 'paused' | 'completed' | 'failed';
     total_emails: number;
     processed_count: number;
     deliverable: number;
