@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"log"
 	"os"
 	"time"
@@ -9,10 +10,11 @@ import (
 	"ejp-backend/pkg/logger"
 
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	gormLogger "gorm.io/gorm/logger"
-	"github.com/redis/go-redis/v9"
 )
 
 var DB *gorm.DB
@@ -91,6 +93,37 @@ func ConnectDB() {
 		logger.Info("Production mode: Skipping AutoMigrate. Applying additive schema ensures...")
 		if err := db.Exec(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS offer_price DECIMAL(10, 2) NOT NULL DEFAULT 0`).Error; err != nil {
 			logger.Error("Failed to ensure packages.offer_price column", "error", err)
+			os.Exit(1)
+		}
+	}
+
+	// Leave unused worker_servers.daily_limit in place if present (rolling-deploy safe).
+	// Column is omitted from the Go model and fresh schema; DROP would break old API replicas mid-rollout.
+
+	// worker_servers.rate_limit: 0 = unlimited (safe default). One-time normalize of legacy unused default 100.
+	if err := db.Exec(`ALTER TABLE worker_servers ALTER COLUMN rate_limit SET DEFAULT 0`).Error; err != nil {
+		logger.Error("Failed to ensure worker_servers.rate_limit default", "error", err)
+		os.Exit(1)
+	}
+	var migrated model.Setting
+	if err := db.Where("setting_key = ?", "worker_rate_limit_default_v1").First(&migrated).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			logger.Error("Failed to check worker_rate_limit_default_v1 migration flag", "error", err)
+			os.Exit(1)
+		}
+		if err := db.Exec(`UPDATE worker_servers SET rate_limit = 0 WHERE rate_limit = 100`).Error; err != nil {
+			logger.Error("Failed to normalize worker_servers.rate_limit defaults", "error", err)
+			os.Exit(1)
+		}
+		// Concurrent backend startups: unique setting_key + DO NOTHING (no os.Exit on race).
+		if err := db.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "setting_key"}},
+			DoNothing: true,
+		}).Create(&model.Setting{
+			SettingKey:   "worker_rate_limit_default_v1",
+			SettingValue: "1",
+		}).Error; err != nil {
+			logger.Error("Failed to record worker_rate_limit_default_v1 migration", "error", err)
 			os.Exit(1)
 		}
 	}

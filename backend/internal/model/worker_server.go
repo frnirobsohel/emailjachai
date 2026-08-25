@@ -11,8 +11,7 @@ type WorkerServer struct {
 	Port                 int        `gorm:"column:port;type:integer;not null;default:80" json:"port"`
 	AuthToken            string     `gorm:"column:auth_token;type:varchar(255)" json:"auth_token"`
 	IPReputation         string     `gorm:"column:ip_reputation;type:varchar(20);default:'Good'" json:"ip_reputation"`
-	RateLimit            int        `gorm:"column:rate_limit;default:100" json:"rate_limit"`
-	DailyLimit           int        `gorm:"column:daily_limit;default:50000" json:"daily_limit"`
+	RateLimit            int        `gorm:"column:rate_limit;default:0" json:"rate_limit"`
 	WorkerCount          int        `gorm:"column:worker_count;default:0" json:"worker_count"`
 	EmailsVerified       int        `gorm:"column:emails_verified;default:0" json:"emails_verified"`
 	EmailsVerifiedToday  int        `gorm:"column:emails_verified_today;default:0" json:"emails_verified_today"`

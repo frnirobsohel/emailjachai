@@ -170,9 +170,10 @@ func StartHeartbeat() {
 			} else {
 				var result struct {
 					Data struct {
-						ChunkSize          int `json:"chunk_size"`
-						WorkerConcurrency  int `json:"worker_concurrency"`
-						PrepareConcurrency int `json:"prepare_concurrency"`
+						ChunkSize          int  `json:"chunk_size"`
+						WorkerConcurrency  int  `json:"worker_concurrency"`
+						PrepareConcurrency int  `json:"prepare_concurrency"`
+						RateLimit          *int `json:"rate_limit"` // nil = field absent (old API); 0 = unlimited
 					} `json:"data"`
 				}
 				if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
@@ -195,6 +196,18 @@ func StartHeartbeat() {
 							logger.Info("Worker concurrency updated from Job Control",
 								zap.Int("from", prev),
 								zap.Int("to", result.Data.WorkerConcurrency),
+							)
+						}
+					}
+					// Only apply when API includes rate_limit (avoids "missing = unlimited" during deploy skew).
+					if result.Data.RateLimit != nil {
+						rpm := *result.Data.RateLimit
+						prevRPM := config.GetEffectiveWorkerRateLimitRPM()
+						config.SetEffectiveWorkerRateLimitRPM(rpm)
+						if prevRPM != rpm {
+							logger.Info("Worker rate limit updated from Server settings",
+								zap.Int("from_rpm", prevRPM),
+								zap.Int("to_rpm", rpm),
 							)
 						}
 					}

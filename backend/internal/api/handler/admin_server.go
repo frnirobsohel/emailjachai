@@ -205,10 +205,9 @@ type serverNode struct {
 	WarmupMode          string `json:"warmup_mode"`
 	WarmupStage         string `json:"warmup_stage"`
 	Config              struct {
-		DailyLimit int  `json:"dailyLimit"`
-		RateLimit  int  `json:"rateLimit"`
-		ChunkSize  int  `json:"chunkSize"`
-		Enabled    bool `json:"enabled"`
+		RateLimit int  `json:"rateLimit"`
+		ChunkSize int  `json:"chunkSize"`
+		Enabled   bool `json:"enabled"`
 	} `json:"config"`
 }
 
@@ -339,13 +338,9 @@ func (h *AdminHandler) getServerNodes() ([]serverNode, error) {
 		}
 		n.WarmupStage = CalculateWarmupStageDescription(s.CreatedAt, s.WarmupEnabled, n.WarmupMode)
 
-		n.Config.DailyLimit = s.DailyLimit
-		if n.Config.DailyLimit <= 0 {
-			n.Config.DailyLimit = 50000
-		}
 		n.Config.RateLimit = s.RateLimit
-		if n.Config.RateLimit <= 0 {
-			n.Config.RateLimit = 100
+		if n.Config.RateLimit < 0 {
+			n.Config.RateLimit = 0
 		}
 		n.Config.ChunkSize = getChunkSizeSetting()
 		n.Config.Enabled = s.Enabled
@@ -504,8 +499,7 @@ func (h *AdminHandler) AddServer(c *gin.Context) {
 		Status:       "offline",
 		Enabled:      true,
 		IPReputation: "Good",
-		RateLimit:    100,
-		DailyLimit:   50000,
+		RateLimit:    0,
 	}
 
 	if err := h.serverService.CreateServer(&server); err != nil {
@@ -533,11 +527,9 @@ func (h *AdminHandler) UpdateServer(c *gin.Context) {
 		Port         *int    `json:"port"`
 		Status       *string `json:"status"`
 		RateLimit    *int    `json:"rate_limit"`
-		DailyLimit   *int    `json:"daily_limit"`
 		IPReputation *string `json:"ip_reputation"`
 		Config       *struct {
-			DailyLimit *int `json:"dailyLimit"`
-			RateLimit  *int `json:"rateLimit"`
+			RateLimit *int `json:"rateLimit"`
 		} `json:"config"`
 	}
 
@@ -595,17 +587,12 @@ func (h *AdminHandler) UpdateServer(c *gin.Context) {
 
 	// Config payload from UI takes precedence
 	if input.Config != nil {
-		if input.Config.DailyLimit != nil && *input.Config.DailyLimit >= 1 {
-			updates["daily_limit"] = *input.Config.DailyLimit
-		}
-		if input.Config.RateLimit != nil && *input.Config.RateLimit >= 1 {
+		if input.Config.RateLimit != nil && *input.Config.RateLimit >= 0 && *input.Config.RateLimit <= 1_000_000 {
 			updates["rate_limit"] = *input.Config.RateLimit
 		}
 	}
-	if input.DailyLimit != nil && *input.DailyLimit >= 1 {
-		updates["daily_limit"] = *input.DailyLimit
-	}
-	if input.RateLimit != nil && *input.RateLimit >= 1 {
+	// 0 = unlimited outbound verifies/min for this VPS.
+	if input.RateLimit != nil && *input.RateLimit >= 0 && *input.RateLimit <= 1_000_000 {
 		updates["rate_limit"] = *input.RateLimit
 	}
 	if input.IPReputation != nil && strings.TrimSpace(*input.IPReputation) != "" {
@@ -735,8 +722,7 @@ func WorkerHeartbeat(c *gin.Context) {
 				Enabled:      true,
 				WorkerCount:  input.WorkerCount,
 				IPReputation: "Good",
-				RateLimit:    100,
-				DailyLimit:   50000,
+				RateLimit:    0,
 			}
 
 			if err := config.DB.Create(&server).Error; err != nil {
@@ -755,9 +741,10 @@ func WorkerHeartbeat(c *gin.Context) {
 			})
 
 			helper.SendSuccess(c, "Heartbeat received", gin.H{
-				"chunk_size":           chunkSize,
-				"worker_concurrency":   workerConcurrency,
-				"prepare_concurrency":  prepareConcurrency,
+				"chunk_size":          chunkSize,
+				"worker_concurrency":  workerConcurrency,
+				"prepare_concurrency": prepareConcurrency,
+				"rate_limit":          server.RateLimit,
 			})
 			return
 		}
@@ -804,6 +791,7 @@ func WorkerHeartbeat(c *gin.Context) {
 		"chunk_size":          chunkSize,
 		"worker_concurrency":  workerConcurrency,
 		"prepare_concurrency": prepareConcurrency,
+		"rate_limit":          server.RateLimit,
 		"enabled":             server.Enabled,
 	})
 }

@@ -334,8 +334,21 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 	}
 	result.MxRecords = mxList
 
-	// Rate-limit wait does not consume the 135s probe clock. Wait until a slot
-	// is available or the parent ctx (chunk budget / shutdown) is cancelled.
+	// Rate-limit waits do not consume the 135s probe clock.
+	// 1) Per-VPS connection/min (Admin → Server rate_limit) — additive brake only.
+	// 2) Per-domain RPS — MX politeness (unchanged).
+	if err := WaitWorkerRateLimit(ctx); err != nil {
+		result.Status = "unknown"
+		if ctx.Err() != nil {
+			result.Reason = "cancelled"
+			result.DetailedError = "cancelled while waiting for worker rate limit"
+		} else {
+			result.Reason = "rate_limit_timeout"
+			result.DetailedError = "worker rate limit wait exceeded"
+		}
+		result.ProcessingTime = time.Since(funcStart).Seconds()
+		return result
+	}
 	if err := WaitDomainRateLimit(ctx, domain, result.IsFree); err != nil {
 		result.Status = "unknown"
 		if ctx.Err() != nil {

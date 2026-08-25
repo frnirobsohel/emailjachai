@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
     Server, RefreshCcw, Activity, Plus, Copy, Check, Trash2, Settings2,
-    ShieldCheck, Zap, Clock, Database, Globe, Signal, Search, Eye, EyeOff, Lock, AlertCircle, Loader2, Flame, TrendingUp, AlertTriangle
+    ShieldCheck, Zap, Clock, Database, Globe, Signal, Search, Eye, EyeOff, Lock, AlertCircle, Loader2, Flame, TrendingUp, AlertTriangle, Info
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -39,7 +39,6 @@ export interface ServerNode {
     warmup_mode?: WarmupMode
     warmup_stage?: string
     config: {
-        dailyLimit: number
         rateLimit: number
         chunkSize: number
         enabled: boolean
@@ -99,6 +98,7 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
     const [warmupMode, setWarmupMode] = useState<WarmupMode>('medium')
     const [warmupEnabled, setWarmupEnabled] = useState(true)
     const [warmupSaving, setWarmupSaving] = useState(false)
+    const [rateLimitRpm, setRateLimitRpm] = useState(0)
 
     const addForm = useForm<z.infer<typeof addServerSchema>>({
         resolver: zodResolver(addServerSchema),
@@ -137,6 +137,8 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
             setWarmupMode(manageServer.warmup_mode || 'medium')
             setDeleteConfirmText("")
             setShowDeleteConfirm(false)
+            const rpm = manageServer.config?.rateLimit
+            setRateLimitRpm(typeof rpm === 'number' && rpm >= 0 ? rpm : 0)
         }
     }, [manageServer])
 
@@ -329,23 +331,33 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
 
     const handleWarmupSave = async () => {
         if (!manageServer) return
+        if (!Number.isFinite(rateLimitRpm) || rateLimitRpm < 0 || rateLimitRpm > 1_000_000) {
+            toast.error("Rate limit must be 0 (unlimited) or 1–1000000 per minute")
+            return
+        }
         setWarmupSaving(true)
         try {
-            const result = await ApiClient.post('/admin/server/warmup', {
-                id: manageServer.id,
-                warmup_enabled: warmupEnabled,
-                warmup_mode: warmupMode,
-            })
-            if (result.status === 'success') {
+            const [warmupResult, rateResult] = await Promise.all([
+                ApiClient.post('/admin/server/warmup', {
+                    id: manageServer.id,
+                    warmup_enabled: warmupEnabled,
+                    warmup_mode: warmupMode,
+                }),
+                ApiClient.post('/admin/server/update', {
+                    id: manageServer.id,
+                    config: { rateLimit: Math.floor(rateLimitRpm) },
+                }),
+            ])
+            if (warmupResult.status === 'success' && rateResult.status === 'success') {
                 setManageServer(null)
                 void fetchServers()
-                toast.success("Warmup settings saved successfully.")
+                toast.success("Server settings saved. Rate limit applies on next worker heartbeat (~1 min).")
             } else {
-                toast.error(result.message || "Failed to save warmup settings.")
+                toast.error(warmupResult.message || rateResult.message || "Failed to save server settings.")
             }
         } catch (error) {
-            console.error("Failed to save warmup settings:", error)
-            toast.error("Failed to save warmup settings.")
+            console.error("Failed to save server settings:", error)
+            toast.error("Failed to save server settings.")
         } finally {
             setWarmupSaving(false)
         }
@@ -462,16 +474,51 @@ export function ServerClient({ initialData }: { initialData: ServerNode[] }) {
 
                             {/* Header */}
                             <CardHeader className="bg-[#f0f4f2]/70 border-b border-[#0b1f1c]/8 pb-4">
-                                <div className="flex items-center justify-between">
-                                    <div>
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1 space-y-2.5">
                                         <CardTitle className="text-lg font-bold text-[#0b1f1c] tracking-tight">Settings &amp; Actions</CardTitle>
-                                        <CardDescription className="flex items-center gap-1.5 mt-0.5">
+                                        <CardDescription className="flex flex-wrap items-center gap-x-2 gap-y-2 mt-0.5">
                                             <span className="font-mono text-xs font-semibold text-slate-600">{manageServer.name}</span>
                                             <span className="text-slate-300">•</span>
                                             <span className="font-mono text-[11px] text-slate-400">{manageServer.address}</span>
+                                            <span className="hidden sm:inline text-slate-300">•</span>
+                                            <span className="inline-flex items-center gap-1.5">
+                                                <span className="relative group/tip inline-flex">
+                                                    <button
+                                                        type="button"
+                                                        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-amber-600 hover:bg-amber-100/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+                                                        aria-label="VPS rate limit help"
+                                                    >
+                                                        <Info className="h-3.5 w-3.5" />
+                                                    </button>
+                                                    <span
+                                                        role="tooltip"
+                                                        className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 w-56 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[10px] leading-relaxed text-slate-600 shadow-md opacity-0 transition-opacity duration-150 group-hover/tip:opacity-100 group-focus-within/tip:opacity-100"
+                                                    >
+                                                        Match your VPS provider cap (e.g. 25). Use 0 for unlimited.
+                                                        Does not change Job Control concurrency or domain RPS — only caps this node&apos;s outbound SMTP.
+                                                    </span>
+                                                </span>
+                                                <Label htmlFor="rate_limit_rpm" className="sr-only">
+                                                    Verifies per minute
+                                                </Label>
+                                                <Input
+                                                    id="rate_limit_rpm"
+                                                    type="number"
+                                                    min={0}
+                                                    max={1000000}
+                                                    step={1}
+                                                    value={rateLimitRpm}
+                                                    onChange={(e) => setRateLimitRpm(Number(e.target.value))}
+                                                    className="h-7 w-[4.75rem] font-mono text-xs bg-white border-slate-200 focus-visible:ring-amber-400/40"
+                                                />
+                                                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                                                    /min
+                                                </span>
+                                            </span>
                                         </CardDescription>
                                     </div>
-                                    <Button variant="ghost" size="icon" onClick={() => setManageServer(null)} className="h-8 w-8 text-slate-400 hover:text-slate-700">
+                                    <Button variant="ghost" size="icon" onClick={() => setManageServer(null)} className="h-8 w-8 shrink-0 text-slate-400 hover:text-slate-700">
                                         <Plus className="h-5 w-5 rotate-45" />
                                     </Button>
                                 </div>

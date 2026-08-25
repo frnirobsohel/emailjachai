@@ -293,8 +293,9 @@ Asynq pool (100)
               └─ only N chunks run SMTP at once per worker process
                    └─ per-chunk chan sem (100)
                         └─ in-flight TCP probes inside that chunk
-                             └─ per-domain rate.Limiter
-                                  └─ Wait() then 135s probe clock
+                             └─ worker rate.Limiter (per-VPS verifies/min; 0=unlimited)
+                                  └─ per-domain rate.Limiter
+                                       └─ Wait() then 135s probe clock
 ```
 
 | # | Name | Scope | Limit | Protects | Clock? | Code |
@@ -302,13 +303,14 @@ Asynq pool (100)
 | 1 | Asynq `Concurrency` | One worker process | **100** fixed (`AsynqPoolCeiling`) | How many Asynq handlers can be scheduled | No | `worker/pkg/config/config.go` |
 | 2 | `chunkVerifyGate` | One worker process | Job Control `worker_concurrency` (1–100, default **10**) | How many **chunks** actually verify | **No** — wait is outside chunk budget | `worker/internal/queue/concurrency_gate.go` |
 | 3 | Per-chunk `sem` | One chunk handler | **100** | Concurrent `net.Dial` inside the chunk | Yes — after gate | `HandleEmailChunkTask` |
-| 4 | Domain `rate.Limiter` | One worker process, per domain | B2B **2 rps / burst 4**; free **1 rps / burst 2** | MX politeness / block avoidance | **No** — wait is outside 135s | `worker/internal/engine/ratelimit.go` |
-| 5 | Chunk `context.WithTimeout` | One chunk after gate | Tier 15/60/120 min | Job Control SLA | Yes | handlers.go |
-| 6 | Probe deadline | One email after RPS wait | **135s** (env below 135 ignored) | Slow/dead MX | Yes | `engine/smtp.go` |
-| 7 | Dial / IO | One TCP session | Dial **24s**, IO **30s** (clamped to remaining probe) | Hung banner/RCPT | Nested in 6 | `probeSMTP` |
-| 8 | Asynq task Timeout | One Asynq task including gate wait | chunk + **4h** | Stuck handler / lost worker | Hang only | `enqueueBulkChunks` |
+| 4 | Worker `rate.Limiter` | One worker process (VPS) | Admin → Server `rate_limit` verifies/min (**0 = unlimited**) | VPS provider connection/port caps | **No** — wait is outside 135s | `worker/internal/engine/worker_ratelimit.go` |
+| 5 | Domain `rate.Limiter` | One worker process, per domain | B2B **2 rps / burst 4**; free **1 rps / burst 2** | MX politeness / block avoidance | **No** — wait is outside 135s | `worker/internal/engine/ratelimit.go` |
+| 6 | Chunk `context.WithTimeout` | One chunk after gate | Tier 15/60/120 min | Job Control SLA | Yes | handlers.go |
+| 7 | Probe deadline | One email after rate waits | **135s** (env below 135 ignored) | Slow/dead MX | Yes | `engine/smtp.go` |
+| 8 | Dial / IO | One TCP session | Dial **24s**, IO **30s** (clamped to remaining probe) | Hung banner/RCPT | Nested in 7 | `probeSMTP` |
+| 9 | Asynq task Timeout | One Asynq task including gate wait | chunk + **4h** | Stuck handler / lost worker | Hang only | `enqueueBulkChunks` |
 
-Heartbeat: worker POST heartbeat receives `worker_concurrency` and calls `SetEffectiveWorkerConcurrency`. Changing Job Control does **not** require worker restart; it changes the gate limit live.
+Heartbeat: worker POST heartbeat receives `worker_concurrency` and `rate_limit`, then updates live (no restart).
 
 ### 5.2 Prepare (API side)
 
@@ -350,6 +352,7 @@ chunkVerifyGate.Acquire()  ← ── chunk budget STARTS HERE
        ├─ spawn emails (sem 100)
        └─ per email:
             MX lookup          (not 135s)
+            WaitWorkerRateLimit(ctx)   ← VPS cap; 135s NOT running
             WaitDomainRateLimit(ctx)   ← 135s NOT running
             verifyStart := now         ← 135s STARTS HERE
             probeSMTP until min(135s, remaining chunk ctx)
