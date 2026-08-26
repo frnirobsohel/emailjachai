@@ -220,6 +220,7 @@ func (s *jobService) DeleteJob(userID uint, jobID string) (int, error) {
 	}
 
 	jobcontrol.ClearPaused(jobID)
+	clearBulkSourceRedis(jobID)
 	if refunded > 0 {
 		if updatedUser, err := s.userRepo.GetByID(userID); err == nil {
 			ws.GlobalHub.BroadcastToUser(updatedUser.ID, "user_update", gin.H{

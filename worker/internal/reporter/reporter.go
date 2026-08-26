@@ -16,6 +16,7 @@ import (
 	"ejp-worker/pkg/config"
 	"ejp-worker/pkg/logger"
 
+	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
@@ -135,6 +136,9 @@ func ReportBatchToAPI(jobID string, taskID uint, results []map[string]interface{
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			return fmt.Errorf("batch report rejected with status %d (client error): %s: %w", resp.StatusCode, string(body), asynq.SkipRetry)
+		}
 		return fmt.Errorf("batch report returned status %d: %s", resp.StatusCode, string(body))
 	}
 

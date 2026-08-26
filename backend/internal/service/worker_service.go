@@ -509,10 +509,16 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("job_id = ?", jobID).
 			First(&job).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				logger.Info("Job not found (deleted), ignoring reported results", "job_id", jobID)
+				job = model.Job{JobID: jobID}
+				return nil
+			}
 			return err
 		}
-		if job.Status == "failed" || job.Status == "cancelled" {
-			return fmt.Errorf("job %s is %s; ignoring results", jobID, job.Status)
+		if job.Status == "failed" || job.Status == "cancelled" || job.Status == "completed" {
+			logger.Info("Job is in terminal status, ignoring stale results", "job_id", jobID, "status", job.Status)
+			return nil
 		}
 		// paused: still accept in-flight pushes; status SQL keeps the job paused until complete
 
@@ -520,14 +526,20 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ? AND job_id = ?", payload.TaskID, job.JobID).
 			First(&task).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				logger.Info("Task not found (deleted), ignoring reported results", "job_id", job.JobID, "task_id", payload.TaskID)
+				return nil
+			}
 			return err
 		}
-		// Fix 3: Check task status and worker ownership
-		if task.Status == "failed" || task.Status == "cancelled" {
-			return fmt.Errorf("task %d is %s; ignoring results", task.ID, task.Status)
+		// Fix: If task is already completed, cancelled, or failed, treat as idempotent success so Asynq does not retry.
+		if task.Status == "completed" || task.Status == "failed" || task.Status == "cancelled" {
+			logger.Info("Task already finalized, ignoring duplicate/stale report", "job_id", job.JobID, "task_id", task.ID, "status", task.Status)
+			return nil
 		}
 		if task.Status != "processing" && task.Status != "queued" {
-			return fmt.Errorf("task %d is not in processing or queued state (current: %s)", task.ID, task.Status)
+			logger.Info("Task in unexpected status, ignoring report", "job_id", job.JobID, "task_id", task.ID, "status", task.Status)
+			return nil
 		}
 		if task.Status == "queued" {
 			task.Status = "processing"
