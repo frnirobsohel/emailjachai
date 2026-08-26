@@ -21,9 +21,9 @@ import (
 )
 
 var (
-	httpClient  *http.Client
-	batchMutex  sync.Mutex
-	detectedIP  string
+	httpClient   *http.Client
+	batchMutex   sync.Mutex
+	detectedIP   string
 	detectIPOnce sync.Once
 )
 
@@ -98,6 +98,10 @@ func detectPublicIP() string {
 
 // ReportBatchToAPI sends task results to the backend API
 func ReportBatchToAPI(jobID string, taskID uint, results []map[string]interface{}) error {
+	if !config.IsWorkerEnabled() {
+		return fmt.Errorf("worker disabled by administrator")
+	}
+
 	apiURL := config.Cfg.APIBaseURL + "/report-tasks"
 
 	batchPayload := map[string]interface{}{
@@ -133,97 +137,129 @@ func ReportBatchToAPI(jobID string, taskID uint, results []map[string]interface{
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return fmt.Errorf("batch report returned status %d: %s", resp.StatusCode, string(body))
 	}
-	
+
 	return nil
 }
 
-// StartHeartbeat sends heartbeat to API periodically
+// HeartbeatOnce pings the API and applies Job Control + enabled flag.
+// Safe to call at startup before Asynq so a disabled node never starts consumers.
+func HeartbeatOnce() {
+	heartbeatURL := config.Cfg.APIBaseURL + "/heartbeat"
+
+	payload := map[string]interface{}{
+		"server_name":  config.Cfg.WorkerServerName,
+		"worker_count": config.GetEffectiveWorkerConcurrency(),
+		"ip_address":   detectPublicIP(),
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		logger.Error("Heartbeat: failed to marshal payload", zap.Error(err))
+		return
+	}
+
+	req, err := http.NewRequest("POST", heartbeatURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		logger.Error("Heartbeat: failed to create request", zap.Error(err))
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Worker-Key", config.Cfg.WorkerAPIKey)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		logger.Error("Heartbeat error", zap.Error(err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Warn("Heartbeat warning", zap.Int("status", resp.StatusCode))
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return
+	}
+
+	var result struct {
+		Data struct {
+			ChunkSize          int   `json:"chunk_size"`
+			WorkerConcurrency  int   `json:"worker_concurrency"`
+			PrepareConcurrency int   `json:"prepare_concurrency"`
+			RateLimit          *int  `json:"rate_limit"` // nil = field absent (old API); 0 = unlimited
+			Enabled            *bool `json:"enabled"`    // nil = old API; do not flip local flag
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		logger.Warn("Heartbeat: failed to decode response", zap.Error(err))
+		return
+	}
+
+	if result.Data.ChunkSize > 0 {
+		batchMutex.Lock()
+		prevChunk := config.Cfg.ChunkSizeLimit
+		config.Cfg.ChunkSizeLimit = result.Data.ChunkSize
+		batchMutex.Unlock()
+		if prevChunk != result.Data.ChunkSize {
+			logger.Info("Chunk size updated from Job Control",
+				zap.Int("from", prevChunk),
+				zap.Int("to", result.Data.ChunkSize),
+			)
+		}
+	}
+	if result.Data.WorkerConcurrency > 0 {
+		prev := config.GetEffectiveWorkerConcurrency()
+		config.SetEffectiveWorkerConcurrency(result.Data.WorkerConcurrency)
+		if prev != result.Data.WorkerConcurrency {
+			logger.Info("Worker concurrency updated from Job Control",
+				zap.Int("from", prev),
+				zap.Int("to", result.Data.WorkerConcurrency),
+			)
+		}
+	}
+	// Only apply when API includes rate_limit (avoids "missing = unlimited" during deploy skew).
+	if result.Data.RateLimit != nil {
+		rpm := *result.Data.RateLimit
+		prevRPM := config.GetEffectiveWorkerRateLimitRPM()
+		config.SetEffectiveWorkerRateLimitRPM(rpm)
+		if prevRPM != rpm {
+			logger.Info("Worker rate limit updated from Server settings",
+				zap.Int("from_rpm", prevRPM),
+				zap.Int("to_rpm", rpm),
+			)
+		}
+	}
+	if result.Data.Enabled != nil {
+		prev := config.IsWorkerEnabled()
+		next := *result.Data.Enabled
+		config.SetWorkerEnabled(next)
+		if prev != next {
+			if next {
+				logger.Info("Worker enabled by admin — queue processing will resume")
+			} else {
+				logger.Warn("Worker disabled by admin — heartbeat only until re-enabled")
+			}
+		}
+	}
+}
+
+// StartHeartbeat sends heartbeat to API periodically (immediate first ping).
 func StartHeartbeat() {
+	logger.Info("Starting Background Heartbeat Engine...")
+	HeartbeatOnce()
+
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
-	logger.Info("Starting Background Heartbeat Engine...")
-
-	for {
-		heartbeatURL := config.Cfg.APIBaseURL + "/heartbeat"
-
-		payload := map[string]interface{}{
-			"server_name":  config.Cfg.WorkerServerName,
-			"worker_count": config.GetEffectiveWorkerConcurrency(),
-			"ip_address":   detectPublicIP(),
-		}
-
-		jsonData, _ := json.Marshal(payload)
-		req, err := http.NewRequest("POST", heartbeatURL, bytes.NewBuffer(jsonData))
-		if err != nil {
-			logger.Error("Heartbeat: failed to create request", zap.Error(err))
-			<-ticker.C
-			continue
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Worker-Key", config.Cfg.WorkerAPIKey)
-
-		resp, err := httpClient.Do(req)
-		if err == nil {
-			if resp.StatusCode != http.StatusOK {
-				logger.Warn("Heartbeat warning", zap.Int("status", resp.StatusCode))
-			} else {
-				var result struct {
-					Data struct {
-						ChunkSize          int  `json:"chunk_size"`
-						WorkerConcurrency  int  `json:"worker_concurrency"`
-						PrepareConcurrency int  `json:"prepare_concurrency"`
-						RateLimit          *int `json:"rate_limit"` // nil = field absent (old API); 0 = unlimited
-					} `json:"data"`
-				}
-				if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
-					if result.Data.ChunkSize > 0 {
-						batchMutex.Lock()
-						prevChunk := config.Cfg.ChunkSizeLimit
-						config.Cfg.ChunkSizeLimit = result.Data.ChunkSize
-						batchMutex.Unlock()
-						if prevChunk != result.Data.ChunkSize {
-							logger.Info("Chunk size updated from Job Control",
-								zap.Int("from", prevChunk),
-								zap.Int("to", result.Data.ChunkSize),
-							)
-						}
-					}
-					if result.Data.WorkerConcurrency > 0 {
-						prev := config.GetEffectiveWorkerConcurrency()
-						config.SetEffectiveWorkerConcurrency(result.Data.WorkerConcurrency)
-						if prev != result.Data.WorkerConcurrency {
-							logger.Info("Worker concurrency updated from Job Control",
-								zap.Int("from", prev),
-								zap.Int("to", result.Data.WorkerConcurrency),
-							)
-						}
-					}
-					// Only apply when API includes rate_limit (avoids "missing = unlimited" during deploy skew).
-					if result.Data.RateLimit != nil {
-						rpm := *result.Data.RateLimit
-						prevRPM := config.GetEffectiveWorkerRateLimitRPM()
-						config.SetEffectiveWorkerRateLimitRPM(rpm)
-						if prevRPM != rpm {
-							logger.Info("Worker rate limit updated from Server settings",
-								zap.Int("from_rpm", prevRPM),
-								zap.Int("to_rpm", rpm),
-							)
-						}
-					}
-				}
-			}
-			resp.Body.Close()
-		} else {
-			logger.Error("Heartbeat error", zap.Error(err))
-		}
-
-		<-ticker.C
+	for range ticker.C {
+		HeartbeatOnce()
 	}
 }
 
 // SelfHeal resets abandoned tasks that were assigned to this worker
 func SelfHeal() {
+	if !config.IsWorkerEnabled() {
+		logger.Info("Self-healing skipped: worker is disabled")
+		return
+	}
 	if config.Cfg.WorkerServerName == "unknown-go-worker" || config.Cfg.WorkerServerName == "" {
 		logger.Info("Self-healing: Server name unknown or not set, skipping task recovery.")
 		return
@@ -260,9 +296,13 @@ func SelfHeal() {
 
 // UpdateDomainCache keeps the in-memory domain policy cache fresh.
 // Workers poll every 2 minutes and also refresh immediately on Redis pub/sub invalidation.
+// Skips API calls while the node is admin-disabled (heartbeat-only mode).
 func UpdateDomainCache() {
 	var refreshMu sync.Mutex
 	refresh := func() {
+		if !config.IsWorkerEnabled() {
+			return
+		}
 		refreshMu.Lock()
 		defer refreshMu.Unlock()
 

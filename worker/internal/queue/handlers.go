@@ -19,6 +19,7 @@ import (
 	"ejp-worker/internal/engine"
 	"ejp-worker/internal/jobcontrol"
 	"ejp-worker/internal/reporter"
+	"ejp-worker/pkg/config"
 	"ejp-worker/pkg/logger"
 	"ejp-worker/pkg/safe"
 
@@ -82,6 +83,10 @@ func resultMap(email string, res engine.VerifyResult) map[string]interface{} {
 
 // HandleEmailVerifyTask processes a single email verification task
 func HandleEmailVerifyTask(ctx context.Context, t *asynq.Task) error {
+	if !config.IsWorkerEnabled() {
+		return fmt.Errorf("worker disabled by administrator")
+	}
+
 	var p EmailTaskPayload
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
@@ -101,6 +106,10 @@ func HandleEmailVerifyTask(ctx context.Context, t *asynq.Task) error {
 
 // HandleEmailChunkTask processes an email chunk for bulk verification
 func HandleEmailChunkTask(asynqCtx context.Context, t *asynq.Task) error {
+	if !config.IsWorkerEnabled() {
+		return fmt.Errorf("worker disabled by administrator")
+	}
+
 	var p EmailChunkTaskPayload
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
@@ -230,6 +239,10 @@ spawnLoop:
 
 // HandleWebhookTask delivers webhooks
 func HandleWebhookTask(ctx context.Context, t *asynq.Task) error {
+	if !config.IsWorkerEnabled() {
+		return fmt.Errorf("worker disabled by administrator")
+	}
+
 	var p WebhookDeliverPayload
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
@@ -297,6 +310,10 @@ func HandleWebhookTask(ctx context.Context, t *asynq.Task) error {
 
 // HandleDeadLetterTask reports permanently failed tasks back to the backend API
 func HandleDeadLetterTask(ctx context.Context, t *asynq.Task, err error) {
+	if !config.IsWorkerEnabled() {
+		logger.Warn("Dead-letter skipped: worker disabled", zap.String("type", t.Type()), zap.Error(err))
+		return
+	}
 	logger.Warn("Handling Dead-Letter Task", zap.String("type", t.Type()), zap.Error(err))
 	switch t.Type() {
 	case "email:verify":

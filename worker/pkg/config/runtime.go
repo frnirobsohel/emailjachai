@@ -12,9 +12,24 @@ var EffectiveWorkerConcurrency atomic.Int64
 // 0 = unlimited (no process-wide rate gate). Updated live via heartbeat.
 var EffectiveWorkerRateLimitRPM atomic.Int64
 
+// workerEnabled mirrors Admin → Server "enabled". When false the process may only heartbeat;
+// Asynq consumers, SMTP, reports, domain refresh, and self-heal stay off until re-enabled.
+var workerEnabled atomic.Bool
+
 func init() {
 	EffectiveWorkerConcurrency.Store(10)
 	EffectiveWorkerRateLimitRPM.Store(0) // unlimited until first heartbeat
+	workerEnabled.Store(true)            // optimistic until first heartbeat; API corrects within ~60s
+}
+
+// SetWorkerEnabled updates the admin enable flag from heartbeat (or tests).
+func SetWorkerEnabled(enabled bool) {
+	workerEnabled.Store(enabled)
+}
+
+// IsWorkerEnabled reports whether this node may process queue work.
+func IsWorkerEnabled() bool {
+	return workerEnabled.Load()
 }
 
 // SetEffectiveWorkerConcurrency clamps and stores the Job Control value.

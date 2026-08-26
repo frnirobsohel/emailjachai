@@ -141,7 +141,11 @@ func (r *workerRepo) ReconcileJobStatus(jobID string) error {
 func (r *workerRepo) ResetWorkerTasks(serverName string) (int64, error) {
 	res := r.db.Model(&model.JobTask{}).
 		Where("worker_server = ? AND status = ?", serverName, "processing").
-		Update("status", "queued")
+		Updates(map[string]interface{}{
+			"status":        "queued",
+			"worker_server": "",
+			"updated_at":    time.Now(),
+		})
 	return res.RowsAffected, res.Error
 }
 

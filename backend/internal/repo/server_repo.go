@@ -31,6 +31,7 @@ type ServerRepo interface {
 	Delete(id uint) error
 	GetActiveTasksCountByWorker() ([]WorkerTaskSummary, error)
 	CountOnlineEnabled() (int64, error)
+	ReclaimProcessingTasks(serverName string) (int64, error)
 	GetOrProvisionWorkerKey() (plainKey, maskedKey string, err error)
 	RotateWorkerKey() (newKey, maskedKey string, err error)
 	CheckAdminPassword(adminID uint, password string) (bool, error)
@@ -91,6 +92,21 @@ func (r *serverRepo) UpdateFields(id uint, updates map[string]interface{}) error
 
 func (r *serverRepo) Delete(id uint) error {
 	return r.db.Delete(&model.WorkerServer{}, id).Error
+}
+
+// ReclaimProcessingTasks releases chunks owned by a disabled/dead worker so peers can report.
+func (r *serverRepo) ReclaimProcessingTasks(serverName string) (int64, error) {
+	if strings.TrimSpace(serverName) == "" {
+		return 0, nil
+	}
+	res := r.db.Model(&model.JobTask{}).
+		Where("worker_server = ? AND status = ?", serverName, "processing").
+		Updates(map[string]interface{}{
+			"status":        "queued",
+			"worker_server": "",
+			"updated_at":    time.Now(),
+		})
+	return res.RowsAffected, res.Error
 }
 
 func (r *serverRepo) GetActiveTasksCountByWorker() ([]WorkerTaskSummary, error) {

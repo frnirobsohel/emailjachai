@@ -745,6 +745,7 @@ func WorkerHeartbeat(c *gin.Context) {
 				"worker_concurrency":  workerConcurrency,
 				"prepare_concurrency": prepareConcurrency,
 				"rate_limit":          server.RateLimit,
+				"enabled":             true,
 			})
 			return
 		}

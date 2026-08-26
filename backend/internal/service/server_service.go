@@ -3,6 +3,7 @@ package service
 import (
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
+	"ejp-backend/pkg/logger"
 )
 
 type ServerService interface {
@@ -64,7 +65,25 @@ func (s *serverService) UpdateFields(id uint, updates map[string]interface{}) er
 }
 
 func (s *serverService) ToggleServer(id uint, enabled bool) error {
-	return s.repo.UpdateFields(id, map[string]interface{}{"enabled": enabled})
+	server, err := s.repo.GetByID(id)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.UpdateFields(id, map[string]interface{}{"enabled": enabled}); err != nil {
+		return err
+	}
+	// Disable: release in-flight ownership so enabled peers can finish chunks.
+	if !enabled {
+		n, rerr := s.repo.ReclaimProcessingTasks(server.ServerName)
+		if rerr != nil {
+			logger.Error("Failed to reclaim tasks on worker disable", "server", server.ServerName, "error", rerr)
+			return rerr
+		}
+		if n > 0 {
+			logger.Info("Reclaimed processing tasks after disable", "server", server.ServerName, "tasks", n)
+		}
+	}
+	return nil
 }
 
 func (s *serverService) DeleteServer(id uint) error {
