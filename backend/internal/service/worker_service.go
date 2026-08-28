@@ -205,7 +205,7 @@ func (s *workerService) ReportTaskResult(payload *WorkerReportPayload) (*model.J
 				if task.Status != "processing" && task.Status != "queued" {
 					return fmt.Errorf("task %d is not in processing or queued state (current: %s)", task.ID, task.Status)
 				}
-				if task.Status == "queued" {
+				if task.Status == "queued" || (task.WorkerServer != "" && task.WorkerServer != serverName) {
 					task.Status = "processing"
 					task.WorkerServer = serverName
 					if err := tx.Model(&task).Updates(map[string]interface{}{
@@ -214,10 +214,6 @@ func (s *workerService) ReportTaskResult(payload *WorkerReportPayload) (*model.J
 						"updated_at":    time.Now(),
 					}).Error; err != nil {
 						return err
-					}
-				} else {
-					if task.WorkerServer != "" && task.WorkerServer != serverName {
-						return fmt.Errorf("task %d belongs to worker '%s', not '%s'", task.ID, task.WorkerServer, serverName)
 					}
 				}
 			}
@@ -541,7 +537,7 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 			logger.Info("Task in unexpected status, ignoring report", "job_id", job.JobID, "task_id", task.ID, "status", task.Status)
 			return nil
 		}
-		if task.Status == "queued" {
+		if task.Status == "queued" || (task.WorkerServer != "" && task.WorkerServer != serverName) {
 			task.Status = "processing"
 			task.WorkerServer = serverName
 			if err := tx.Model(&task).Updates(map[string]interface{}{
@@ -550,10 +546,6 @@ func (s *workerService) ReportTaskResults(payload *WorkerBatchPayload) (*model.J
 				"updated_at":    time.Now(),
 			}).Error; err != nil {
 				return err
-			}
-		} else {
-			if task.WorkerServer != "" && task.WorkerServer != serverName {
-				return fmt.Errorf("task %d belongs to worker '%s', not '%s'", task.ID, task.WorkerServer, serverName)
 			}
 		}
 

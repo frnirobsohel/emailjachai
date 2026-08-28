@@ -1,10 +1,20 @@
 package service
 
 import (
+	"time"
+
 	"ejp-backend/internal/model"
 	"ejp-backend/internal/repo"
+	"ejp-backend/pkg/config"
 	"ejp-backend/pkg/logger"
 )
+
+// staleWorkerCutoff is how long a worker must be silent before we reclaim its tasks.
+// 3 × heartbeat interval (60s) gives a safe buffer against transient network blips.
+const staleWorkerCutoff = 3 * time.Minute
+
+// staleWatchdogInterval controls how often the watchdog scans for crashed workers.
+const staleWatchdogInterval = 2 * time.Minute
 
 type ServerService interface {
 	ListServers() ([]model.WorkerServer, error)
@@ -18,14 +28,19 @@ type ServerService interface {
 	UpdateFields(id uint, updates map[string]interface{}) error
 	ToggleServer(id uint, enabled bool) error
 	DeleteServer(id uint) error
+	// StaleWorkerWatchdog runs as a long-lived background goroutine.
+	// It periodically detects workers that have stopped heartbeating and
+	// reclaims their in-flight job_tasks so healthy workers can take over.
+	StaleWorkerWatchdog()
 }
 
 type serverService struct {
-	repo repo.ServerRepo
+	repo    repo.ServerRepo
+	jobRepo repo.JobRepository
 }
 
-func NewServerService(repo repo.ServerRepo) ServerService {
-	return &serverService{repo: repo}
+func NewServerService(repo repo.ServerRepo, jobRepo repo.JobRepository) ServerService {
+	return &serverService{repo: repo, jobRepo: jobRepo}
 }
 
 func (s *serverService) ListServers() ([]model.WorkerServer, error) {
@@ -88,4 +103,82 @@ func (s *serverService) ToggleServer(id uint, enabled bool) error {
 
 func (s *serverService) DeleteServer(id uint) error {
 	return s.repo.Delete(id)
+}
+
+// StaleWorkerWatchdog runs as a background goroutine (launched once at startup).
+//
+// Every staleWatchdogInterval it:
+//  1. Queries for enabled worker servers whose last_ping is older than staleWorkerCutoff.
+//  2. Reclaims their 'processing' job_tasks back to 'queued' in one DB transaction.
+//  3. For each affected job, restores status to 'pending' so the UI and other workers
+//     know work is available again.
+//
+// Safety properties:
+//   - cutoff = 3 × heartbeat (60s) → transient network blips do not trigger reclaim.
+//   - Only 'processing' tasks are touched; 'queued' and 'completed' tasks are untouched.
+//   - Active Asynq tasks (chunks currently running on a live worker) survive — they will
+//     finish and report normally. The DB task state catches up when the report arrives.
+//   - All task updates happen in a single transaction → no partial reclaims.
+func (s *serverService) StaleWorkerWatchdog() {
+	logger.Info("StaleWorkerWatchdog: started")
+	// Small initial delay so the rest of startup (DB migrations, routes) finishes first.
+	time.Sleep(30 * time.Second)
+
+	for {
+		s.runStaleWorkerCycle()
+		time.Sleep(staleWatchdogInterval)
+	}
+}
+
+func (s *serverService) runStaleWorkerCycle() {
+	cutoff := time.Now().UTC().Add(-staleWorkerCutoff)
+
+	staleWorkers, err := s.repo.FindStaleWorkers(cutoff)
+	if err != nil {
+		logger.Error("StaleWorkerWatchdog: failed to query stale workers", "error", err)
+		return
+	}
+	if len(staleWorkers) == 0 {
+		return // nothing to do this cycle
+	}
+
+	staleNames := make([]string, 0, len(staleWorkers))
+	for _, w := range staleWorkers {
+		staleNames = append(staleNames, w.ServerName)
+	}
+
+	reclaimed, affectedJobIDs, err := s.repo.ReclaimStaleWorkerTasks(staleNames)
+	if err != nil {
+		logger.Error("StaleWorkerWatchdog: failed to reclaim tasks", "stale_workers", staleNames, "error", err)
+		return
+	}
+	if reclaimed == 0 {
+		return // stale workers had no in-flight tasks (already idle)
+	}
+
+	logger.Info("StaleWorkerWatchdog: reclaimed tasks from crashed workers",
+		"stale_workers", staleNames,
+		"tasks_reclaimed", reclaimed,
+		"affected_jobs", len(affectedJobIDs),
+	)
+
+	// Restore affected job statuses to 'pending' so workers pick up the queued tasks.
+	db := config.DB
+	if db == nil && s.jobRepo != nil {
+		db = s.jobRepo.DB()
+	}
+	if db != nil {
+		for _, jobID := range affectedJobIDs {
+			res := db.Model(&model.Job{}).
+				Where("job_id = ? AND status = 'processing'", jobID).
+				Update("status", "pending")
+			if res.Error != nil {
+				logger.Error("StaleWorkerWatchdog: failed to reset job status",
+					"job_id", jobID, "error", res.Error)
+			} else if res.RowsAffected > 0 {
+				logger.Info("StaleWorkerWatchdog: job restored to pending",
+					"job_id", jobID)
+			}
+		}
+	}
 }

@@ -1134,6 +1134,79 @@ func (s *jobService) cancelAsynqTasks(taskIDs []string) {
 	}
 }
 
+// purgeJobAsynqTasks scans every Asynq queue state (pending, active, retry,
+// scheduled, archived) and hard-deletes any task whose payload contains this
+// job_id. This is called during Resume/Retry BEFORE new chunks are enqueued so
+// orphaned tasks left behind by disabled/restarted workers cannot race the fresh
+// resume chunks and report stale results against new task IDs.
+//
+// Deletion errors are logged but never fatal — the subsequent DB transaction
+// controls correctness. Any tasks that survive purge will either:
+//   (a) be dropped by the IsPaused check (pause flag was cleared after purge), or
+//   (b) report against a task_id that no longer exists (backend idempotency handles this).
+func (s *jobService) purgeJobAsynqTasks(jobID string) {
+	if config.Redis == nil {
+		return
+	}
+	opt := config.Redis.Options()
+	inspector := asynq.NewInspector(asynq.RedisClientOpt{
+		Addr:     opt.Addr,
+		Password: opt.Password,
+		DB:       opt.DB,
+	})
+	defer inspector.Close()
+
+	queues := []string{"default", "critical", "low", "prepare"}
+	purged := 0
+
+	for _, q := range queues {
+		// Check each possible task state. Active tasks (currently running) cannot
+		// be forcibly deleted via Inspector — they will finish and report against
+		// the now-deleted task_id, which the backend handles gracefully.
+		for _, listFn := range []func(string, ...asynq.ListOption) ([]*asynq.TaskInfo, error){
+			func(q string, opts ...asynq.ListOption) ([]*asynq.TaskInfo, error) {
+				return inspector.ListPendingTasks(q, opts...)
+			},
+			func(q string, opts ...asynq.ListOption) ([]*asynq.TaskInfo, error) {
+				return inspector.ListRetryTasks(q, opts...)
+			},
+			func(q string, opts ...asynq.ListOption) ([]*asynq.TaskInfo, error) {
+				return inspector.ListScheduledTasks(q, opts...)
+			},
+			func(q string, opts ...asynq.ListOption) ([]*asynq.TaskInfo, error) {
+				return inspector.ListArchivedTasks(q, opts...)
+			},
+		} {
+			tasks, err := listFn(q, asynq.PageSize(1000))
+			if err != nil {
+				continue
+			}
+			for _, task := range tasks {
+				// Quick check: does the raw payload contain this job_id?
+				if !containsJobID(task.Payload, jobID) {
+					continue
+				}
+				if err := inspector.DeleteTask(q, task.ID); err == nil {
+					purged++
+				}
+			}
+		}
+	}
+
+	if purged > 0 {
+		logger.Info("purgeJobAsynqTasks: removed orphaned tasks before resume",
+			"job_id", jobID,
+			"purged", purged,
+		)
+	}
+}
+
+// containsJobID is a fast byte-search that avoids a full JSON unmarshal when
+// scanning potentially thousands of Asynq task payloads during purge.
+func containsJobID(payload []byte, jobID string) bool {
+	return strings.Contains(string(payload), jobID)
+}
+
 // getChunkStrategyForList returns dynamic (chunkSize, timeoutDuration) based on list size and 3-Tier Job Control settings.
 func (s *jobService) getChunkStrategyForList(totalEmails int) (int, time.Duration) {
 	t1Max, t1Size, t1Timeout := 50000, 100, 15
@@ -1655,6 +1728,11 @@ func (s *jobService) requeueRemainingWork(userID uint, job *model.Job, chargeCre
 	if srcErr != nil {
 		return nil, errors.New("original source file not found, cannot retry job. Please re-upload your list.")
 	}
+
+	// Purge orphaned Asynq tasks BEFORE clearing the pause flag or touching the DB.
+	// This prevents tasks abandoned by disabled/restarted workers from racing the
+	// new resume chunks and reporting stale results against new task IDs.
+	s.purgeJobAsynqTasks(job.JobID)
 
 	expectedStatus := "paused"
 	if chargeCredits {

@@ -9,6 +9,7 @@ import (
 	"ejp-backend/internal/repo"
 	"ejp-backend/internal/service"
 	"ejp-backend/pkg/config"
+	"ejp-backend/pkg/safe"
 
 	"github.com/gin-gonic/gin"
 )
@@ -41,7 +42,7 @@ func SetupRoutes(router *gin.Engine) {
 	jobService := service.NewJobService(jobRepo, jobResultRepo, userRepo, txRepo, settingsRepo, cacheRepo)
 	logService := service.NewLogService(logRepo)
 	domainService := service.NewDomainService(domainRepo, logRepo)
-	serverService := service.NewServerService(serverRepo)
+	serverService := service.NewServerService(serverRepo, jobRepo)
 	packageService := service.NewPackageService(packageRepo)
 	settingsService := service.NewSettingsService(settingsRepo, logRepo)
 	paymentService := service.NewPaymentService(txRepo, packageRepo, userRepo, emailService, settingsRepo)
@@ -72,6 +73,10 @@ func SetupRoutes(router *gin.Engine) {
 
 	// Expire abandoned credit-purchase checkouts left in pending status
 	paymentService.StartPendingPurchaseExpiryWorker()
+
+	// Stale worker watchdog: reclaim tasks from crashed/dead workers within 3 min.
+	// Prevents jobs from stalling when a worker process dies mid-verification.
+	safe.Go(serverService.StaleWorkerWatchdog)
 
 	// Global API v1 Group
 	v1 := router.Group("/api/v1")

@@ -35,6 +35,13 @@ type ServerRepo interface {
 	GetOrProvisionWorkerKey() (plainKey, maskedKey string, err error)
 	RotateWorkerKey() (newKey, maskedKey string, err error)
 	CheckAdminPassword(adminID uint, password string) (bool, error)
+	// FindStaleWorkers returns enabled worker servers whose last heartbeat
+	// is older than cutoff — these are considered crashed or unreachable.
+	FindStaleWorkers(cutoff time.Time) ([]model.WorkerServer, error)
+	// ReclaimStaleWorkerTasks moves processing tasks owned by the listed
+	// stale servers back to queued so healthy workers can claim them.
+	// Returns the number of tasks reclaimed and the distinct job_ids affected.
+	ReclaimStaleWorkerTasks(staleServerNames []string) (reclaimedCount int64, affectedJobIDs []string, err error)
 }
 
 type serverRepo struct {
@@ -107,6 +114,60 @@ func (r *serverRepo) ReclaimProcessingTasks(serverName string) (int64, error) {
 			"updated_at":    time.Now(),
 		})
 	return res.RowsAffected, res.Error
+}
+
+// FindStaleWorkers returns enabled worker servers whose last heartbeat
+// is older than cutoff. Workers that have never pinged are excluded
+// (last_ping IS NULL) since they may simply be newly provisioned.
+func (r *serverRepo) FindStaleWorkers(cutoff time.Time) ([]model.WorkerServer, error) {
+	var stale []model.WorkerServer
+	err := r.db.Where(
+		"enabled = ? AND last_ping IS NOT NULL AND last_ping < ?",
+		true, cutoff,
+	).Find(&stale).Error
+	return stale, err
+}
+
+// ReclaimStaleWorkerTasks resets in-flight tasks owned by stale workers to
+// 'queued' so healthy workers can pick them up. All updates run in a single
+// transaction to avoid partial reclaims. Returns the number of tasks reset
+// and the distinct job_ids that were affected (for job status reconciliation).
+func (r *serverRepo) ReclaimStaleWorkerTasks(staleServerNames []string) (int64, []string, error) {
+	if len(staleServerNames) == 0 {
+		return 0, nil, nil
+	}
+
+	var affectedJobIDs []string
+	var reclaimed int64
+
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		// Collect affected job_ids BEFORE updating so we know which jobs to reconcile.
+		if err := tx.Model(&model.JobTask{}).
+			Where("worker_server IN ? AND status = ?", staleServerNames, "processing").
+			Distinct("job_id").
+			Pluck("job_id", &affectedJobIDs).Error; err != nil {
+			return err
+		}
+
+		if len(affectedJobIDs) == 0 {
+			return nil // nothing to do
+		}
+
+		res := tx.Model(&model.JobTask{}).
+			Where("worker_server IN ? AND status = ?", staleServerNames, "processing").
+			Updates(map[string]interface{}{
+				"status":        "queued",
+				"worker_server": "",
+				"updated_at":    time.Now(),
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		reclaimed = res.RowsAffected
+		return nil
+	})
+
+	return reclaimed, affectedJobIDs, err
 }
 
 func (r *serverRepo) GetActiveTasksCountByWorker() ([]WorkerTaskSummary, error) {

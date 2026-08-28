@@ -84,7 +84,9 @@ func resultMap(email string, res engine.VerifyResult) map[string]interface{} {
 // HandleEmailVerifyTask processes a single email verification task
 func HandleEmailVerifyTask(ctx context.Context, t *asynq.Task) error {
 	if !config.IsWorkerEnabled() {
-		return fmt.Errorf("worker disabled by administrator")
+		// Return error without SkipRetry so Asynq re-queues the task in Redis
+		// for other active/enabled peer workers to pick up and verify.
+		return fmt.Errorf("worker disabled by administrator; releasing task for other workers")
 	}
 
 	var p EmailTaskPayload
@@ -107,7 +109,9 @@ func HandleEmailVerifyTask(ctx context.Context, t *asynq.Task) error {
 // HandleEmailChunkTask processes an email chunk for bulk verification
 func HandleEmailChunkTask(asynqCtx context.Context, t *asynq.Task) error {
 	if !config.IsWorkerEnabled() {
-		return fmt.Errorf("worker disabled by administrator")
+		// Return error without SkipRetry so Asynq re-queues the task in Redis
+		// for other active/enabled peer workers to pick up and verify.
+		return fmt.Errorf("worker disabled by administrator; releasing task for other workers")
 	}
 
 	var p EmailChunkTaskPayload
@@ -240,7 +244,7 @@ spawnLoop:
 // HandleWebhookTask delivers webhooks
 func HandleWebhookTask(ctx context.Context, t *asynq.Task) error {
 	if !config.IsWorkerEnabled() {
-		return fmt.Errorf("worker disabled by administrator")
+		return fmt.Errorf("worker disabled by administrator; releasing task for other workers")
 	}
 
 	var p WebhookDeliverPayload
@@ -308,40 +312,51 @@ func HandleWebhookTask(ctx context.Context, t *asynq.Task) error {
 	return fmt.Errorf("webhook delivery returned server error %d", resp.StatusCode)
 }
 
-// HandleDeadLetterTask reports permanently failed tasks back to the backend API
+// HandleDeadLetterTask reports permanently failed tasks back to the backend API.
+// This MUST run even when the worker is disabled — the backend must always receive
+// a final result so jobs never stall waiting for emails that will never be verified.
 func HandleDeadLetterTask(ctx context.Context, t *asynq.Task, err error) {
-	if !config.IsWorkerEnabled() {
-		logger.Warn("Dead-letter skipped: worker disabled", zap.String("type", t.Type()), zap.Error(err))
-		return
-	}
-	logger.Warn("Handling Dead-Letter Task", zap.String("type", t.Type()), zap.Error(err))
+	disabledReason := !config.IsWorkerEnabled()
+	logger.Warn("Handling Dead-Letter Task",
+		zap.String("type", t.Type()),
+		zap.Bool("worker_disabled", disabledReason),
+		zap.Error(err),
+	)
 	switch t.Type() {
 	case "email:verify":
 		var p EmailTaskPayload
 		if err := json.Unmarshal(t.Payload(), &p); err == nil {
+			reason := fmt.Sprintf("worker_failed: %v", err)
+			if disabledReason {
+				reason = "worker_disabled"
+			}
 			failPayload := map[string]interface{}{
 				"email":      p.Email,
 				"status":     "unknown",
 				"score":      0,
-				"reason":     fmt.Sprintf("worker_failed: %v", err),
+				"reason":     reason,
 				"time_taken": 0.0,
 			}
-			_ = reporter.ReportBatchToAPI(p.JobID, p.TaskID, []map[string]interface{}{failPayload})
+			_ = reporter.ReportBatchToAPIForce(p.JobID, p.TaskID, []map[string]interface{}{failPayload})
 		}
 	case "email:chunk:verify":
 		var p EmailChunkTaskPayload
 		if err := json.Unmarshal(t.Payload(), &p); err == nil {
+			reason := fmt.Sprintf("worker_chunk_failed: %v", err)
+			if disabledReason {
+				reason = "worker_disabled"
+			}
 			results := make([]map[string]interface{}, len(p.Emails))
 			for i, emailAddr := range p.Emails {
 				results[i] = map[string]interface{}{
 					"email":      emailAddr,
 					"status":     "unknown",
 					"score":      0,
-					"reason":     fmt.Sprintf("worker_chunk_failed: %v", err),
+					"reason":     reason,
 					"time_taken": 0.0,
 				}
 			}
-			_ = reporter.ReportBatchToAPI(p.JobID, p.TaskID, results)
+			_ = reporter.ReportBatchToAPIForce(p.JobID, p.TaskID, results)
 		}
 	}
 }

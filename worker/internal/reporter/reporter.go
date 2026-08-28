@@ -97,12 +97,22 @@ func detectPublicIP() string {
 	return detectedIP
 }
 
-// ReportBatchToAPI sends task results to the backend API
+// ReportBatchToAPI sends task results to the backend API.
+// The IsWorkerEnabled guard is intentionally ABSENT here: once SMTP verification
+// completes the result must always be persisted. Holding back a verified result
+// only causes the job counter to stall and the email to be re-verified on resume.
 func ReportBatchToAPI(jobID string, taskID uint, results []map[string]interface{}) error {
-	if !config.IsWorkerEnabled() {
-		return fmt.Errorf("worker disabled by administrator")
-	}
+	return reportBatch(jobID, taskID, results)
+}
 
+// ReportBatchToAPIForce bypasses all node-state guards and always sends to the
+// backend. Used by HandleDeadLetterTask so jobs are never left in limbo when a
+// worker is disabled or crashes after exhausting Asynq retries.
+func ReportBatchToAPIForce(jobID string, taskID uint, results []map[string]interface{}) error {
+	return reportBatch(jobID, taskID, results)
+}
+
+func reportBatch(jobID string, taskID uint, results []map[string]interface{}) error {
 	apiURL := config.Cfg.APIBaseURL + "/report-tasks"
 
 	batchPayload := map[string]interface{}{
