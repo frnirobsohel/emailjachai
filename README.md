@@ -23,7 +23,9 @@
 
 > [!TIP]
 > ### 🛠️ Need Help with VPS / Server Installation?
-> **If you are not able to install or configure Email Jachai on your VPS or server, you can hire the owner/developer who built this platform for complete setup, deployment, and customization support.**  
+> Email Jachai is 100% Docker-ready and **extremely easy to deploy on self-hosted VPS PaaS tools like [Coolify.io](https://coolify.io) and [Dokploy](https://dokploy.com)**.  
+> 
+> **If you are still not able to install or configure Email Jachai on your VPS or server, you can hire the owner/developer who built this platform for complete turnkey setup, deployment, and customization support.**  
 > 
 > 📩 **Direct Email:** [fr.nirobsohel@gmail.com](mailto:fr.nirobsohel@gmail.com)  
 > 💬 **LinkedIn:** [Sohel Akter](https://www.linkedin.com/in/freelancernirobsohel/)  
@@ -111,6 +113,15 @@ The services will become available at:
 - **Backend REST API**: [http://localhost:8000](http://localhost:8000)
 - **PostgreSQL**: `localhost:5432`
 - **Redis**: `localhost:6379`
+
+### 🌐 Effortless 1-Click Deployment on Coolify & Dokploy
+
+Setting up Email Jachai on a VPS is **extremely easy** using modern self-hosted PaaS panels like **[Coolify.io](https://coolify.io)** or **[Dokploy](https://dokploy.com)**:
+
+1. **New Service**: Click **+ New Service** $\to$ choose **Docker Compose** in your Coolify or Dokploy dashboard.
+2. **Git Repository**: Point to this GitHub repository URL: `https://github.com/frnirobsohel/emailjachai.git`.
+3. **Environment Variables**: Populate the required secrets and URLs from `.env.example` (PostgreSQL credentials, Redis, `JWT_SECRET`, `WORKER_API_KEY`).
+4. **Deploy**: Click **Deploy**. The platform automatically builds the containers, manages persistent storage volumes, and provisions free SSL/TLS certificates with zero hassle.
 
 ---
 
