@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Enterprise-grade Email Verification SaaS - Frontend",
   "author": "Sohel Akter",
-  "license": "Proprietary",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "dev": "next dev",
