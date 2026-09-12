@@ -1,4 +1,4 @@
-# Local / staging full-stack smoke environment for EmailJachai-Pro.
+# Local / staging full-stack smoke environment for Email Jachai.
 # Not a hardened production compose — use Dokploy/Coolify (or similar) for prod.
 #
 #   cp backend/.env.example backend/.env   # fill secrets

@@ -1,6 +1,6 @@
-# Contributing to EmailJachai-Pro
+# Contributing to Email Jachai
 
-Thank you for your interest in contributing to **EmailJachai-Pro**! We are building an enterprise-grade, distributed email verification and deliverability SaaS, and we welcome contributions from developers of all skill levels.
+Thank you for your interest in contributing to **Email Jachai**! We are building an enterprise-grade, distributed email verification and deliverability SaaS, and we welcome contributions from developers of all skill levels.
 
 ---
 

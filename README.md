@@ -1,6 +1,6 @@
 <div align="center">
 
-# ✉️ EmailJachai-Pro
+# ✉️ Email Jachai
 
 ### *High-Performance, Distributed Email Verification & Deliverability SaaS Platform*
 
@@ -13,11 +13,21 @@
 
 ---
 
-**EmailJachai-Pro** is a modern, enterprise-grade, distributed email verification platform designed to clean mailing lists, eliminate bounce rates, protect sender reputation, and scale to millions of email verifications with sub-second single checks and high-throughput background bulk processing.
+**Email Jachai** is a modern, enterprise-grade, distributed email verification platform designed to clean mailing lists, eliminate bounce rates, protect sender reputation, and scale to millions of email verifications with sub-second single checks and high-throughput background bulk processing.
 
 [Features](#-key-features) • [Architecture](#%EF%B8%8F-system-architecture) • [Quick Start](#-quick-start-with-docker-compose) • [Manual Setup](#%EF%B8%8F-local-development-setup) • [Configuration](#%EF%B8%8F-environment-variables) • [Contributing](CONTRIBUTING.md) • [License](LICENSE)
 
 </div>
+
+---
+
+> [!TIP]
+> ### 🛠️ Need Help with VPS / Server Installation?
+> **If you are not able to install or configure Email Jachai on your VPS or server, you can hire the owner/developer who built this platform for complete setup, deployment, and customization support.**  
+> 
+> 📩 **Direct Email:** [fr.nirobsohel@gmail.com](mailto:fr.nirobsohel@gmail.com)  
+> 💬 **LinkedIn:** [Sohel Akter](https://www.linkedin.com/in/freelancernirobsohel/)  
+> 📺 **YouTube:** [@frnirobsohel](https://www.youtube.com/@frnirobsohel)
 
 ---
 

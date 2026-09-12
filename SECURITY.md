@@ -1,12 +1,12 @@
 # Security Policy
 
-The EmailJachai-Pro team takes security vulnerabilities seriously. We appreciate your efforts to responsibly disclose your findings.
+The Email Jachai team takes security vulnerabilities seriously. We appreciate your efforts to responsibly disclose your findings.
 
 ---
 
 ## Supported Versions
 
-We actively provide security patches for the following versions of EmailJachai-Pro:
+We actively provide security patches for the following versions of Email Jachai:
 
 | Version | Supported          |
 | ------- | ------------------ |
@@ -17,12 +17,12 @@ We actively provide security patches for the following versions of EmailJachai-P
 
 ## Reporting a Vulnerability
 
-If you believe you have discovered a security vulnerability in EmailJachai-Pro, please report it via private email rather than filing a public issue.
+If you believe you have discovered a security vulnerability in Email Jachai, please report it via private email rather than filing a public issue.
 
 ### How to Report
 
 1. Send an email to: **[fr.nirobsohel@gmail.com](mailto:fr.nirobsohel@gmail.com)**
-2. Include the subject line: `[SECURITY] Potential vulnerability in EmailJachai-Pro`
+2. Include the subject line: `[SECURITY] Potential vulnerability in Email Jachai`
 3. Please provide as much details as possible:
    - Type of vulnerability (e.g., SSRF in SMTP verifier, SQL injection, unauthorized API bypass, rate-limit evasion).
    - Step-by-step instructions to reproduce the issue.
@@ -37,7 +37,7 @@ If you believe you have discovered a security vulnerability in EmailJachai-Pro, 
 
 ### Security Best Practices When Deploying
 
-When running EmailJachai-Pro in production:
+When running Email Jachai in production:
 - **Egress Network Filtering**: Ensure SMTP probe workers cannot access cloud metadata endpoints (e.g., `169.254.169.254`) or internal private IP ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`).
 - **Secrets Management**: Never commit `.env` files. Change default secrets (`JWT_SECRET`, `WORKER_API_KEY`, database passwords) before exposing the API.
 - **HTTPS & WSS**: Always terminate TLS in front of the Next.js frontend and Go backend reverse proxy.
