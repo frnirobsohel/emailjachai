@@ -10,6 +10,7 @@ import (
 
 	"ejp-worker/internal/queue"
 	"ejp-worker/internal/reporter"
+	"ejp-worker/internal/retry"
 	"ejp-worker/pkg/config"
 	"ejp-worker/pkg/logger"
 	"ejp-worker/pkg/safe"
@@ -95,7 +96,8 @@ func runAsynqWhileEnabled(redisOpt asynq.RedisConnOpt, mux *asynq.ServeMux, sigs
 					"default":  3,
 					"low":      1,
 				},
-				Logger: newAsynqLogger(),
+				Logger:         newAsynqLogger(),
+				RetryDelayFunc: retry.AsynqRetryDelayFunc(),
 				ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
 					retried, _ := asynq.GetRetryCount(ctx)
 					maxRetry, _ := asynq.GetMaxRetry(ctx)

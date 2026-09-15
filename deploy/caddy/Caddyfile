@@ -1,0 +1,81 @@
+# Email Jachai — Caddy Reverse Proxy Configuration
+# Automatic HTTPS via Let's Encrypt (when APP_HOST is a real domain).
+# When APP_HOST is an IP address, Caddy serves over HTTP only.
+#
+# Environment variable APP_HOST is passed from docker-compose.prod.yml.
+
+{$APP_HOST} {
+  # ── API (Go backend) ─────────────────────────────────────────────────────
+  handle /api/* {
+    reverse_proxy backend:8000 {
+      # Health-aware load balancing (when backend is scaled to N replicas)
+      lb_policy round_robin
+      health_uri /api/v1/health
+      health_interval 15s
+      health_timeout 5s
+
+      # Timeouts generous enough for SMTP verification (max ~3min)
+      transport http {
+        read_timeout  180s
+        write_timeout 180s
+        dial_timeout  10s
+      }
+
+      # Pass real client IP
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-For {remote_host}
+      header_up X-Forwarded-Proto {scheme}
+    }
+  }
+
+  # ── WebSocket (real-time job progress) ───────────────────────────────────
+  handle /api/v1/ws* {
+    reverse_proxy backend:8000 {
+      header_up Connection "Upgrade"
+      header_up Upgrade "websocket"
+      header_up X-Real-IP {remote_host}
+    }
+  }
+
+  # ── Frontend (Next.js) ───────────────────────────────────────────────────
+  handle {
+    reverse_proxy frontend:3000 {
+      lb_policy round_robin
+      health_uri /
+      health_interval 30s
+      health_timeout 10s
+
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-For {remote_host}
+      header_up X-Forwarded-Proto {scheme}
+    }
+  }
+
+  # ── Security Headers ─────────────────────────────────────────────────────
+  header {
+    # Prevent clickjacking
+    X-Frame-Options "SAMEORIGIN"
+    # XSS protection
+    X-Content-Type-Options "nosniff"
+    # Referrer policy
+    Referrer-Policy "strict-origin-when-cross-origin"
+    # Remove server fingerprint
+    -Server
+  }
+
+  # ── Compression ──────────────────────────────────────────────────────────
+  encode gzip
+
+  # ── Logging ──────────────────────────────────────────────────────────────
+  log {
+    output stdout
+    format json
+  }
+}
+
+# Caddy health check endpoint (used by Docker healthcheck)
+:80 {
+  handle /healthz {
+    respond "OK" 200
+  }
+}

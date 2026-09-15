@@ -15,6 +15,9 @@ import (
 	"sync"
 	"time"
 
+	"ejp-worker/internal/egress"
+	"ejp-worker/internal/scheduler"
+
 	"github.com/patrickmn/go-cache"
 )
 
@@ -28,7 +31,7 @@ var smtpDialPort = "25"
 
 var resolvePublicSMTP = PublicSMTPDialIPs
 
-var smtpDial = net.DialTimeout
+var smtpDial = egress.DefaultPool.Dial
 
 func smtpVerifyTimeout() time.Duration {
 	if v := strings.TrimSpace(os.Getenv("SMTP_VERIFY_TIMEOUT_SEC")); v != "" {
@@ -349,11 +352,14 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 		result.ProcessingTime = time.Since(funcStart).Seconds()
 		return result
 	}
-	if err := WaitDomainRateLimit(ctx, domain, result.IsFree); err != nil {
+	if err := scheduler.WaitDomainSchedule(ctx, domain, result.IsFree, WaitDomainRateLimit); err != nil {
 		result.Status = "unknown"
 		if ctx.Err() != nil {
 			result.Reason = "cancelled"
 			result.DetailedError = "cancelled while waiting for per-domain rate limit"
+		} else if errors.Is(err, scheduler.ErrDomainInCooldown) {
+			result.Reason = "temp_fail"
+			result.DetailedError = "domain is cooling down due to cluster greylisting/tarpit"
 		} else {
 			result.Reason = "rate_limit_timeout"
 			result.DetailedError = "per-domain rate limit wait exceeded"
@@ -396,6 +402,7 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 		res := probeSMTP(host, domain, email, deadline)
 		if res.Blocked {
 			sawBlockedHost = true
+			scheduler.RecordOutcome(domain, scheduler.OutcomeBlocked)
 			continue
 		}
 		sawPublicDialAttempt = true
@@ -416,6 +423,7 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 			// G9 Fix: 4xx temp fail (greylist / 421 / 450 / 451) — retry once
 			// on the same MX after a short back-off, if deadline allows.
 			if res.TempFail {
+				scheduler.RecordOutcome(domain, scheduler.OutcomeTempFail)
 				result.Reason = "temp_fail"
 				const greylistBackoff = 8 * time.Second
 				if time.Until(deadline) > greylistBackoff+smtpDialTimeout {
@@ -430,6 +438,7 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 							sawCatchAllInconclusive = true
 						}
 						if done2 {
+							scheduler.RecordOutcome(domain, scheduler.OutcomeSuccess)
 							result.Status = status2
 							result.Score = score2
 							result.Reason = reason2
@@ -445,6 +454,7 @@ func VerifyEmail(ctx context.Context, email string) VerifyResult {
 			}
 			continue
 		}
+		scheduler.RecordOutcome(domain, scheduler.OutcomeSuccess)
 		result.Status = status
 		result.Score = score
 		result.Reason = reason

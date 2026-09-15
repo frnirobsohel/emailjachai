@@ -12,6 +12,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +28,25 @@ import (
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
 )
+
+// chunkConcurrency returns the max concurrent SMTP goroutines for a chunk.
+// Read once per-process from SMTP_CHUNK_CONCURRENCY (default 50).
+// Lower values are safer for single-IP deployments; enterprise users with
+// multiple egress IPs can raise this via the env var.
+func chunkConcurrency() int {
+	v := strings.TrimSpace(os.Getenv("SMTP_CHUNK_CONCURRENCY"))
+	if v == "" {
+		return 50
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return 50
+	}
+	if n > 500 {
+		n = 500 // hard cap — unlimited goroutines hurt stability
+	}
+	return n
+}
 
 var (
 	webhookClient = &http.Client{
@@ -161,8 +182,10 @@ func HandleEmailChunkTask(asynqCtx context.Context, t *asynq.Task) error {
 	var mu sync.Mutex
 	pausedMidChunk := false
 
-	// Bounded Semaphore to limit concurrent outgoing TCP connections per chunk.
-	sem := make(chan struct{}, 100)
+	// Bounded semaphore — size driven by SMTP_CHUNK_CONCURRENCY env var (default 50).
+	// Lower than the old hard-coded 100 to be kinder to destination mail servers
+	// and avoid triggering rate-blocks on single-IP deployments.
+	sem := make(chan struct{}, chunkConcurrency())
 
 spawnLoop:
 	for i, email := range p.Emails {

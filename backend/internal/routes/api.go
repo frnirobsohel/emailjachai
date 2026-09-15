@@ -87,6 +87,7 @@ func SetupRoutes(router *gin.Engine) {
 		v1.GET("/", middleware.RateLimiter(), systemHandler.Ping)
 		// Deep health is unauthenticated and not rate-limited so orchestrators can probe freely.
 		v1.GET("/health", systemHandler.HealthCheck)
+		v1.GET("/metrics", handler.PrometheusMetrics)
 		v1.GET("/ping", middleware.RateLimiter(), systemHandler.Ping)
 		v1.GET("/settings/public", middleware.RateLimiter(), adminHandler.GetPublicSettings)
 		v1.GET("/packages/list", middleware.RateLimiter(), adminHandler.GetActivePackages)
@@ -294,8 +295,9 @@ func SetupRoutes(router *gin.Engine) {
 		}
 	}
 
-	// Root Level Fallbacks (Legacy/Health)
+	// Root Level Fallbacks (Legacy/Health/Metrics)
 	router.GET("/health", handler.HealthCheck)
+	router.GET("/metrics", handler.PrometheusMetrics)
 
 	// 404 Handler for undefined routes
 	router.NoRoute(func(c *gin.Context) {

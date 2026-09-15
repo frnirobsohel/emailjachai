@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var Log *zap.Logger
+var Log *zap.Logger = zap.NewNop()
 
 // Init initializes the global Zap logger for the worker
 func Init() {

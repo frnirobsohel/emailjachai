@@ -186,18 +186,6 @@ func VerifyEmailBounded(ctx context.Context, email string, maxDuration time.Dura
 		ctx = context.Background()
 	}
 
-	select {
-	case smtpSem <- struct{}{}:
-		defer func() { <-smtpSem }()
-	case <-ctx.Done():
-		return VerifyResult{
-			Status:        "unknown",
-			Score:         35,
-			Reason:        "cancelled",
-			DetailedError: "cancelled while waiting for SMTP concurrency slot",
-		}
-	}
-
 	return verifyEmailInternal(ctx, email, maxDuration)
 }
 
@@ -349,6 +337,19 @@ func verifyEmailInternal(ctx context.Context, email string, maxDuration time.Dur
 	sawCatchAllInconclusive := false
 	sawBlockedHost := false
 	sawPublicDialAttempt := false
+	// Acquire concurrency slot specifically for network SMTP probing.
+	// Earlier stages (syntax, disposable, spam trap, MX DNS) return immediately.
+	select {
+	case smtpSem <- struct{}{}:
+		defer func() { <-smtpSem }()
+	case <-ctx.Done():
+		result.Status = "unknown"
+		result.Score = 35
+		result.Reason = "cancelled"
+		result.DetailedError = "cancelled while waiting for SMTP concurrency slot"
+		result.ProcessingTime = time.Since(funcStart).Seconds()
+		return result
+	}
 
 	// Try the best MX records (Limit to top 5)
 	for i, mx := range mxRecords {

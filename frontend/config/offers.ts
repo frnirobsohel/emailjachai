@@ -37,12 +37,12 @@ export const ACTIVE_OFFERS: ActiveOffer[] = [
         isHighlighted: true,
     },
     {
-        badge: "Active",
-        title: "Self-host licences from $120",
+        badge: "Open Source",
+        title: "Self-Host 100% Free & Open Source",
         description:
-            "Individual, Business, or SaaS Production — one-time payment with lifetime product-line updates. Run verification on your own servers.",
+            "Deploy on your own VPS with a single command. Unlimited verifications, zero SaaS markups, and complete data privacy.",
         validUntil: "Available now",
-        ctaLabel: "View licences",
+        ctaLabel: "Deploy Free",
         ctaHref: "/self-host",
     },
 ]

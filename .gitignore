@@ -94,3 +94,11 @@ mock.csv
 api/vendor/
 api/storage/
 api/.env
+
+# ─── Deploy / Installer generated files ──────────────────────
+.env
+.env.bak.*
+deploy/.env
+deploy/caddy/data/
+deploy/caddy/config/
+backups/

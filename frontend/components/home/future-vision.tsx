@@ -8,8 +8,8 @@ const visionItems = [
         body: "Accuracy is our highest priority. We keep researching, testing, and refining the verification engine so results stay reliable as the email landscape changes.",
     },
     {
-        title: "Self-Hosted Solution",
-        body: "Own your infrastructure. Buy once, get lifetime updates, deploy on your own server, and run unlimited verification—with no recurring subscription fees.",
+        title: "Self-Hosted & Open Source",
+        body: "Own your infrastructure. 100% Free and open-source. Deploy on your own server with a single command, run unlimited verifications, and retain complete data privacy.",
     },
     {
         title: "Upcoming Features",
